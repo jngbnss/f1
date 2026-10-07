@@ -1,7 +1,11 @@
 import * as THREE from 'three';
+import type RAPIER from '@dimforge/rapier3d-compat';
 import type { PhysicsWorld } from '../physics/PhysicsWorld';
 import type { Pose } from '../vehicle/VehiclePhysics';
+import { buildOsmScenery, type OsmData } from './OsmScenery';
 import type { TrackLayout } from './TrackLayout';
+
+export type Surface = 'asphalt' | 'kerb' | 'grass' | 'gravel';
 
 /**
  * What the game needs from a track. ProceduralTrack implements it from a
@@ -13,16 +17,34 @@ export interface Track {
   readonly root: THREE.Object3D;
   /** World-space bounds of the drivable area (used for out-of-world checks). */
   readonly bounds: THREE.Box3;
+  /** Materials that can be upgraded with textures once they have streamed in. */
+  readonly materials: TrackMaterials;
   getSpawnPose(): Pose;
   /** Pose on the centerline closest to `near`, facing the driving direction. */
   getResetPose(near: THREE.Vector3): Pose;
   /** Closed centerline samples in driving order (AI racing line, lap timing, minimap). */
   getCenterline(): readonly THREE.Vector3[];
+  /** Index of the centerline sample closest to `p`. */
+  nearestIndex(p: THREE.Vector3): number;
+  /** Centerline index the car spawns at. */
+  readonly spawnIndex: number;
+  /** Ground type under a world position (grip / drag / sound). */
+  surfaceAt(p: THREE.Vector3): Surface;
   dispose(): void;
+}
+
+export interface TrackMaterials {
+  asphalt: THREE.MeshStandardMaterial;
+  grass: THREE.MeshStandardMaterial;
+  gravel: THREE.MeshStandardMaterial;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
 const SPAWN_HEIGHT = 1.2;
+/** Corners tighter than this radius get kerbs / gravel traps. */
+const KERB_RADIUS = 260;
+const GRAVEL_RADIUS = 200;
+const KERB_WIDTH = 1.2;
 
 /** Deterministic PRNG so scenery is identical across runs (fair perf comparisons). */
 function mulberry32(seed: number): () => number {
@@ -35,21 +57,91 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-export interface ProceduralTrackOptions {
-  treeCount: number;
+/** Uniform grid over centerline samples for fast "nearest point on track" queries. */
+class CenterlineGrid {
+  private readonly cells = new Map<string, number[]>();
+
+  constructor(
+    private readonly points: readonly THREE.Vector3[],
+    private readonly cellSize = 25,
+  ) {
+    points.forEach((p, i) => {
+      const key = this.key(Math.floor(p.x / cellSize), Math.floor(p.z / cellSize));
+      let cell = this.cells.get(key);
+      if (!cell) this.cells.set(key, (cell = []));
+      cell.push(i);
+    });
+  }
+
+  /** Index of the nearest sample within `radius` (or -1) and its squared distance. */
+  nearest(x: number, z: number, radius = this.cellSize): { index: number; distSq: number } {
+    const r = Math.ceil(radius / this.cellSize);
+    const cx = Math.floor(x / this.cellSize);
+    const cz = Math.floor(z / this.cellSize);
+    let index = -1;
+    let distSq = Infinity;
+    for (let gx = cx - r; gx <= cx + r; gx++)
+      for (let gz = cz - r; gz <= cz + r; gz++) {
+        const cell = this.cells.get(this.key(gx, gz));
+        if (!cell) continue;
+        for (const i of cell) {
+          const p = this.points[i];
+          const d = (p.x - x) ** 2 + (p.z - z) ** 2;
+          if (d < distSq) {
+            distSq = d;
+            index = i;
+          }
+        }
+      }
+    return { index, distSq };
+  }
+
+  private key(gx: number, gz: number): string {
+    return `${gx},${gz}`;
+  }
 }
 
+export interface ProceduralTrackOptions {
+  /** Scenery density; actual count scales with track length. */
+  treesPerKm: number;
+  /** Real-world surroundings (OpenStreetMap), already in track coordinates. */
+  scenery?: OsmData;
+}
+
+interface RibbonOptions {
+  color?: (i: number) => THREE.Color;
+  /** Only build segments for which this returns true. */
+  include?: (i: number) => boolean;
+}
+
+/**
+ * Builds a full circuit from a centerline: textured asphalt, kerbs and gravel
+ * traps on corners, armco guardrails (instanced + box colliders), start
+ * gantry, pit building, grandstand and instanced trees.
+ * UVs are in meters, so any tiling texture can be applied with repeat = 1/tileSize.
+ */
 export class ProceduralTrack implements Track {
   readonly name: string;
   readonly root = new THREE.Group();
   readonly bounds = new THREE.Box3();
+  readonly materials: TrackMaterials;
+  /** Centerline length in meters. */
+  length = 0;
 
   /** Centerline samples + unit tangents/right vectors (y = 0). */
   private readonly points: THREE.Vector3[] = [];
   private readonly tangents: THREE.Vector3[] = [];
   private readonly rights: THREE.Vector3[] = [];
+  /** Signed curvature per sample (1/m, + = turning left). */
+  private curvature = new Float32Array(0);
+  private kerb = new Uint8Array(0);
+  /** Gravel trap side per sample: -1 left, +1 right, 0 none. */
+  private gravelSide = new Int8Array(0);
   private readonly disposables: { dispose(): void }[] = [];
-  private readonly bodies: import('@dimforge/rapier3d-compat').RigidBody[] = [];
+  private readonly bodies: RAPIER.RigidBody[] = [];
+  private grid!: CenterlineGrid;
+  private readonly half: number;
+  private readonly barrierOffset: number;
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -58,9 +150,18 @@ export class ProceduralTrack implements Track {
   ) {
     this.name = layout.name;
     this.root.name = `Track:${layout.name}`;
-    this.sampleCenterline();
+    this.half = layout.roadWidth / 2;
+    this.barrierOffset = this.half + layout.runoff;
+    this.materials = {
+      asphalt: this.own(new THREE.MeshStandardMaterial({ color: 0x55585e, roughness: 0.9 })),
+      grass: this.own(new THREE.MeshStandardMaterial({ color: 0x4f7d3a, roughness: 1 })),
+      gravel: this.own(new THREE.MeshStandardMaterial({ color: 0xc9b48a, roughness: 1 })),
+    };
 
-    const pad = layout.roadWidth / 2 + layout.runoff + 2;
+    this.sampleCenterline();
+    this.classifyCorners();
+
+    const pad = this.barrierOffset + 2;
     for (const p of this.points) this.bounds.expandByPoint(p);
     this.bounds.expandByVector(new THREE.Vector3(pad, 0, pad));
     this.bounds.max.y = 50;
@@ -68,30 +169,60 @@ export class ProceduralTrack implements Track {
 
     this.buildGround();
     this.buildRoad();
-    this.buildCurbs();
+    this.buildKerbsAndGravel();
     this.buildBarriers();
     this.buildStartLine();
-    if (options.treeCount > 0) this.buildTrees(options.treeCount);
+    // Real circuits get their real buildings from OSM; generic ones only otherwise.
+    let forestTrees: [number, number][] = [];
+    if (options.scenery) forestTrees = this.buildScenery(options.scenery);
+    else this.buildPitAndGrandstand();
+    // With OSM data, trees come from real forests (random ones could land in lakes or buildings).
+    const scatter = options.scenery ? 0 : Math.round((options.treesPerKm * this.length) / 1000);
+    if (scatter + forestTrees.length > 0) this.buildTrees(scatter, forestTrees);
+  }
+
+  get spawnIndex(): number {
+    // A few meters behind the start line.
+    const back = Math.round(8 / this.layout.sampleSpacing);
+    return (this.points.length - back) % this.points.length;
   }
 
   getSpawnPose(): Pose {
-    // A few meters behind the start line.
-    const back = Math.round(8 / this.layout.sampleSpacing);
-    return this.poseAt((this.points.length - back) % this.points.length);
+    return this.poseAt(this.spawnIndex);
   }
 
   getResetPose(near: THREE.Vector3): Pose {
+    return this.poseAt(this.nearestIndex(near));
+  }
+
+  nearestIndex(p: THREE.Vector3): number {
+    const hit = this.grid.nearest(p.x, p.z, 60);
+    if (hit.index >= 0) return hit.index;
+    // Far away from the track: brute force.
     let best = 0;
     let bestDist = Infinity;
-    for (let i = 0; i < this.points.length; i++) {
-      const p = this.points[i];
-      const d = (p.x - near.x) ** 2 + (p.z - near.z) ** 2;
+    this.points.forEach((c, i) => {
+      const d = (c.x - p.x) ** 2 + (c.z - p.z) ** 2;
       if (d < bestDist) {
         bestDist = d;
         best = i;
       }
-    }
-    return this.poseAt(best);
+    });
+    return best;
+  }
+
+  surfaceAt(p: THREE.Vector3): Surface {
+    const hit = this.grid.nearest(p.x, p.z, this.barrierOffset + 5);
+    if (hit.index < 0) return 'grass';
+    const i = hit.index;
+    const c = this.points[i];
+    const r = this.rights[i];
+    const lateral = (p.x - c.x) * r.x + (p.z - c.z) * r.z;
+    const a = Math.abs(lateral);
+    if (a <= this.half) return 'asphalt';
+    if (this.kerb[i] && a <= this.half + KERB_WIDTH) return 'kerb';
+    if (this.gravelSide[i] === Math.sign(lateral) && a <= this.barrierOffset) return 'gravel';
+    return 'grass';
   }
 
   getCenterline(): readonly THREE.Vector3[] {
@@ -106,6 +237,11 @@ export class ProceduralTrack implements Track {
 
   // --------------------------------------------------------------------
 
+  private own<T extends { dispose(): void }>(resource: T): T {
+    this.disposables.push(resource);
+    return resource;
+  }
+
   private poseAt(i: number): Pose {
     const t = this.tangents[i];
     // Car forward is -Z: yaw so that (-sin yaw, 0, -cos yaw) == tangent.
@@ -117,8 +253,10 @@ export class ProceduralTrack implements Track {
   }
 
   private sampleCenterline(): void {
-    const ctrl = this.layout.controlPoints.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    const ctrl = this.layout.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
     const curve = new THREE.CatmullRomCurve3(ctrl, true, 'centripetal');
+    // Default arc-length table (200) is far too coarse for real circuits with 1000+ points.
+    curve.arcLengthDivisions = Math.max(200, ctrl.length * 10);
     const count = Math.max(16, Math.round(curve.getLength() / this.layout.sampleSpacing));
     const pts = curve.getSpacedPoints(count);
     pts.pop(); // closed curve: last == first
@@ -128,10 +266,48 @@ export class ProceduralTrack implements Track {
       const t = pts[(i + 1) % n].clone().sub(pts[(i - 1 + n) % n]).normalize();
       this.tangents.push(t);
       this.rights.push(new THREE.Vector3().crossVectors(t, UP).normalize());
+      this.length += pts[i].distanceTo(pts[(i + 1) % n]);
+    }
+    this.grid = new CenterlineGrid(this.points);
+  }
+
+  /** Signed curvature -> where kerbs and (outside) gravel traps go. */
+  private classifyCorners(): void {
+    const n = this.points.length;
+    const ds = this.layout.sampleSpacing;
+    const k = 3;
+    const raw = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = this.tangents[(i - k + n) % n];
+      const b = this.tangents[(i + k) % n];
+      const crossY = a.z * b.x - a.x * b.z; // >0 = turning left
+      raw[i] = Math.asin(Math.max(-1, Math.min(1, crossY))) / (2 * k * ds);
+    }
+    this.curvature = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      let s = 0;
+      for (let j = -2; j <= 2; j++) s += raw[(i + j + n) % n];
+      this.curvature[i] = s / 5;
+    }
+
+    this.kerb = new Uint8Array(n);
+    this.gravelSide = new Int8Array(n);
+    const before = Math.round(15 / ds);
+    const after = Math.round(40 / ds); // cars run wide on corner exit
+    for (let i = 0; i < n; i++) {
+      const c = this.curvature[i];
+      if (Math.abs(c) > 1 / KERB_RADIUS) {
+        for (let j = -Math.round(6 / ds); j <= Math.round(6 / ds); j++) this.kerb[(i + j + n) % n] = 1;
+      }
+      if (Math.abs(c) > 1 / GRAVEL_RADIUS) {
+        // Turning left (c > 0) -> outside of the corner is the right side (+1).
+        const side = c > 0 ? 1 : -1;
+        for (let j = -before; j <= after; j++) this.gravelSide[(i + j + n) % n] = side;
+      }
     }
   }
 
-  private fixedBody() {
+  private fixedBody(): RAPIER.RigidBody {
     const { rapier, world } = this.physics;
     const body = world.createRigidBody(rapier.RigidBodyDesc.fixed());
     this.bodies.push(body);
@@ -139,7 +315,7 @@ export class ProceduralTrack implements Track {
   }
 
   private addMesh(geometry: THREE.BufferGeometry, material: THREE.Material, receiveShadow = true): THREE.Mesh {
-    this.disposables.push(geometry, material);
+    this.own(geometry);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.receiveShadow = receiveShadow;
     this.root.add(mesh);
@@ -152,52 +328,48 @@ export class ProceduralTrack implements Track {
     const center = new THREE.Vector3();
     this.bounds.getSize(size);
     this.bounds.getCenter(center);
-    const w = size.x + 60;
-    const d = size.z + 60;
+    const w = size.x + 1600; // covers the OSM scenery margin
+    const d = size.z + 1600;
 
-    const geo = new THREE.PlaneGeometry(w, d);
+    // Subdivided: a single huge quad loses depth precision and z-fights with the road.
+    const geo = new THREE.PlaneGeometry(w, d, Math.ceil(w / 40), Math.ceil(d / 40));
     geo.rotateX(-Math.PI / 2);
-    const mesh = this.addMesh(geo, new THREE.MeshStandardMaterial({ color: 0x4f7d3a, roughness: 1 }));
-    mesh.position.set(center.x, 0, center.z);
+    // UVs in meters.
+    const uv = geo.attributes.uv as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w, uv.getY(i) * d);
+    const mesh = this.addMesh(geo, this.materials.grass);
+    mesh.position.set(center.x, -0.04, center.z);
     mesh.name = 'Grass';
 
     const { rapier, world } = this.physics;
-    const body = this.fixedBody();
     world.createCollider(
       rapier.ColliderDesc.cuboid(w / 2, 1, d / 2).setTranslation(center.x, -1, center.z).setFriction(1.0),
-      body,
+      this.fixedBody(),
     );
   }
 
-  /**
-   * Builds a ribbon along the centerline between two lateral offsets.
-   * `color(i)` (optional) gives per-segment vertex colors (hard edges).
-   */
-  private ribbon(inner: number, outer: number, y: number, color?: (i: number) => THREE.Color): THREE.BufferGeometry {
+  /** Strip along the centerline between two lateral offsets. UVs: u = lateral m, v = distance m. */
+  private ribbon(inner: number, outer: number, y: number, opts: RibbonOptions = {}): THREE.BufferGeometry {
     const n = this.points.length;
     const positions: number[] = [];
     const uvs: number[] = [];
     const colors: number[] = [];
+    const v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
     let dist = 0;
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n;
-      const quad = [
-        [i, inner],
-        [i, outer],
-        [j, inner],
-        [j, outer],
-      ] as const;
-      const v: THREE.Vector3[] = quad.map(([k, off]) =>
-        new THREE.Vector3().copy(this.points[k]).addScaledVector(this.rights[k], off).setY(y),
-      );
       const seg = this.points[i].distanceTo(this.points[j]);
-      // two triangles, counter-clockwise seen from above (normals +Y)
-      for (const k of [0, 1, 2, 1, 3, 2]) {
-        positions.push(v[k].x, v[k].y, v[k].z);
-        uvs.push(k % 2, (dist + (k >= 2 ? seg : 0)) / 10);
-        if (color) {
-          const c = color(i);
-          colors.push(c.r, c.g, c.b);
+      if (!opts.include || opts.include(i)) {
+        v[0].copy(this.points[i]).addScaledVector(this.rights[i], inner).setY(y);
+        v[1].copy(this.points[i]).addScaledVector(this.rights[i], outer).setY(y);
+        v[2].copy(this.points[j]).addScaledVector(this.rights[j], inner).setY(y);
+        v[3].copy(this.points[j]).addScaledVector(this.rights[j], outer).setY(y);
+        const c = opts.color?.(i);
+        // two triangles, counter-clockwise seen from above (normals +Y)
+        for (const k of [0, 1, 2, 1, 3, 2]) {
+          positions.push(v[k].x, v[k].y, v[k].z);
+          uvs.push(k % 2 === 0 ? inner : outer, dist + (k >= 2 ? seg : 0));
+          if (c) colors.push(c.r, c.g, c.b);
         }
       }
       dist += seg;
@@ -205,49 +377,62 @@ export class ProceduralTrack implements Track {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-    if (color) geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    if (opts.color) geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geo.computeVertexNormals();
     return geo;
   }
 
   private buildRoad(): void {
-    const half = this.layout.roadWidth / 2;
-    const asphalt = this.addMesh(
-      this.ribbon(-half, half, 0.02),
-      new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.92 }),
-    );
-    asphalt.name = 'Asphalt';
+    const half = this.half;
+    this.addMesh(this.ribbon(-half, half, 0.02), this.materials.asphalt).name = 'Asphalt';
 
-    const lineMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.8 });
-    this.addMesh(this.ribbon(-half + 0.3, -half + 0.55, 0.03), lineMat);
-    this.addMesh(this.ribbon(half - 0.55, half - 0.3, 0.03), lineMat.clone());
+    const lineMat = this.own(new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.7 }));
+    this.addMesh(this.ribbon(-half + 0.25, -half + 0.45, 0.03), lineMat);
+    this.addMesh(this.ribbon(half - 0.45, half - 0.25, 0.03), lineMat);
   }
 
-  private buildCurbs(): void {
-    const half = this.layout.roadWidth / 2;
+  private buildKerbsAndGravel(): void {
+    const half = this.half;
     const red = new THREE.Color(0xc8102e);
     const white = new THREE.Color(0xf4f4f4);
+    // Real kerb blocks are ~1 m: alternate every sample (2.5 m) reads correctly at speed.
     const color = (i: number) => (i % 2 === 0 ? red : white);
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 });
-    this.addMesh(this.ribbon(-half - 1.1, -half, 0.025, color), mat);
-    this.addMesh(this.ribbon(half, half + 1.1, 0.025, color), mat.clone());
+    const kerbMat = this.own(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 }));
+    const isKerb = (i: number) => this.kerb[i] === 1;
+    this.addMesh(this.ribbon(-half - KERB_WIDTH, -half, 0.03, { color, include: isKerb }), kerbMat).name = 'Kerbs';
+    this.addMesh(this.ribbon(half, half + KERB_WIDTH, 0.03, { color, include: isKerb }), kerbMat).name = 'Kerbs';
+
+    const gravelIn = half + KERB_WIDTH + 1.0;
+    const gravelOut = this.barrierOffset - 0.6;
+    this.addMesh(
+      this.ribbon(-gravelOut, -gravelIn, 0.012, { include: (i) => this.gravelSide[i] === -1 }),
+      this.materials.gravel,
+    ).name = 'Gravel';
+    this.addMesh(
+      this.ribbon(gravelIn, gravelOut, 0.012, { include: (i) => this.gravelSide[i] === 1 }),
+      this.materials.gravel,
+    ).name = 'Gravel';
   }
 
-  /** Tyre-wall style barriers as one InstancedMesh (1 draw call) + box colliders. */
+  /** Armco guardrails: rails + posts as two InstancedMeshes (2 draw calls) + box colliders. */
   private buildBarriers(): void {
     const { rapier, world } = this.physics;
     const n = this.points.length;
-    const offset = this.layout.roadWidth / 2 + this.layout.runoff;
-    const height = 1.1;
-    const thickness = 0.7;
+    const offset = this.barrierOffset;
+    const colliderHeight = 1.0;
+    const colliderThickness = 0.5;
 
-    const geo = new THREE.BoxGeometry(1, 1, 1);
-    const mat = new THREE.MeshStandardMaterial({ roughness: 0.6 });
-    this.disposables.push(geo, mat);
-    const mesh = new THREE.InstancedMesh(geo, mat, n * 2);
-    mesh.name = 'Barriers';
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    const railGeo = this.own(new THREE.BoxGeometry(1, 1, 1));
+    const postGeo = this.own(new THREE.BoxGeometry(0.12, 0.8, 0.12));
+    postGeo.translate(0, 0.4, 0);
+    const railMat = this.own(new THREE.MeshStandardMaterial({ color: 0xb8bec6, metalness: 0.85, roughness: 0.35 }));
+    const postMat = this.own(new THREE.MeshStandardMaterial({ color: 0x7c838c, metalness: 0.6, roughness: 0.5 }));
+    const rails = new THREE.InstancedMesh(railGeo, railMat, n * 4);
+    const posts = new THREE.InstancedMesh(postGeo, postMat, n * 2);
+    rails.name = 'GuardrailRails';
+    posts.name = 'GuardrailPosts';
+    rails.castShadow = posts.castShadow = true;
+    rails.receiveShadow = true;
 
     const body = this.fixedBody();
     const m = new THREE.Matrix4();
@@ -256,28 +441,38 @@ export class ProceduralTrack implements Track {
     const p = new THREE.Vector3();
     const a = new THREE.Vector3();
     const b = new THREE.Vector3();
-    const colA = new THREE.Color(0xd23c3c);
-    const colB = new THREE.Color(0xeeeeee);
-    let k = 0;
+    let railCount = 0;
+    let postCount = 0;
 
     for (const side of [-1, 1]) {
       for (let i = 0; i < n; i++) {
         const j = (i + 1) % n;
         a.copy(this.points[i]).addScaledVector(this.rights[i], side * offset);
         b.copy(this.points[j]).addScaledVector(this.rights[j], side * offset);
-        const len = a.distanceTo(b) + 0.35; // small overlap closes gaps on curves
-        p.addVectors(a, b).multiplyScalar(0.5).setY(height / 2);
-        const yaw = Math.atan2(b.x - a.x, b.z - a.z);
-        q.setFromAxisAngle(UP, yaw);
-        s.set(thickness, height, len);
-        m.compose(p, q, s);
-        mesh.setMatrixAt(k, m);
-        mesh.setColorAt(k, Math.floor(i / 2) % 2 === 0 ? colA : colB);
-        k++;
+        p.addVectors(a, b).multiplyScalar(0.5);
+        // Skip pieces that would land on tarmac: inside of hairpins tighter than
+        // the barrier offset, or where two parts of the circuit run close together.
+        if (this.grid.nearest(p.x, p.z, offset).distSq < (offset - 1.5) ** 2) continue;
+        const len = a.distanceTo(b) + 0.3; // small overlap closes gaps on curves
+        q.setFromAxisAngle(UP, Math.atan2(b.x - a.x, b.z - a.z));
+
+        // Two W-beam rails, slightly towards the track side of the posts.
+        for (const y of [0.45, 0.72]) {
+          p.y = y;
+          s.set(0.08, 0.22, len);
+          m.compose(p, q, s);
+          rails.setMatrixAt(railCount++, m);
+        }
+        if (i % 2 === 0) {
+          p.y = 0;
+          s.set(1, 1, 1);
+          m.compose(p, q, s);
+          posts.setMatrixAt(postCount++, m);
+        }
 
         world.createCollider(
-          rapier.ColliderDesc.cuboid(thickness / 2, height / 2, len / 2)
-            .setTranslation(p.x, p.y, p.z)
+          rapier.ColliderDesc.cuboid(colliderThickness / 2, colliderHeight / 2, len / 2)
+            .setTranslation(p.x, colliderHeight / 2, p.z)
             .setRotation(q)
             .setFriction(0.05)
             .setRestitution(0.2),
@@ -285,8 +480,11 @@ export class ProceduralTrack implements Track {
         );
       }
     }
-    mesh.computeBoundingSphere();
-    this.root.add(mesh);
+    rails.count = railCount;
+    posts.count = postCount;
+    rails.computeBoundingSphere();
+    posts.computeBoundingSphere();
+    this.root.add(rails, posts);
   }
 
   private buildStartLine(): void {
@@ -303,96 +501,264 @@ export class ProceduralTrack implements Track {
         const v = (x + y) % 2 === 0 ? 255 : 20;
         data.set([v, v, v, 255], (y * cols + x) * 4);
       }
-    const tex = new THREE.DataTexture(data, cols, rows);
+    const tex = this.own(new THREE.DataTexture(data, cols, rows));
     tex.magFilter = THREE.NearestFilter;
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.needsUpdate = true;
-    this.disposables.push(tex);
 
     const geo = new THREE.PlaneGeometry(w, 1.6);
     geo.rotateX(-Math.PI / 2);
-    const strip = this.addMesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8 }));
+    const strip = this.addMesh(geo, this.own(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8 })));
     strip.position.set(p.x, 0.035, p.z);
     strip.rotation.y = yaw;
     strip.name = 'StartLine';
 
     // Gantry over the start line.
     const gantry = new THREE.Group();
-    const postGeo = new THREE.BoxGeometry(0.4, 6, 0.4);
-    const beamGeo = new THREE.BoxGeometry(w + 2 * this.layout.runoff, 1.2, 0.5);
-    const postMat = new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.5, metalness: 0.5 });
-    const beamMat = new THREE.MeshStandardMaterial({ color: 0x1565c0, roughness: 0.5 });
-    this.disposables.push(postGeo, beamGeo, postMat, beamMat);
-    const off = w / 2 + this.layout.runoff;
+    const off = this.barrierOffset + 0.6;
+    const postGeo = this.own(new THREE.BoxGeometry(0.5, 7, 0.5));
+    const beamGeo = this.own(new THREE.BoxGeometry(off * 2, 1.4, 0.7));
+    const lightGeo = this.own(new THREE.BoxGeometry(0.5, 0.5, 0.2));
+    const postMat = this.own(new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.4, metalness: 0.7 }));
+    const beamMat = this.own(new THREE.MeshStandardMaterial({ color: 0x1b1f26, roughness: 0.4, metalness: 0.5 }));
+    const lightMat = this.own(new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff1a1a, emissiveIntensity: 2 }));
     for (const sx of [-off, off]) {
       const post = new THREE.Mesh(postGeo, postMat);
-      post.position.set(sx, 3, 0);
+      post.position.set(sx, 3.5, 0);
       post.castShadow = true;
       gantry.add(post);
     }
     const beam = new THREE.Mesh(beamGeo, beamMat);
-    beam.position.set(0, 6, 0);
+    beam.position.set(0, 7, 0);
     beam.castShadow = true;
     gantry.add(beam);
+    for (let k = -2; k <= 2; k++) {
+      const l = new THREE.Mesh(lightGeo, lightMat);
+      l.position.set(k * 0.8, 7, 0.4);
+      gantry.add(l);
+    }
     gantry.position.set(p.x, 0, p.z);
     gantry.rotation.y = yaw;
     gantry.name = 'StartGantry';
     this.root.add(gantry);
   }
 
-  /** Instanced trees (2 draw calls total) outside the barriers. No colliders. */
-  private buildTrees(count: number): void {
+  /** Distance from (x, z) to the nearest centerline sample (Infinity if far away). */
+  clearance(x: number, z: number, searchRadius = 60): number {
+    const hit = this.grid.nearest(x, z, searchRadius);
+    return hit.index < 0 ? Infinity : Math.sqrt(hit.distSq);
+  }
+
+  /** Buildings, water, car parks and roads from OSM; returns forest tree positions. */
+  private buildScenery(data: OsmData): [number, number][] {
+    const result = buildOsmScenery(data, {
+      clearance: (x, z) => this.clearance(x, z),
+      minClearance: this.barrierOffset + 2,
+      asphalt: this.materials.asphalt,
+      rand: mulberry32(4242),
+    });
+    this.disposables.push(...result.disposables);
+    this.root.add(result.group);
+    return result.trees;
+  }
+
+  /** True if a rectangle (center, along tangent t, across r) stays clear of every part of the circuit. */
+  private isClear(center: THREE.Vector3, t: THREE.Vector3, r: THREE.Vector3, length: number, depth: number): boolean {
+    const clearance = this.barrierOffset + 2;
+    for (let a = -0.5; a <= 0.5; a += 0.125)
+      for (const d of [-0.5, 0, 0.5]) {
+        const x = center.x + t.x * a * length + r.x * d * depth;
+        const z = center.z + t.z * a * length + r.z * d * depth;
+        if (this.grid.nearest(x, z, clearance).distSq < clearance * clearance) return false;
+      }
+    return true;
+  }
+
+  /** Generic pit building and grandstand along the start/finish straight. */
+  private buildPitAndGrandstand(): void {
+    const t = this.tangents[0];
+    const r = this.rights[0];
+    const start = this.points[0];
+    const yaw = Math.atan2(t.x, t.z);
+    const concrete = this.own(new THREE.MeshStandardMaterial({ color: 0xd9d6cf, roughness: 0.85 }));
+    const glass = this.own(new THREE.MeshStandardMaterial({ color: 0x1d2a36, roughness: 0.08, metalness: 0.8 }));
+    const dark = this.own(new THREE.MeshStandardMaterial({ color: 0x2d3138, roughness: 0.7 }));
+    const seats = this.own(new THREE.MeshStandardMaterial({ color: 0x1e5aa8, roughness: 0.6 }));
+    const roofMat = this.own(new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.5, metalness: 0.3 }));
+
+    const place = (group: THREE.Group, side: number, depth: number, length: number, gap: number): boolean => {
+      const center = start
+        .clone()
+        .addScaledVector(t, length * 0.15)
+        .addScaledVector(r, side * (this.barrierOffset + gap + depth / 2));
+      if (!this.isClear(center, t, r, length, depth)) return false;
+      group.position.copy(center);
+      // Local +Z = along the track; local -X is the track-facing side (mirrored per side).
+      group.rotation.y = yaw;
+      group.scale.x = -side; // local +X faces the track on the right side
+      group.traverse((o) => {
+        if (o instanceof THREE.Mesh) {
+          o.castShadow = true;
+          o.receiveShadow = true;
+        }
+      });
+      this.root.add(group);
+      return true;
+    };
+    const box = (g: THREE.Group, mat: THREE.Material, w: number, h: number, d: number, x: number, y: number, z: number) => {
+      const mesh = new THREE.Mesh(this.own(new THREE.BoxGeometry(w, h, d)), mat);
+      mesh.position.set(x, y, z);
+      g.add(mesh);
+      return mesh;
+    };
+
+    // --- pit building (right side when possible) -------------------------
+    const pitLen = 150;
+    const pitDepth = 16;
+    const pit = new THREE.Group();
+    pit.name = 'PitBuilding';
+    // local x: 0 = track-facing facade side (-depth/2), +depth/2 = back
+    box(pit, concrete, pitDepth, 10, pitLen, 0, 5, 0);
+    box(pit, dark, 0.3, 4.2, pitLen - 4, -pitDepth / 2 - 0.1, 2.1, 0); // garage doors band
+    box(pit, glass, 0.3, 2.6, pitLen - 2, -pitDepth / 2 - 0.1, 7.2, 0); // hospitality windows
+    box(pit, roofMat, pitDepth + 3, 0.4, pitLen + 2, -1.5, 10.2, 0);
+    for (let z = -pitLen / 2 + 6; z < pitLen / 2; z += 6) box(pit, concrete, 0.4, 4.4, 0.5, -pitDepth / 2 - 0.2, 2.2, z);
+    // Pit wall between track and pit lane
+    box(pit, concrete, 0.5, 1.2, pitLen, -pitDepth / 2 - 9, 0.6, 0);
+    const pitSide = place(pit, 1, pitDepth + 10, pitLen, 4) ? 1 : place(pit, -1, pitDepth + 10, pitLen, 4) ? -1 : 0;
+
+    // --- grandstand (opposite side) ---------------------------------------
+    const gsLen = 120;
+    const steps = 10;
+    const stepDepth = 0.9;
+    const stepRise = 0.55;
+    const shape = new THREE.Shape();
+    shape.moveTo(0, 0);
+    for (let k = 0; k < steps; k++) {
+      shape.lineTo(k * stepDepth, (k + 1) * stepRise);
+      shape.lineTo((k + 1) * stepDepth, (k + 1) * stepRise);
+    }
+    shape.lineTo(steps * stepDepth, 0);
+    shape.lineTo(0, 0);
+    const standGeo = this.own(new THREE.ExtrudeGeometry(shape, { depth: gsLen, bevelEnabled: false }));
+    standGeo.translate(-(steps * stepDepth) / 2, 0, -gsLen / 2);
+    const stand = new THREE.Group();
+    stand.name = 'Grandstand';
+    const seating = new THREE.Mesh(standGeo, seats);
+    seating.position.y = 0.8;
+    stand.add(seating);
+    const depth = steps * stepDepth;
+    box(stand, concrete, depth, 0.8, gsLen, 0, 0.4, 0);
+    box(stand, concrete, 0.4, steps * stepRise + 4, gsLen, depth / 2, (steps * stepRise + 4) / 2, 0);
+    const roof = box(stand, roofMat, depth + 3, 0.3, gsLen + 2, -0.5, steps * stepRise + 4.5, 0);
+    roof.rotation.z = -0.06;
+    for (let z = -gsLen / 2; z <= gsLen / 2; z += 15) box(stand, dark, 0.3, steps * stepRise + 4.5, 0.3, depth / 2 - 0.3, (steps * stepRise + 4.5) / 2, z);
+    const gsSide = pitSide === 0 ? -1 : -pitSide;
+    if (!place(stand, gsSide, depth, gsLen, 3)) place(stand, -gsSide, depth, gsLen, 3);
+  }
+
+  /** Instanced mixed forest (4 draw calls) outside the barriers. No colliders. */
+  private buildTrees(scatterCount: number, fixed: [number, number][] = []): void {
+    const count = scatterCount + fixed.length;
     const rand = mulberry32(1337);
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
     this.bounds.getSize(size);
     this.bounds.getCenter(center);
-    const minDist = this.layout.roadWidth / 2 + this.layout.runoff + 4;
+    const minDist = this.barrierOffset + 6;
     const minDistSq = minDist * minDist;
-    const spreadX = size.x + 50;
-    const spreadZ = size.z + 50;
+    const spreadX = size.x + 300;
+    const spreadZ = size.z + 300;
 
-    const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 2, 6);
-    trunkGeo.translate(0, 1, 0);
-    const leafGeo = new THREE.ConeGeometry(1.8, 5, 7);
-    leafGeo.translate(0, 4.5, 0);
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 });
-    const leafMat = new THREE.MeshStandardMaterial({ color: 0x2f6b34, roughness: 0.9 });
-    this.disposables.push(trunkGeo, leafGeo, trunkMat, leafMat);
+    // Conifer: trunk + two stacked cones. Broadleaf: trunk + lumpy sphere crown.
+    const coniferTrunk = this.own(new THREE.CylinderGeometry(0.18, 0.3, 3, 6).translate(0, 1.5, 0));
+    const coniferCrown = this.own(mergeCones());
+    const broadTrunk = this.own(new THREE.CylinderGeometry(0.22, 0.35, 3.2, 6).translate(0, 1.6, 0));
+    const broadCrown = this.own(lumpySphere(2.6, rand).translate(0, 5, 0));
+    const bark = this.own(new THREE.MeshStandardMaterial({ color: 0x5b4330, roughness: 1 }));
+    const leaves = this.own(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 }));
 
-    const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, count);
-    const leaves = new THREE.InstancedMesh(leafGeo, leafMat, count);
-    trunks.name = 'TreeTrunks';
-    leaves.name = 'TreeLeaves';
-    trunks.castShadow = leaves.castShadow = true;
+    const ct = new THREE.InstancedMesh(coniferTrunk, bark, count);
+    const cc = new THREE.InstancedMesh(coniferCrown, leaves, count);
+    const bt = new THREE.InstancedMesh(broadTrunk, bark, count);
+    const bc = new THREE.InstancedMesh(broadCrown, leaves, count);
+    for (const mesh of [ct, cc, bt, bc]) mesh.castShadow = true;
+    cc.name = 'Conifers';
+    bc.name = 'BroadleafTrees';
 
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const s = new THREE.Vector3();
     const p = new THREE.Vector3();
-    let placed = 0;
-    for (let attempt = 0; attempt < count * 20 && placed < count; attempt++) {
-      p.set(center.x + (rand() - 0.5) * spreadX, 0, center.z + (rand() - 0.5) * spreadZ);
-      let ok = true;
-      for (let i = 0; i < this.points.length; i += 2) {
-        const c = this.points[i];
-        if ((c.x - p.x) ** 2 + (c.z - p.z) ** 2 < minDistSq) {
-          ok = false;
-          break;
-        }
+    const col = new THREE.Color();
+    let conifers = 0;
+    let broad = 0;
+    // Trees grow in clusters: pick a cluster center, scatter a few around it.
+    let clusterX = 0;
+    let clusterZ = 0;
+    for (let attempt = 0; attempt < count * 20 + fixed.length && conifers + broad < count; attempt++) {
+      if (attempt % 6 === 0) {
+        clusterX = center.x + (rand() - 0.5) * spreadX;
+        clusterZ = center.z + (rand() - 0.5) * spreadZ;
       }
-      if (!ok) continue;
-      const scale = 0.7 + rand() * 0.8;
+      if (attempt < fixed.length) p.set(fixed[attempt][0], 0, fixed[attempt][1]);
+      else p.set(clusterX + (rand() - 0.5) * 40, 0, clusterZ + (rand() - 0.5) * 40);
+      if (this.grid.nearest(p.x, p.z, minDist).distSq < minDistSq) continue;
+      const scale = 0.75 + rand() * 0.7;
       q.setFromAxisAngle(UP, rand() * Math.PI * 2);
-      s.setScalar(scale);
+      s.set(scale * (0.9 + rand() * 0.2), scale, scale * (0.9 + rand() * 0.2));
       m.compose(p, q, s);
-      trunks.setMatrixAt(placed, m);
-      leaves.setMatrixAt(placed, m);
-      placed++;
+      if (rand() < 0.45) {
+        ct.setMatrixAt(conifers, m);
+        cc.setMatrixAt(conifers, m);
+        cc.setColorAt(conifers, col.setHSL(0.36 + rand() * 0.04, 0.45, 0.16 + rand() * 0.06));
+        conifers++;
+      } else {
+        bt.setMatrixAt(broad, m);
+        bc.setMatrixAt(broad, m);
+        bc.setColorAt(broad, col.setHSL(0.24 + rand() * 0.07, 0.45, 0.22 + rand() * 0.08));
+        broad++;
+      }
     }
-    trunks.count = leaves.count = placed;
-    trunks.computeBoundingSphere();
-    leaves.computeBoundingSphere();
-    this.root.add(trunks, leaves);
+    ct.count = cc.count = conifers;
+    bt.count = bc.count = broad;
+    for (const mesh of [ct, cc, bt, bc]) mesh.computeBoundingSphere();
+    this.root.add(ct, cc, bt, bc);
   }
+}
+
+/** Two stacked cones as one geometry (conifer crown). */
+function mergeCones(): THREE.BufferGeometry {
+  const lower = new THREE.ConeGeometry(2.2, 4.5, 8).translate(0, 4.2, 0);
+  const upper = new THREE.ConeGeometry(1.6, 3.8, 8).translate(0, 6.6, 0);
+  const merged = new THREE.BufferGeometry();
+  const a = lower.toNonIndexed();
+  const b = upper.toNonIndexed();
+  const pos = new Float32Array(a.attributes.position.array.length + b.attributes.position.array.length);
+  pos.set(a.attributes.position.array as Float32Array, 0);
+  pos.set(b.attributes.position.array as Float32Array, a.attributes.position.array.length);
+  merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  merged.computeVertexNormals();
+  for (const g of [lower, upper, a, b]) g.dispose();
+  return merged;
+}
+
+/** Icosphere with randomly displaced vertices (organic crown). */
+function lumpySphere(radius: number, rand: () => number): THREE.BufferGeometry {
+  const geo = new THREE.IcosahedronGeometry(radius, 1);
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const v = new THREE.Vector3();
+  // Displace consistently per unique position so the mesh stays watertight.
+  const offsets = new Map<string, number>();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const key = `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)}`;
+    let o = offsets.get(key);
+    if (o === undefined) offsets.set(key, (o = 0.8 + rand() * 0.35));
+    v.multiplyScalar(o);
+    v.y *= 0.85;
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.computeVertexNormals();
+  return geo;
 }

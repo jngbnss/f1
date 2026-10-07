@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { VehicleInput } from '../input/VehicleInput';
 import type { PhysicsWorld } from '../physics/PhysicsWorld';
 import type { VehicleConfig } from './VehicleConfig';
+import { Gearbox, type GearboxConfig } from './Gearbox';
 import { VehicleController } from './VehicleController';
 import { VehiclePhysics, type Pose } from './VehiclePhysics';
 import type { VehicleVisual } from './VehicleVisual';
@@ -14,6 +15,9 @@ import type { VehicleVisual } from './VehicleVisual';
 export class Vehicle {
   readonly controller: VehicleController;
   readonly physics: VehiclePhysics;
+  readonly gearbox: Gearbox | null;
+  /** Throttle applied in the last fixed step (0..1), for audio. */
+  throttle = 0;
 
   private readonly prevPos = new THREE.Vector3();
   private readonly prevQuat = new THREE.Quaternion();
@@ -25,9 +29,11 @@ export class Vehicle {
     readonly config: VehicleConfig,
     readonly visual: VehicleVisual,
     spawn: Pose,
+    gearbox?: GearboxConfig,
   ) {
     this.controller = new VehicleController(config);
     this.physics = new VehiclePhysics(physicsWorld, config, spawn);
+    this.gearbox = gearbox ? new Gearbox(gearbox) : null;
     this.snapshot();
     this.snapshot();
   }
@@ -54,6 +60,8 @@ export class Vehicle {
   fixedUpdate(input: Readonly<VehicleInput>, dt: number): void {
     const cmd = this.controller.update(input, this.physics.forwardSpeed, dt);
     this.physics.step(cmd, dt);
+    this.throttle = Math.abs(cmd.drive);
+    this.gearbox?.update(this.physics.forwardSpeed, this.throttle, this.physics.groundedWheels > 0, dt);
   }
 
   /** After world.step(): record state for interpolation. */

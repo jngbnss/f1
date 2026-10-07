@@ -1,0 +1,246 @@
+import * as THREE from 'three';
+import type { VehicleConfig } from '../vehicle/VehicleConfig';
+import { smooth } from '../vehicle/cars/shapes';
+
+const G = 9.81;
+/** How far ahead of the car the line reacts to the current speed (m). */
+const LOOKAHEAD = 400;
+
+export interface RacingLineOptions {
+  /** Ribbon width (m). */
+  width?: number;
+  /** Sample spacing (m). */
+  spacing?: number;
+}
+
+const GREEN = new THREE.Color(0x2bd56f);
+const YELLOW = new THREE.Color(0xffd23f);
+const RED = new THREE.Color(0xff3b30);
+/** Alpha of the line inside the look-ahead window; outside it is invisible. */
+const ALPHA = 0.8;
+
+/**
+ * Forza-style driving assist line drawn on the road.
+ *
+ * Path: an optimal racing line (TUMFTM minimum-curvature line for the real
+ * circuits) or the centerline. A speed profile is computed for the selected
+ * car (cornering limit from curvature + acceleration/braking passes).
+ *
+ * Coloring is dynamic: for every point ahead of the car we check whether the
+ * car's *current* speed can still be braked down to the target speed there:
+ *   red    = too fast, brake now
+ *   yellow = brake soon
+ *   green  = safe at this speed
+ * Slow down and the line ahead turns green. Points further than LOOKAHEAD
+ * and behind the car are hidden, like the assist line in racing games.
+ */
+export class RacingLine {
+  readonly mesh: THREE.Mesh;
+  /** Target speed (m/s) per sample — usable for AI drivers later. */
+  readonly speeds: Float32Array;
+  readonly points: THREE.Vector3[];
+
+  private readonly colors: Float32Array;
+  private readonly colorAttr: THREE.BufferAttribute;
+  /** Distance from sample i to i+1. */
+  private readonly segLen: Float32Array;
+  private readonly brakeDecel: number;
+  private carIndex = -1;
+  private readonly tmp = new THREE.Color();
+
+  constructor(path: readonly [number, number][], car: VehicleConfig, options: RacingLineOptions = {}) {
+    const width = options.width ?? 0.9;
+    const spacing = options.spacing ?? 2;
+
+    const ctrl = path.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    const curve = new THREE.CatmullRomCurve3(ctrl, true, 'centripetal');
+    curve.arcLengthDivisions = Math.max(200, ctrl.length * 10);
+    const n = Math.max(16, Math.round(curve.getLength() / spacing));
+    const pts = curve.getSpacedPoints(n);
+    pts.pop();
+    this.points = pts;
+    const count = pts.length;
+    this.segLen = new Float32Array(count);
+    for (let i = 0; i < count; i++) this.segLen[i] = pts[i].distanceTo(pts[(i + 1) % count]);
+
+    // --- curvature (circumscribed circle through neighbors, smoothed) -----
+    const raw = new Float32Array(count);
+    const k = 3; // ~6 m chord, less noisy than adjacent samples
+    for (let i = 0; i < count; i++) {
+      const a = pts[(i - k + count) % count];
+      const b = pts[i];
+      const c = pts[(i + k) % count];
+      const ab = a.distanceTo(b);
+      const bc = b.distanceTo(c);
+      const ca = c.distanceTo(a);
+      const cross = Math.abs((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x));
+      raw[i] = ab * bc * ca > 1e-6 ? (2 * cross) / (ab * bc * ca) : 0;
+    }
+    const curvature = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      let s = 0;
+      for (let j = -3; j <= 3; j++) s += raw[(i + j + count) % count];
+      curvature[i] = s / 7;
+    }
+
+    // --- speed profile -------------------------------------------------
+    // Effective arcade limits (a bit below the raw friction numbers).
+    const latAccel = Math.min(car.frontFriction, car.rearFriction) * G * 0.55;
+    const accel = (car.engineForce / car.mass) * 0.55;
+    this.brakeDecel = (car.brakeForce / car.mass) * 0.6;
+    const vMax = car.maxSpeed;
+    const v = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      v[i] = curvature[i] > 1e-5 ? Math.min(vMax, Math.sqrt(latAccel / curvature[i])) : vMax;
+    }
+    // Two laps of each pass so the closed loop converges.
+    for (let lap = 0; lap < 2; lap++) {
+      for (let i = 0; i < count; i++) {
+        const j = (i + 1) % count;
+        v[j] = Math.min(v[j], Math.sqrt(v[i] * v[i] + 2 * accel * this.segLen[i]));
+      }
+      for (let i = count - 1; i >= 0; i--) {
+        const j = (i + 1) % count;
+        v[i] = Math.min(v[i], Math.sqrt(v[j] * v[j] + 2 * this.brakeDecel * this.segLen[i]));
+      }
+    }
+    this.speeds = v;
+
+    // --- ribbon geometry -------------------------------------------------
+    const positions = new Float32Array(count * 2 * 3);
+    this.colors = new Float32Array(count * 2 * 4); // RGBA: alpha hides the line outside the window
+    const right = new THREE.Vector3();
+    for (let i = 0; i < count; i++) {
+      const p = pts[i];
+      right.subVectors(pts[(i + 1) % count], pts[(i - 1 + count) % count]).cross(THREE.Object3D.DEFAULT_UP).normalize();
+      for (let s = 0; s < 2; s++) {
+        const o = (i * 2 + s) * 3;
+        const side = s === 0 ? -width / 2 : width / 2;
+        positions[o] = p.x + right.x * side;
+        positions[o + 1] = 0.05;
+        positions[o + 2] = p.z + right.z * side;
+      }
+      this.setColor(i, GREEN, 0);
+    }
+    const index: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const a = i * 2;
+      const b = ((i + 1) % count) * 2;
+      index.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    this.colorAttr = new THREE.BufferAttribute(this.colors, 4);
+    this.colorAttr.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('color', this.colorAttr);
+    geo.setIndex(index);
+
+    const mat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+      side: THREE.DoubleSide,
+    });
+    this.mesh = new THREE.Mesh(geo, mat);
+    this.mesh.name = 'RacingLine';
+    this.mesh.renderOrder = 1;
+    this.mesh.frustumCulled = false;
+  }
+
+  /** Recolor the line ahead of the car for its current speed (call once per frame). */
+  update(carPosition: THREE.Vector3, carSpeed: number): void {
+    if (!this.mesh.visible) return;
+    const count = this.points.length;
+    const prev = this.carIndex;
+    this.carIndex = this.findIndex(carPosition);
+
+    // Hide the previous window again.
+    if (prev >= 0) this.paintWindow(prev, () => GREEN, () => 0);
+
+    const speed = Math.max(carSpeed, 0);
+    let dist = 0;
+    this.paintWindow(this.carIndex, (j, step) => {
+      if (step > 0) dist += this.segLen[(j - 1 + count) % count];
+      // Highest speed we may carry *now* and still brake to the target speed at j.
+      const allowed = Math.sqrt(this.speeds[j] ** 2 + 2 * this.brakeDecel * dist);
+      const ratio = speed / allowed;
+      if (ratio <= 0.9) return GREEN;
+      if (ratio <= 1) return this.tmp.copy(GREEN).lerp(YELLOW, (ratio - 0.9) / 0.1);
+      return this.tmp.copy(YELLOW).lerp(RED, Math.min((ratio - 1) / 0.06, 1));
+    });
+    this.colorAttr.needsUpdate = true;
+  }
+
+  /** Ideal lap time (s) of the computed speed profile. */
+  get idealLapTime(): number {
+    let t = 0;
+    for (let i = 0; i < this.points.length; i++) t += this.segLen[i] / Math.max(this.speeds[i], 1);
+    return t;
+  }
+
+  dispose(): void {
+    this.mesh.removeFromParent();
+    this.mesh.geometry.dispose();
+    (this.mesh.material as THREE.Material).dispose();
+  }
+
+  // --------------------------------------------------------------------
+
+  /**
+   * Paints the look-ahead window starting at `start`. Default alpha starts a
+   * few meters ahead of the car (so the line doesn't sit under it) and fades
+   * out towards the end of the window.
+   */
+  private paintWindow(
+    start: number,
+    color: (j: number, step: number) => THREE.Color,
+    alpha: (dist: number) => number = (d) => ALPHA * smooth(2, 8, d) * (1 - smooth(LOOKAHEAD * 0.7, LOOKAHEAD, d)),
+  ): void {
+    const count = this.points.length;
+    let dist = 0;
+    for (let step = 0; dist < LOOKAHEAD && step < count; step++) {
+      const j = (start + step) % count;
+      this.setColor(j, color(j, step), alpha(dist));
+      dist += this.segLen[j];
+    }
+  }
+
+  private setColor(i: number, c: THREE.Color, a: number): void {
+    const o = i * 8;
+    this.colors[o] = this.colors[o + 4] = c.r;
+    this.colors[o + 1] = this.colors[o + 5] = c.g;
+    this.colors[o + 2] = this.colors[o + 6] = c.b;
+    this.colors[o + 3] = this.colors[o + 7] = a;
+  }
+
+  /** Nearest sample: local search around the last index, full search if lost. */
+  private findIndex(p: THREE.Vector3): number {
+    const count = this.points.length;
+    const dist = (i: number) => (this.points[i].x - p.x) ** 2 + (this.points[i].z - p.z) ** 2;
+    let best = -1;
+    let bestD = Infinity;
+    if (this.carIndex >= 0) {
+      for (let k = -40; k <= 60; k++) {
+        const i = (this.carIndex + k + count) % count;
+        const d = dist(i);
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+      if (bestD < 30 * 30) return best;
+    }
+    for (let i = 0; i < count; i++) {
+      const d = dist(i);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
+  }
+}

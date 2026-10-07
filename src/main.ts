@@ -1,6 +1,9 @@
 import './style.css';
-import { readConfig } from './config';
+import { readConfig, urlWith } from './config';
 import { Game } from './core/Game';
+import { showMenu } from './ui/Menu';
+import { CARS, findCar } from './vehicle/cars';
+import { findTrack, TRACKS } from './world/tracks';
 
 async function main(): Promise<void> {
   const container = document.getElementById('app');
@@ -8,7 +11,22 @@ async function main(): Promise<void> {
   if (!container) throw new Error('#app container missing');
 
   try {
-    const game = await Game.create(container, readConfig());
+    const config = readConfig();
+    let carId = findCar(config.car).id;
+    let trackId = findTrack(config.track).id;
+
+    if (config.showMenu) {
+      loading?.classList.add('hidden');
+      ({ carId, trackId } = await showMenu(CARS, TRACKS, { carId, trackId }));
+      // Shareable / reload-safe URL for this selection.
+      history.replaceState(null, '', urlWith({ car: carId, track: trackId, menu: null }));
+      loading?.classList.remove('hidden');
+    }
+
+    const trackEntry = findTrack(trackId);
+    if (loading) loading.textContent = `Loading ${trackEntry.name}…`;
+    const layout = await trackEntry.load();
+    const game = await Game.create(container, config, findCar(carId), layout);
     game.start();
     loading?.remove();
 
@@ -19,6 +37,7 @@ async function main(): Promise<void> {
   } catch (err) {
     console.error(err);
     if (loading) {
+      loading.classList.remove('hidden');
       loading.classList.add('error');
       loading.textContent = `Failed to start: ${err instanceof Error ? err.message : String(err)}`;
     }

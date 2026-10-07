@@ -54,6 +54,9 @@ export class VehiclePhysics {
   private readonly ray: RAPIER.Ray;
   private readonly massPerWheel: number;
   private readonly drivenCount: number;
+  /** Set by the game from the ground under the car: grip multiplier and extra deceleration (m/s²). */
+  surfaceGrip = 1;
+  surfaceDrag = 0;
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -111,6 +114,13 @@ export class VehiclePhysics {
   get speed(): number {
     const v = this.body.linvel();
     return Math.hypot(v.x, v.y, v.z);
+  }
+
+  /** Largest lateral slip (m/s) among grounded wheels — drives skid sound/FX. */
+  get maxSlip(): number {
+    let s = 0;
+    for (const w of this.wheels) if (w.grounded) s = Math.max(s, Math.abs(w.slip));
+    return s;
   }
 
   get groundedWheels(): number {
@@ -202,8 +212,8 @@ export class VehiclePhysics {
 
       // --- lateral grip --------------------------------------------
       const isFront = wc.steerable;
-      let grip = isFront ? c.frontGrip : c.rearGrip;
-      let mu = isFront ? c.frontFriction : c.rearFriction;
+      let grip = (isFront ? c.frontGrip : c.rearGrip) * this.surfaceGrip;
+      let mu = (isFront ? c.frontFriction : c.rearFriction) * this.surfaceGrip;
       if (wc.handbrake && cmd.handbrake > 0) {
         const f = 1 - (1 - c.handbrakeGripFactor) * cmd.handbrake;
         grip *= f;
@@ -215,7 +225,7 @@ export class VehiclePhysics {
 
       // --- longitudinal: drive + brakes + rolling resistance --------
       let longitudinal = 0;
-      if (wc.driven) longitudinal += (driveForce / this.drivenCount) * dt;
+      if (wc.driven) longitudinal += ((driveForce * (0.5 + 0.5 * this.surfaceGrip)) / this.drivenCount) * dt;
 
       let brake = (cmd.brake * c.brakeForce) / c.wheels.length;
       if (wc.handbrake) brake += (cmd.handbrake * c.handbrakeForce) / 2;
@@ -234,6 +244,12 @@ export class VehiclePhysics {
     if (speed > 0.01) {
       // Aerodynamic drag opposing velocity: F = -c * |v| * v.
       _impulse.copy(_linvel).multiplyScalar(-c.dragCoefficient * speed * dt);
+      body.applyImpulse(_impulse, true);
+    }
+    if (grounded > 0 && this.surfaceDrag > 0 && speed > 0.1) {
+      // Grass / gravel: speed-scrubbing drag, never reversing the car.
+      const dv = Math.min(this.surfaceDrag * (0.4 + speed / 30) * dt, speed);
+      _impulse.copy(_linvel).multiplyScalar((-dv / speed) * c.mass);
       body.applyImpulse(_impulse, true);
     }
     if (grounded > 0) {
