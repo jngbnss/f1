@@ -16,12 +16,18 @@ export interface SimConfig {
   antialias: boolean;
   /** Max device pixel ratio. */
   pixelRatio: number;
+  /** Lower the render resolution automatically when frames get slow. */
+  dynamicResolution: boolean;
   /** Draw Rapier collider wireframes. */
   physicsDebug: boolean;
   /** Instanced trees per km of track (instancing experiments). */
   treesPerKm: number;
   /** Fixed physics step rate in Hz. */
   physicsHz: number;
+  /** Number of AI opponents (0 = free practice, max 19). */
+  ai: number;
+  /** Race distance in laps. */
+  laps: number;
   /** Engine/tyre/wind audio. */
   sound: boolean;
 }
@@ -50,11 +56,14 @@ export function readConfig(search = window.location.search): SimConfig {
     shadows: bool(p, 'shadows', true),
     shadowMapSize: num(p, 'shadowmap', 2048),
     antialias: bool(p, 'aa', true),
-    pixelRatio: num(p, 'pr', 2),
+    pixelRatio: num(p, 'pr', 1.5),
+    dynamicResolution: bool(p, 'dynres', true),
     physicsDebug: bool(p, 'debug', false),
     treesPerKm: num(p, 'trees', 300),
     physicsHz: num(p, 'hz', 60),
     sound: bool(p, 'sound', true),
+    ai: num(p, 'ai', 11),
+    laps: num(p, 'laps', 3),
   };
 }
 

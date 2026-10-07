@@ -1,7 +1,7 @@
 # web-sim-lab · Racing
 
 브라우저에서 설치 없이 바로 실행되는 경량 3D 레이싱 시뮬레이터입니다.
-실제 서킷 4곳과 차량 3종이 있고, 엔진 소리, 다이내믹 레이싱 라인, 랩타임 기록을 지원합니다.
+실제 서킷 4곳과 차량 3종이 있고, **최대 20대 AI 레이스**, 관중, 엔진 소리, 다이내믹 레이싱 라인, 랩타임 기록을 지원합니다.
 **브라우저 게임 최적화 실험**(LOD, instancing, 압축, 스트리밍, Worker, WebGPU 등)의 테스트베드로 쓰기 위해 만들었습니다.
 
 - Vite + TypeScript (React 없음)
@@ -12,8 +12,8 @@
 
 배포 링크: **https://jngbnss.github.io/web-sim-lab/** (GitHub Pages, `main`에 push할 때마다 자동 배포)
 
-링크를 열고 → 차와 서킷을 고른 뒤 → **Enter**를 누르면 바로 출발합니다.
-URL로 바로 시작할 수도 있습니다: `.../web-sim-lab/?car=formula&track=monza`
+링크를 열고 → 차, 서킷, 레이스 규모(자유 주행 / 6, 12, 20대)를 고른 뒤 → **Enter**를 누르면 바로 출발합니다.
+URL로 바로 시작할 수도 있습니다: `.../web-sim-lab/?car=formula&track=monza&ai=19&laps=3`
 
 ## 로컬 실행
 
@@ -23,6 +23,8 @@ npm run dev        # http://localhost:5173
 npm run build      # 타입 체크 + 프로덕션 빌드 (dist/)
 npm run preview    # 빌드 결과 확인
 npm run sim:test   # 헤드리스 테스트: 차량 3종 조작 + 서킷 5곳 봇 랩 + 레이싱 라인 (-- quick: 테스트 서킷만)
+npm run race:test -- spielberg 20 1   # 헤드리스 20대 AI 레이스 (서킷, 대수, 랩)
+npx tsx scripts/scene-stats.ts monza  # 서킷 장면의 삼각형/드로우콜 추정 (GPU 불필요)
 npx tsx scripts/fetch-osm.ts [circuit]   # OpenStreetMap 주변 환경 데이터 다시 받기
 ```
 
@@ -70,6 +72,26 @@ npx tsx scripts/fetch-osm.ts [circuit]   # OpenStreetMap 주변 환경 데이터
 - 연석은 코너에만, 그래블 트랩은 코너 바깥쪽에만 자동 배치됩니다.
 - 잔디와 그래블에 올라가면 그립이 떨어지고 감속합니다.
 
+### AI 레이스
+
+- 메뉴에서 상대 0(자유 주행), 5, 11, 19대를 고릅니다. 랩 수는 1, 3, 5입니다.
+- 실제 F1처럼 2열 엇갈린 그리드에서 출발하고, 3·2·1·GO 카운트다운이 있습니다. 플레이어는 그리드 중간에서 출발합니다.
+- AI는 키보드와 같은 `VehicleInput`을 만들어 플레이어와 **같은 물리**로 달립니다.
+  - 레이싱 라인을 따라가고, 차량 성능에 맞춰 코너 앞에서 미리 감속합니다.
+  - 앞차가 길을 막으면 공간이 넓은 쪽으로 추월하고, 공간이 없으면 간격을 유지합니다.
+  - 차마다 페이스와 선호 라인이 달라서(앞 그리드일수록 빠름) 대열이 흩어집니다.
+- 화면에 순위(POS), 랩, 상위 6위 + 내 순위가 표시되고, 완주하면 결과표가 나옵니다.
+- 상대 차량의 엔진 소리는 3D 위치에서 들립니다.
+- 20대 레이스 헤드리스 테스트: Red Bull Ring 1랩, 20대 전원 완주(1위 107 s, 꼴찌 130 s). 물리 + AI는 스텝당 약 2 ms입니다.
+
+### 관중
+
+- 그랜드스탠드에 앉은 관중과 코너 바깥 잔디의 관중이 있습니다. 서킷당 약 2만 명입니다.
+- 실제 서킷은 OSM의 `building=grandstand` 위치에 계단식 관중석을 세우고, 트랙을 향하도록 회전시킵니다.
+- 셔츠 색은 인스턴스 색, 얼굴과 바지는 정점 색입니다. 응원 동작(점프)은 버텍스 셰이더로 처리합니다.
+- 거리별 LOD를 적용합니다: 90 m까지 상세, 450 m까지 단순 박스, 그 너머는 그리지 않습니다.
+- OSM 건물 벽에는 캔버스로 그린 창문 텍스처를 입혀서 회색 벽 느낌을 줄였습니다.
+
 ### 레이싱 라인 (L)
 
 - 실제 서킷의 라인은 TUMFTM이 오픈소스 최적화 툴로 계산한 **최소 곡률 레이싱 라인**입니다. Test Circuit은 중심선을 사용합니다.
@@ -88,10 +110,11 @@ npx tsx scripts/fetch-osm.ts [circuit]   # OpenStreetMap 주변 환경 데이터
 
 ### 엔진 소리
 
-- Web Audio로 합성하며 녹음 파일을 쓰지 않습니다.
-  - 기통 수 × RPM으로 점화 주파수를 정하고, 하모닉 오실레이터, 연소 노이즈, 소프트 클리핑, 스로틀에 따른 로우패스를 조합합니다.
-  - 자동 변속기가 RPM을 만들고, 변속할 때 소리가 잠깐 끊깁니다.
-  - 타이어 스키드음(횡슬립), 바람 소리(속도)도 있습니다.
+- 실제 레이스카 녹음 루프를 씁니다([OpenGameArt, CC0](https://opengameart.org/node/5633), 기본음 43 Hz). RPM에 따라 피치를 바꿉니다.
+- 그 아래에 합성 저음층(서브옥타브 오실레이터와 연소 노이즈)을 깔아 무게감을 더합니다.
+- 저음을 강조하고 2.6 kHz 부근을 줄이는 EQ로 "모기 소리"를 없앴고, 리버브로 공간감을 더했습니다.
+- 차량별로 피치 범위가 다릅니다: F1 120→520 Hz, GT V8 42→330 Hz, 해치백 38→235 Hz.
+- 자동 변속기가 RPM을 만들고, 변속할 때 소리가 잠깐 끊깁니다. 타이어 스키드음(횡슬립)과 바람 소리(속도)도 있습니다.
 - 브라우저 정책상 첫 키 입력이나 클릭 이후에 소리가 납니다.
 
 ## 데이터 출처와 라이선스
@@ -102,6 +125,7 @@ npx tsx scripts/fetch-osm.ts [circuit]   # OpenStreetMap 주변 환경 데이터
 | 건물, 숲, 물, 주차장, 도로 | [OpenStreetMap](https://www.openstreetmap.org/copyright) (Overpass API) | © OpenStreetMap contributors, **ODbL** |
 | 아스팔트, 잔디, 그래블 텍스처 | [Poly Haven](https://polyhaven.com) `asphalt_02`, `leafy_grass`, `gravelly_sand` | CC0 |
 | 하늘 HDRI | Poly Haven `kloofendal_48d_partly_cloudy_puresky` | CC0 |
+| 엔진 녹음 루프 | [OpenGameArt "Racing car engine sound loops"](https://opengameart.org/node/5633) by domasx2 | CC0 |
 
 - OSM 데이터는 `scripts/fetch-osm.ts`가 받습니다.
 - 받은 데이터는 TUM 좌표계에 강체 정합(그리드 탐색 + trimmed ICP)해서 `src/world/tracks/data/*_osm.json`으로 저장합니다(정합 오차 RMS 2~3 m).
@@ -190,14 +214,25 @@ Keyboard / Gamepad / (Mobile Gyro) / (Wheel) / (WebSocket)
 - 차량은 절차적 모델이라 실차 수준의 디테일은 아닙니다(GLB로 교체 가능, 아래 참고).
 - OSM 건물은 높이 정보가 없으면 기본 높이로 압출하고, 지붕 형태는 평평합니다.
 - 모바일 터치 조작이 없어서 휴대폰으로는 아직 운전할 수 없습니다.
+- AI는 단순한 규칙 기반이라 가끔 서로 부딪히거나 벽에 걸리고, 걸리면 자동으로 빠져나오거나 리셋됩니다.
 - 메인 번들이 큽니다(rapier-compat의 WASM 포함, gzip 1.8 MB). 실제 서킷은 서킷별로 지연 로딩됩니다.
+
+## 성능 최적화 (적용됨)
+
+| 항목 | 내용 |
+|---|---|
+| 타일 컬링 | 나무, 가드레일, OSM 건물, 관중을 120~300 m 타일로 나눠 카메라와 그림자 카메라 모두에서 타일 단위로 컬링 (`TiledInstances`) |
+| LOD | 나무: 160 m부터 저폴리. 관중: 90 m부터 박스, 450 m부터 생략 |
+| 차량 병합 | 재질별 메시 병합으로 차량 1대 draw call 약 60 → 약 20 |
+| 동적 해상도 | 평균 프레임이 20 ms를 넘으면 픽셀 비율을 낮추고, 여유가 생기면 다시 올림 (HUD "resolution") |
+| 기타 | 카메라 far를 안개 끝(1.2 km)으로, 레이싱 라인은 바뀐 범위만 GPU 업로드, 물리 루프 할당 줄임 |
+
+Monza 실측(`scene-stats`): 이전에는 매 프레임 약 78만 삼각형을 2번(본 패스 + 그림자) 그렸습니다. 타일링 후에는 그림자 패스가 약 3만 삼각형으로 줄었고, 본 패스는 시야 안의 타일만 그립니다.
 
 ## 다음에 적용하기 좋은 최적화
 
-현재 기준 Monza: draw calls 약 140, 삼각형 약 150만(그림자 패스 포함).
-
-1. **나무 타일링**: 인스턴스 나무를 300 m 타일로 나눠 frustum culling + 거리 LOD(먼 나무는 빌보드)를 적용합니다. 지금은 숲 전체가 항상 그려집니다.
-2. **OSM 건물 LOD**: 먼 건물을 단순화하거나 청크 단위로 컬링합니다.
+1. **나무 임포스터**: 먼 나무를 빌보드로 바꿉니다.
+2. **AI 차량 LOD**: 먼 차량을 단순화하고 바퀴를 생략합니다.
 3. **번들**: non-compat Rapier + 스트리밍 WASM 컴파일, vendor 청크를 분리합니다.
 4. **텍스처**: JPG를 KTX2(Basis)로, HDRI를 압축 포맷으로 바꿉니다(현재 텍스처와 HDRI 약 12 MB).
 5. **Web Worker 물리**, **WebGPU 렌더러** 비교 실험.

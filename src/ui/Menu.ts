@@ -4,7 +4,18 @@ import type { TrackEntry } from '../world/tracks';
 export interface MenuSelection {
   carId: string;
   trackId: string;
+  /** AI opponents (0 = free practice). */
+  ai: number;
+  laps: number;
 }
+
+const AI_OPTIONS: [number, string, string][] = [
+  [0, '자유 주행', '혼자 연습 · 랩타임 기록'],
+  [5, '6대 레이스', '상대 5대'],
+  [11, '12대 레이스', '상대 11대'],
+  [19, '20대 레이스', '상대 19대 · 풀 그리드'],
+];
+const LAP_OPTIONS = [1, 3, 5];
 
 /**
  * Start screen: pick a car and a circuit. The click on "Start" is also the
@@ -18,6 +29,8 @@ export function showMenu(
   return new Promise((resolve) => {
     let carId = initial.carId;
     let trackId = initial.trackId;
+    let ai = initial.ai;
+    let laps = initial.laps;
 
     const root = document.createElement('div');
     root.className = 'menu';
@@ -28,12 +41,17 @@ export function showMenu(
         <div class="menu-grid" data-group="car"></div>
         <h2>서킷</h2>
         <div class="menu-grid" data-group="track"></div>
+        <h2>레이스</h2>
+        <div class="menu-grid" data-group="ai"></div>
+        <div class="menu-grid laps" data-group="laps"></div>
         <button class="menu-start" type="button">출발 ▶ <small>(Enter)</small></button>
         <p class="menu-note">실제 서킷 레이아웃: TUMFTM racetrack-database (LGPL-3.0) · © OpenStreetMap contributors. 높낮이 없이 평지로 재현됩니다.</p>
       </div>`;
 
     const carGrid = root.querySelector<HTMLDivElement>('[data-group="car"]')!;
     const trackGrid = root.querySelector<HTMLDivElement>('[data-group="track"]')!;
+    const aiGrid = root.querySelector<HTMLDivElement>('[data-group="ai"]')!;
+    const lapGrid = root.querySelector<HTMLDivElement>('[data-group="laps"]')!;
 
     const card = (title: string, subtitle: string, selected: boolean, onPick: () => void) => {
       const el = document.createElement('button');
@@ -66,12 +84,29 @@ export function showMenu(
           }),
         ),
       );
+      aiGrid.replaceChildren(
+        ...AI_OPTIONS.map(([n, title, sub]) =>
+          card(title, sub, n === ai, () => {
+            ai = n;
+            render();
+          }),
+        ),
+      );
+      lapGrid.style.display = ai > 0 ? '' : 'none';
+      lapGrid.replaceChildren(
+        ...LAP_OPTIONS.map((n) =>
+          card(`${n} 랩`, n === 1 ? '스프린트' : n === 3 ? '기본' : '내구', n === laps, () => {
+            laps = n;
+            render();
+          }),
+        ),
+      );
     };
 
     function start(): void {
       window.removeEventListener('keydown', onKey);
       root.remove();
-      resolve({ carId, trackId });
+      resolve({ carId, trackId, ai, laps });
     }
     function onKey(e: KeyboardEvent): void {
       if (e.code === 'Enter' || e.code === 'NumpadEnter') start();

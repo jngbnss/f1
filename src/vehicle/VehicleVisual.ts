@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { VehicleConfig } from './VehicleConfig';
 import type { WheelState } from './VehiclePhysics';
 import { tyreGeometry } from './cars/shapes';
@@ -54,6 +55,47 @@ export abstract class PrimitiveCarVisual implements VehicleVisual {
   dispose(): void {
     this.root.removeFromParent();
     for (const d of this.disposables) d.dispose();
+  }
+
+  /**
+   * Merges all static parts that share a material into one mesh (body) and
+   * the rim parts of every wheel likewise. A car goes from ~60 to ~20 draw
+   * calls — what makes a 20-car grid affordable.
+   */
+  optimize(): this {
+    this.mergeChildren(this.root, (o) => o instanceof THREE.Mesh);
+    for (const spin of this.spins) {
+      for (const child of spin.children) if (child instanceof THREE.Group) this.mergeChildren(child, (o) => o instanceof THREE.Mesh);
+    }
+    return this;
+  }
+
+  private mergeChildren(parent: THREE.Object3D, filter: (o: THREE.Object3D) => boolean): void {
+    const buckets = new Map<string, { material: THREE.Material; castShadow: boolean; geos: THREE.BufferGeometry[] }>();
+    for (const child of [...parent.children]) {
+      if (!filter(child)) continue;
+      const mesh = child as THREE.Mesh;
+      const material = mesh.material as THREE.Material;
+      mesh.updateMatrix();
+      // Normalize: non-indexed, position + normal only (uv/color sets differ between parts).
+      const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+      for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'normal') g.deleteAttribute(name);
+      g.applyMatrix4(mesh.matrix);
+      const key = `${material.uuid}:${mesh.castShadow}`;
+      let b = buckets.get(key);
+      if (!b) buckets.set(key, (b = { material, castShadow: mesh.castShadow, geos: [] }));
+      b.geos.push(g);
+      parent.remove(mesh);
+    }
+    for (const b of buckets.values()) {
+      const merged = mergeGeometries(b.geos);
+      for (const g of b.geos) g.dispose();
+      if (!merged) continue;
+      this.track(merged);
+      const mesh = new THREE.Mesh(merged, b.material);
+      mesh.castShadow = b.castShadow;
+      parent.add(mesh);
+    }
   }
 
   protected material(params: THREE.MeshStandardMaterialParameters): THREE.MeshStandardMaterial {

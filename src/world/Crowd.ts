@@ -1,0 +1,190 @@
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { TiledInstances } from './TiledInstances';
+
+/**
+ * Spectators: instanced low-poly people that bounce ("cheer") in the vertex
+ * shader, and stepped grandstands (tribunes) to seat them on.
+ *
+ * Shirt colors come from per-instance colors; skin/hair are vertex colors
+ * that the instance tint does not touch (a `shirt` vertex attribute selects
+ * which vertices get tinted), so one draw call per tile covers everything.
+ */
+
+export interface TribuneSpec {
+  /** Center of the footprint on the ground. */
+  x: number;
+  z: number;
+  /** Rotation about Y; after it, local -X faces the track. */
+  yaw: number;
+  /** Along the track (m). */
+  length: number;
+  /** Away from the track (m). */
+  depth: number;
+  /** Height of the top row (m). */
+  height: number;
+}
+
+export interface CrowdSeat {
+  matrix: THREE.Matrix4;
+  color: THREE.Color;
+}
+
+const SKIN = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac];
+const SHIRTS = [0xe10600, 0xffffff, 0x1e5bc6, 0xffd700, 0x00a19c, 0xff8700, 0x111111, 0xf596c8, 0x52e252, 0x9b59b6];
+
+/** Shared material with the cheering animation; call `setTime` every frame. */
+export class CrowdMaterial extends THREE.MeshStandardMaterial {
+  private readonly uniforms = { uTime: { value: 0 } };
+
+  constructor() {
+    super({ vertexColors: true, roughness: 0.9 });
+    this.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = this.uniforms.uTime;
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          attribute float shirt;
+          uniform float uTime;`,
+        )
+        .replace(
+          '#include <color_vertex>',
+          `vColor = vec3(1.0);
+          vColor *= color;
+          #ifdef USE_INSTANCING_COLOR
+            vColor *= mix(vec3(1.0), instanceColor.xyz, shirt);
+          #endif`,
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            float id = float(gl_InstanceID);
+            // Groups of fans jump at different moments; most of the time a small sway.
+            float phase = uTime * (5.0 + mod(id, 3.0)) + id * 1.37;
+            float jump = max(0.0, sin(phase)) * (0.06 + 0.14 * step(0.7, fract(sin(id * 12.9898) * 43758.5)));
+            transformed.y += jump;
+          #endif`,
+        );
+    };
+    this.customProgramCacheKey = () => 'crowd-v1';
+  }
+
+  setTime(t: number): void {
+    this.uniforms.uTime.value = t;
+  }
+}
+
+function part(geo: THREE.BufferGeometry, color: number, shirt: number): THREE.BufferGeometry {
+  const g = geo.index ? geo.toNonIndexed() : geo;
+  if (g !== geo) geo.dispose();
+  g.deleteAttribute('uv');
+  const n = g.attributes.position.count;
+  const c = new THREE.Color(color);
+  const colors = new Float32Array(n * 3);
+  const shirts = new Float32Array(n).fill(shirt);
+  for (let i = 0; i < n; i++) c.toArray(colors, i * 3);
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  g.setAttribute('shirt', new THREE.BufferAttribute(shirts, 1));
+  return g;
+}
+
+/** A seated fan facing -Z, origin at the seat. Detailed and far versions. */
+export function personGeometries(skin = SKIN[1]): { hi: THREE.BufferGeometry; lo: THREE.BufferGeometry } {
+  const hi = mergeGeometries([
+    part(new THREE.BoxGeometry(0.42, 0.5, 0.26).translate(0, 0.42, 0), 0xffffff, 1), // torso (shirt)
+    part(new THREE.IcosahedronGeometry(0.12, 0).translate(0, 0.82, -0.02), skin, 0), // head
+    part(new THREE.BoxGeometry(0.4, 0.14, 0.42).translate(0, 0.1, -0.12), 0x2b2f3a, 0), // legs (jeans)
+    part(new THREE.BoxGeometry(0.1, 0.42, 0.1).translate(-0.27, 0.78, -0.05), 0xffffff, 1), // raised arms
+    part(new THREE.BoxGeometry(0.1, 0.42, 0.1).translate(0.27, 0.78, -0.05), 0xffffff, 1),
+  ])!;
+  const lo = mergeGeometries([
+    part(new THREE.BoxGeometry(0.42, 0.62, 0.3).translate(0, 0.45, 0), 0xffffff, 1),
+    part(new THREE.BoxGeometry(0.2, 0.2, 0.2).translate(0, 0.86, 0), skin, 0),
+  ])!;
+  return { hi, lo };
+}
+
+/**
+ * Builds a stepped grandstand mesh (seating + back wall + roof) and returns
+ * the seat transforms (world space) for the crowd.
+ */
+export function buildTribune(
+  spec: TribuneSpec,
+  materials: { concrete: THREE.Material; seats: THREE.Material; roof: THREE.Material },
+  rand: () => number,
+  occupancy = 0.8,
+): { group: THREE.Group; seats: CrowdSeat[]; disposables: { dispose(): void }[] } {
+  const group = new THREE.Group();
+  group.name = 'Tribune';
+  const disposables: { dispose(): void }[] = [];
+  const rows = Math.max(3, Math.min(18, Math.floor(spec.depth / 0.9)));
+  const stepDepth = spec.depth / rows;
+  const stepRise = Math.max(0.35, Math.min(0.6, spec.height / rows));
+
+  // Stepped profile in the (x = away from track, y = up) plane, extruded along Z (length).
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0);
+  for (let k = 0; k < rows; k++) {
+    shape.lineTo(k * stepDepth, (k + 1) * stepRise);
+    shape.lineTo((k + 1) * stepDepth, (k + 1) * stepRise);
+  }
+  shape.lineTo(rows * stepDepth, 0);
+  shape.lineTo(0, 0);
+  const seating = new THREE.ExtrudeGeometry(shape, { depth: spec.length, bevelEnabled: false });
+  seating.translate(-spec.depth / 2, 0, -spec.length / 2);
+  disposables.push(seating);
+  const seatMesh = new THREE.Mesh(seating, materials.seats);
+  seatMesh.castShadow = seatMesh.receiveShadow = true;
+  group.add(seatMesh);
+
+  const top = rows * stepRise;
+  const wall = new THREE.BoxGeometry(0.4, top + 3, spec.length).translate(spec.depth / 2, (top + 3) / 2, 0);
+  const roof = new THREE.BoxGeometry(spec.depth + 2, 0.25, spec.length + 1).translate(-0.5, top + 3.2, 0);
+  disposables.push(wall, roof);
+  const wallMesh = new THREE.Mesh(wall, materials.concrete);
+  const roofMesh = new THREE.Mesh(roof, materials.roof);
+  roofMesh.rotation.z = -0.05;
+  wallMesh.castShadow = roofMesh.castShadow = true;
+  group.add(wallMesh, roofMesh);
+
+  group.position.set(spec.x, 0, spec.z);
+  group.rotation.y = spec.yaw;
+  group.updateMatrixWorld(true);
+
+  // Seats: one row per step, facing the track (local -X).
+  const seats: CrowdSeat[] = [];
+  const faceTrack = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2); // -Z -> -X
+  const local = new THREE.Matrix4();
+  const pos = new THREE.Vector3();
+  const one = new THREE.Vector3(1, 1, 1);
+  const spacing = 0.62;
+  const perRow = Math.floor((spec.length - 1) / spacing);
+  for (let k = 0; k < rows; k++) {
+    for (let i = 0; i < perRow; i++) {
+      if (rand() > occupancy) continue;
+      pos.set(-spec.depth / 2 + (k + 0.55) * stepDepth, (k + 1) * stepRise, -spec.length / 2 + 0.5 + i * spacing + (rand() - 0.5) * 0.1);
+      local.compose(pos, faceTrack, one);
+      const shirt = new THREE.Color(SHIRTS[Math.floor(rand() * SHIRTS.length)]);
+      seats.push({ matrix: new THREE.Matrix4().multiplyMatrices(group.matrixWorld, local), color: shirt });
+    }
+  }
+  return { group, seats, disposables };
+}
+
+/** All spectators as tiled, LOD'd instances (near: detailed, far: blocks, very far: none). */
+export function buildCrowd(seats: CrowdSeat[], material: CrowdMaterial): { group: THREE.Group; disposables: { dispose(): void }[] } {
+  const { hi, lo } = personGeometries();
+  const tiles = new TiledInstances(
+    [
+      { geometry: hi, material, distance: 0 },
+      { geometry: lo, material, distance: 90 },
+      { geometry: null, material: null, distance: 450 },
+    ],
+    seats.map((s) => s.matrix),
+    seats.map((s) => s.color),
+    { name: 'Crowd', tileSize: 120 },
+  );
+  return { group: tiles.group, disposables: [hi, lo] };
+}

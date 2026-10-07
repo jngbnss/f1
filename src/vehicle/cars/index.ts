@@ -12,7 +12,8 @@ export interface CarDefinition {
   physics: VehicleConfig;
   gearbox: GearboxConfig;
   engine: EngineSoundProfile;
-  createVisual(): VehicleVisual;
+  /** Builds the car body; `color` overrides the default paint (opponents get their own livery colors). */
+  createVisual(color?: number): VehicleVisual;
 }
 
 // --- Formula (open-wheel, F1-style) ------------------------------------
@@ -95,20 +96,25 @@ export const CARS: CarDefinition[] = [
     physics: FORMULA,
     gearbox: { idleRpm: 4500, redlineRpm: 18000, gearTopSpeeds: [24, 34, 44, 54, 64, 74, 84, 95], shiftTime: 0.06 },
     engine: {
-      cylinders: 10,
+      // Deep, layered "scream": pitch range kept low (120-520 Hz) with a
+      // strong sub-octave body instead of a thin high whine.
+      idleHz: 120,
+      redlineHz: 520,
+      sampleGain: 1,
+      synthGain: 0.45,
       voices: [
-        { type: 'sawtooth', mult: 1, gain: 0.5 },
-        { type: 'square', mult: 2, gain: 0.12 },
-        { type: 'sawtooth', mult: 0.5, gain: 0.22 },
-        { type: 'sine', mult: 3, gain: 0.08 },
+        { type: 'sawtooth', mult: 1, gain: 0.22 },
+        { type: 'square', mult: 0.5, gain: 0.3 },
+        { type: 'sine', mult: 0.25, gain: 0.35 },
+        { type: 'sawtooth', mult: 2, gain: 0.05 },
       ],
-      noise: 0.12,
-      distortion: 6,
-      filterMin: 1400,
-      filterMax: 9000,
-      volume: 0.5,
+      noise: 0.1,
+      distortion: 8,
+      filterMin: 900,
+      filterMax: 5200,
+      volume: 0.75,
     },
-    createVisual: () => new FormulaCarVisual(FORMULA),
+    createVisual: (color) => new FormulaCarVisual(FORMULA, color).optimize(),
   },
   {
     id: 'gt',
@@ -117,20 +123,23 @@ export const CARS: CarDefinition[] = [
     physics: GT,
     gearbox: { idleRpm: 900, redlineRpm: 8000, gearTopSpeeds: [17, 27, 38, 50, 62, 74, 88], shiftTime: 0.12 },
     engine: {
-      cylinders: 8,
+      // V8 rumble: low firing frequency, cross-plane style half-order burble.
+      idleHz: 42,
+      redlineHz: 330,
+      sampleGain: 1.1,
+      synthGain: 0.5,
       voices: [
-        { type: 'square', mult: 0.5, gain: 0.42 }, // cross-plane burble
-        { type: 'sawtooth', mult: 1, gain: 0.38 },
-        { type: 'sawtooth', mult: 0.25, gain: 0.3 },
-        { type: 'sine', mult: 2, gain: 0.08 },
+        { type: 'square', mult: 0.5, gain: 0.4 },
+        { type: 'sawtooth', mult: 1, gain: 0.22 },
+        { type: 'sine', mult: 0.25, gain: 0.35 },
       ],
-      noise: 0.18,
+      noise: 0.16,
       distortion: 12,
-      filterMin: 500,
-      filterMax: 3800,
-      volume: 0.6,
+      filterMin: 380,
+      filterMax: 2600,
+      volume: 0.8,
     },
-    createVisual: () => new GTCarVisual(GT),
+    createVisual: (color) => new GTCarVisual(GT, color).optimize(),
   },
   {
     id: 'street',
@@ -139,19 +148,22 @@ export const CARS: CarDefinition[] = [
     physics: DEFAULT_CAR,
     gearbox: { idleRpm: 850, redlineRpm: 7000, gearTopSpeeds: [14, 23, 32, 41, 50, 62], shiftTime: 0.18 },
     engine: {
-      cylinders: 4,
+      idleHz: 38,
+      redlineHz: 235,
+      sampleGain: 0.9,
+      synthGain: 0.4,
       voices: [
-        { type: 'sawtooth', mult: 1, gain: 0.42 },
+        { type: 'sawtooth', mult: 1, gain: 0.3 },
         { type: 'square', mult: 0.5, gain: 0.2 },
-        { type: 'sine', mult: 2, gain: 0.12 },
+        { type: 'sine', mult: 0.5, gain: 0.25 },
       ],
-      noise: 0.14,
-      distortion: 4,
-      filterMin: 700,
-      filterMax: 3200,
-      volume: 0.5,
+      noise: 0.12,
+      distortion: 5,
+      filterMin: 500,
+      filterMax: 2800,
+      volume: 0.65,
     },
-    createVisual: () => new StreetCarVisual(DEFAULT_CAR),
+    createVisual: (color) => new StreetCarVisual(DEFAULT_CAR, color).optimize(),
   },
 ];
 

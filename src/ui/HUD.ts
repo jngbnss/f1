@@ -1,5 +1,6 @@
 import type { PerfSnapshot } from '../performance/PerformanceMonitor';
 import { formatLapTime, type LapTimer } from '../race/LapTimer';
+import type { RaceManager } from '../race/RaceManager';
 
 export interface VehicleHudState {
   speedKmh: number;
@@ -40,6 +41,7 @@ export class HUD {
       ['frame', 'frame (avg/max)'],
       ['physics', 'physics'],
       ['render', 'render cpu'],
+      ['res', 'resolution'],
       ['calls', 'draw calls'],
       ['tris', 'triangles'],
       ['geo', 'geometries / tex'],
@@ -126,6 +128,7 @@ export class HUD {
     this.set('frame', `${fmt(perf.frameTimeAvg)} / ${fmt(perf.frameTimeMax)} ms`, perf.frameTimeMax > 33 ? 'warn' : '');
     this.set('physics', `${fmt(perf.physicsMs, 2)} ms (${fmt(perf.stepsPerFrame)}×)`);
     this.set('render', `${fmt(perf.renderMs, 2)} ms`);
+    this.set('res', `${fmt(perf.pixelRatio, 2)}×`);
     this.set('calls', fmtInt(perf.drawCalls));
     this.set('tris', fmtInt(perf.triangles));
     this.set('geo', `${perf.geometries} / ${perf.textures}`);
@@ -146,6 +149,69 @@ export class HUD {
     if (this.toastUntil && now > this.toastUntil) {
       this.toastEl.classList.remove('show');
       this.toastUntil = 0;
+    }
+  }
+
+  private raceEls: { pos: HTMLDivElement; countdown: HTMLDivElement; board: HTMLOListElement; results: HTMLDivElement } | null = null;
+  private lastBoardUpdate = 0;
+  private resultsShown = false;
+
+  /** Position, lap, start lights, live standings and final results. */
+  updateRace(race: RaceManager, now = performance.now()): void {
+    if (!this.raceEls) {
+      const pos = document.createElement('div');
+      pos.className = 'race-pos';
+      const countdown = document.createElement('div');
+      countdown.className = 'countdown';
+      const board = document.createElement('ol');
+      board.className = 'board';
+      const results = document.createElement('div');
+      results.className = 'results';
+      document.body.append(pos, countdown, board, results);
+      this.raceEls = { pos, countdown, board, results };
+    }
+    const els = this.raceEls;
+    const me = race.player;
+    if (!me) return;
+
+    // Start lights: 3, 2, 1, GO!
+    if (race.state === 'countdown') {
+      const n = Math.ceil(race.countdown - 1);
+      els.countdown.textContent = n >= 1 ? String(n) : '';
+      els.countdown.className = 'countdown show red';
+    } else if (race.time < 1.2) {
+      els.countdown.textContent = 'GO!';
+      els.countdown.className = 'countdown show green';
+    } else {
+      els.countdown.className = 'countdown';
+    }
+
+    if (now - this.lastBoardUpdate < 200) return;
+    this.lastBoardUpdate = now;
+    const standings = race.standings();
+    const position = standings.indexOf(me) + 1;
+    els.pos.innerHTML = `<span>POS</span><b>${position}<small>/${standings.length}</small></b><span>LAP</span><b>${race.lapOf(me)}<small>/${race.laps}</small></b>`;
+
+    // Top 6 + the player (if outside), gap to leader in samples is meaningless, so show names only.
+    const rows = standings.map((r, i) => ({ r, i })).filter(({ r, i }) => i < 6 || r === me);
+    els.board.replaceChildren(
+      ...rows.map(({ r, i }) => {
+        const li = document.createElement('li');
+        if (r === me) li.className = 'me';
+        const dot = document.createElement('i');
+        dot.style.background = `#${r.color.toString(16).padStart(6, '0')}`;
+        li.append(`${i + 1}. `, dot, r.name);
+        return li;
+      }),
+    );
+
+    if (race.state === 'finished' && !this.resultsShown) {
+      this.resultsShown = true;
+      const lines = standings
+        .map((r, i) => `<li class="${r === me ? 'me' : ''}">${i + 1}. ${r.name} <span>${r.finished ? formatLapTime(r.finishTime) : 'running'}</span></li>`)
+        .join('');
+      els.results.innerHTML = `<h2>🏁 ${position}위로 완주!</h2><ol>${lines}</ol><p>Esc: 메뉴 · 새로고침: 다시 레이스</p>`;
+      els.results.classList.add('show');
     }
   }
 

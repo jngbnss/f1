@@ -27,6 +27,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run sim:test -- quick
+      - run: npm run race:test -- test 20 1
       - run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/

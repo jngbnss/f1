@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { PhysicsWorld } from '../physics/PhysicsWorld';
 import type { Pose } from '../vehicle/VehiclePhysics';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { buildCrowd, buildTribune, CrowdMaterial, type CrowdSeat, type TribuneSpec } from './Crowd';
 import { buildOsmScenery, type OsmData } from './OsmScenery';
+import { TiledInstances } from './TiledInstances';
 import type { TrackLayout } from './TrackLayout';
 
 export type Surface = 'asphalt' | 'kerb' | 'grass' | 'gravel';
@@ -28,8 +31,16 @@ export interface Track {
   nearestIndex(p: THREE.Vector3): number;
   /** Centerline index the car spawns at. */
   readonly spawnIndex: number;
+  /** Half of the asphalt width (m). */
+  readonly halfWidth: number;
+  /** Signed lateral distance from the centerline (+ = right of the driving direction). */
+  lateral(p: THREE.Vector3, index?: number): number;
+  /** Starting-grid slot pose (0 = pole position). */
+  gridPose(slot: number): Pose;
   /** Ground type under a world position (grip / drag / sound). */
   surfaceAt(p: THREE.Vector3): Surface;
+  /** Per-frame animation (crowd), `time` in seconds. */
+  update(time: number): void;
   dispose(): void;
 }
 
@@ -142,6 +153,9 @@ export class ProceduralTrack implements Track {
   private grid!: CenterlineGrid;
   private readonly half: number;
   private readonly barrierOffset: number;
+  private readonly crowdSeats: CrowdSeat[] = [];
+  private readonly crowdMaterial = new CrowdMaterial();
+  private standMaterials: { concrete: THREE.Material; seats: THREE.Material; roof: THREE.Material } | null = null;
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -179,6 +193,12 @@ export class ProceduralTrack implements Track {
     // With OSM data, trees come from real forests (random ones could land in lakes or buildings).
     const scatter = options.scenery ? 0 : Math.round((options.treesPerKm * this.length) / 1000);
     if (scatter + forestTrees.length > 0) this.buildTrees(scatter, forestTrees);
+    this.buildSpectatorBanks();
+    if (this.crowdSeats.length) {
+      const crowd = buildCrowd(this.crowdSeats, this.crowdMaterial);
+      this.disposables.push(...crowd.disposables, this.crowdMaterial);
+      this.root.add(crowd.group);
+    }
   }
 
   get spawnIndex(): number {
@@ -227,6 +247,42 @@ export class ProceduralTrack implements Track {
 
   getCenterline(): readonly THREE.Vector3[] {
     return this.points;
+  }
+
+  /** Half of the asphalt width (m). */
+  get halfWidth(): number {
+    return this.half;
+  }
+
+  /** Signed lateral distance of `p` from the centerline sample `index` (+ = right). */
+  lateral(p: THREE.Vector3, index = this.nearestIndex(p)): number {
+    const c = this.points[index];
+    const r = this.rights[index];
+    return (p.x - c.x) * r.x + (p.z - c.z) * r.z;
+  }
+
+  /**
+   * Starting-grid slot (0 = pole). Two staggered columns behind the start
+   * line, 8 m between rows, like a real F1 grid.
+   */
+  gridPose(slot: number): Pose {
+    const ds = this.layout.sampleSpacing;
+    const n = this.points.length;
+    const back = 10 + Math.floor(slot / 2) * 8 + (slot % 2) * 4;
+    const i = (n - Math.round(back / ds)) % n;
+    const pose = this.poseAt(i);
+    const lane = Math.min(3.5, this.half * 0.45) * (slot % 2 === 0 ? -1 : 1);
+    pose.position.addScaledVector(this.rights[i], lane);
+    return pose;
+  }
+
+  update(time: number): void {
+    this.crowdMaterial.setTime(time);
+  }
+
+  /** Number of spectators placed (stands + trackside). */
+  get spectatorCount(): number {
+    return this.crowdSeats.length;
   }
 
   dispose(): void {
@@ -415,6 +471,10 @@ export class ProceduralTrack implements Track {
   }
 
   /** Armco guardrails: rails + posts as two InstancedMeshes (2 draw calls) + box colliders. */
+  /**
+   * Armco guardrails: tiled instancing (culled per 300 m tile, also in the
+   * shadow pass) + one box collider per segment.
+   */
   private buildBarriers(): void {
     const { rapier, world } = this.physics;
     const n = this.points.length;
@@ -422,27 +482,23 @@ export class ProceduralTrack implements Track {
     const colliderHeight = 1.0;
     const colliderThickness = 0.5;
 
-    const railGeo = this.own(new THREE.BoxGeometry(1, 1, 1));
-    const postGeo = this.own(new THREE.BoxGeometry(0.12, 0.8, 0.12));
-    postGeo.translate(0, 0.4, 0);
+    // Both W-beam rails in one unit-length geometry (scaled along Z per segment).
+    const lower = new THREE.BoxGeometry(0.08, 0.22, 1).translate(0, 0.45, 0);
+    const upper = new THREE.BoxGeometry(0.08, 0.22, 1).translate(0, 0.72, 0);
+    const railGeo = this.own(mergeGeometries([lower, upper])!);
+    lower.dispose();
+    upper.dispose();
+    const postGeo = this.own(new THREE.BoxGeometry(0.12, 0.8, 0.12).translate(0, 0.4, 0));
     const railMat = this.own(new THREE.MeshStandardMaterial({ color: 0xb8bec6, metalness: 0.85, roughness: 0.35 }));
     const postMat = this.own(new THREE.MeshStandardMaterial({ color: 0x7c838c, metalness: 0.6, roughness: 0.5 }));
-    const rails = new THREE.InstancedMesh(railGeo, railMat, n * 4);
-    const posts = new THREE.InstancedMesh(postGeo, postMat, n * 2);
-    rails.name = 'GuardrailRails';
-    posts.name = 'GuardrailPosts';
-    rails.castShadow = posts.castShadow = true;
-    rails.receiveShadow = true;
 
     const body = this.fixedBody();
-    const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
-    const s = new THREE.Vector3();
     const p = new THREE.Vector3();
     const a = new THREE.Vector3();
     const b = new THREE.Vector3();
-    let railCount = 0;
-    let postCount = 0;
+    const railMatrices: THREE.Matrix4[] = [];
+    const postMatrices: THREE.Matrix4[] = [];
 
     for (const side of [-1, 1]) {
       for (let i = 0; i < n; i++) {
@@ -455,20 +511,9 @@ export class ProceduralTrack implements Track {
         if (this.grid.nearest(p.x, p.z, offset).distSq < (offset - 1.5) ** 2) continue;
         const len = a.distanceTo(b) + 0.3; // small overlap closes gaps on curves
         q.setFromAxisAngle(UP, Math.atan2(b.x - a.x, b.z - a.z));
-
-        // Two W-beam rails, slightly towards the track side of the posts.
-        for (const y of [0.45, 0.72]) {
-          p.y = y;
-          s.set(0.08, 0.22, len);
-          m.compose(p, q, s);
-          rails.setMatrixAt(railCount++, m);
-        }
-        if (i % 2 === 0) {
-          p.y = 0;
-          s.set(1, 1, 1);
-          m.compose(p, q, s);
-          posts.setMatrixAt(postCount++, m);
-        }
+        p.y = 0;
+        railMatrices.push(new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, len)));
+        if (i % 2 === 0) postMatrices.push(new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1)));
 
         world.createCollider(
           rapier.ColliderDesc.cuboid(colliderThickness / 2, colliderHeight / 2, len / 2)
@@ -480,11 +525,16 @@ export class ProceduralTrack implements Track {
         );
       }
     }
-    rails.count = railCount;
-    posts.count = postCount;
-    rails.computeBoundingSphere();
-    posts.computeBoundingSphere();
-    this.root.add(rails, posts);
+    const rails = new TiledInstances([{ geometry: railGeo, material: railMat, distance: 0 }], railMatrices, null, {
+      name: 'GuardrailRails',
+      castShadow: true,
+      receiveShadow: true,
+    });
+    const posts = new TiledInstances([{ geometry: postGeo, material: postMat, distance: 0 }], postMatrices, null, {
+      name: 'GuardrailPosts',
+      castShadow: true,
+    });
+    this.root.add(rails.group, posts.group);
   }
 
   private buildStartLine(): void {
@@ -553,12 +603,18 @@ export class ProceduralTrack implements Track {
   private buildScenery(data: OsmData): [number, number][] {
     const result = buildOsmScenery(data, {
       clearance: (x, z) => this.clearance(x, z),
+      nearestPoint: (x, z) => {
+        const p = this.points[this.nearestIndex(new THREE.Vector3(x, 0, z))];
+        return { x: p.x, z: p.z };
+      },
       minClearance: this.barrierOffset + 2,
       asphalt: this.materials.asphalt,
       rand: mulberry32(4242),
     });
     this.disposables.push(...result.disposables);
     this.root.add(result.group);
+    const rand = mulberry32(777);
+    for (const spec of result.grandstands) this.addTribune(spec, rand);
     return result.trees;
   }
 
@@ -574,7 +630,7 @@ export class ProceduralTrack implements Track {
     return true;
   }
 
-  /** Generic pit building and grandstand along the start/finish straight. */
+  /** Generic pit building and a grandstand full of fans along the start/finish straight. */
   private buildPitAndGrandstand(): void {
     const t = this.tangents[0];
     const r = this.rights[0];
@@ -583,7 +639,6 @@ export class ProceduralTrack implements Track {
     const concrete = this.own(new THREE.MeshStandardMaterial({ color: 0xd9d6cf, roughness: 0.85 }));
     const glass = this.own(new THREE.MeshStandardMaterial({ color: 0x1d2a36, roughness: 0.08, metalness: 0.8 }));
     const dark = this.own(new THREE.MeshStandardMaterial({ color: 0x2d3138, roughness: 0.7 }));
-    const seats = this.own(new THREE.MeshStandardMaterial({ color: 0x1e5aa8, roughness: 0.6 }));
     const roofMat = this.own(new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.5, metalness: 0.3 }));
 
     const place = (group: THREE.Group, side: number, depth: number, length: number, gap: number): boolean => {
@@ -627,34 +682,66 @@ export class ProceduralTrack implements Track {
     box(pit, concrete, 0.5, 1.2, pitLen, -pitDepth / 2 - 9, 0.6, 0);
     const pitSide = place(pit, 1, pitDepth + 10, pitLen, 4) ? 1 : place(pit, -1, pitDepth + 10, pitLen, 4) ? -1 : 0;
 
-    // --- grandstand (opposite side) ---------------------------------------
+    // --- grandstand with fans (opposite side) -----------------------------
     const gsLen = 120;
-    const steps = 10;
-    const stepDepth = 0.9;
-    const stepRise = 0.55;
-    const shape = new THREE.Shape();
-    shape.moveTo(0, 0);
-    for (let k = 0; k < steps; k++) {
-      shape.lineTo(k * stepDepth, (k + 1) * stepRise);
-      shape.lineTo((k + 1) * stepDepth, (k + 1) * stepRise);
+    const gsDepth = 10;
+    const gsSides = pitSide === 0 ? [-1, 1] : [-pitSide, pitSide];
+    for (const side of gsSides) {
+      const center = start.clone().addScaledVector(t, gsLen * 0.15).addScaledVector(r, side * (this.barrierOffset + 3 + gsDepth / 2));
+      if (!this.isClear(center, t, r, gsLen, gsDepth)) continue;
+      // Front (local -X) must point at the track: direction -side * r.
+      const fx = -side * r.x;
+      const fz = -side * r.z;
+      this.addTribune({ x: center.x, z: center.z, yaw: Math.atan2(fz, -fx), length: gsLen, depth: gsDepth, height: 6 }, mulberry32(99));
+      break;
     }
-    shape.lineTo(steps * stepDepth, 0);
-    shape.lineTo(0, 0);
-    const standGeo = this.own(new THREE.ExtrudeGeometry(shape, { depth: gsLen, bevelEnabled: false }));
-    standGeo.translate(-(steps * stepDepth) / 2, 0, -gsLen / 2);
-    const stand = new THREE.Group();
-    stand.name = 'Grandstand';
-    const seating = new THREE.Mesh(standGeo, seats);
-    seating.position.y = 0.8;
-    stand.add(seating);
-    const depth = steps * stepDepth;
-    box(stand, concrete, depth, 0.8, gsLen, 0, 0.4, 0);
-    box(stand, concrete, 0.4, steps * stepRise + 4, gsLen, depth / 2, (steps * stepRise + 4) / 2, 0);
-    const roof = box(stand, roofMat, depth + 3, 0.3, gsLen + 2, -0.5, steps * stepRise + 4.5, 0);
-    roof.rotation.z = -0.06;
-    for (let z = -gsLen / 2; z <= gsLen / 2; z += 15) box(stand, dark, 0.3, steps * stepRise + 4.5, 0.3, depth / 2 - 0.3, (steps * stepRise + 4.5) / 2, z);
-    const gsSide = pitSide === 0 ? -1 : -pitSide;
-    if (!place(stand, gsSide, depth, gsLen, 3)) place(stand, -gsSide, depth, gsLen, 3);
+  }
+
+  /** Stepped grandstand + its seated crowd. */
+  private addTribune(spec: TribuneSpec, rand: () => number): void {
+    if (!this.standMaterials) {
+      this.standMaterials = {
+        concrete: this.own(new THREE.MeshStandardMaterial({ color: 0xbdb8ae, roughness: 0.9 })),
+        seats: this.own(new THREE.MeshStandardMaterial({ color: 0x2a5fb0, roughness: 0.7 })),
+        roof: this.own(new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.5, metalness: 0.3 })),
+      };
+    }
+    const tribune = buildTribune(spec, this.standMaterials, rand);
+    this.disposables.push(...tribune.disposables);
+    this.root.add(tribune.group);
+    this.crowdSeats.push(...tribune.seats);
+  }
+
+  /** Fans standing on the grass behind the guardrails at corners. */
+  private buildSpectatorBanks(): void {
+    const rand = mulberry32(31337);
+    const n = this.points.length;
+    const max = 6000;
+    let placed = 0;
+    const q = new THREE.Quaternion();
+    const p = new THREE.Vector3();
+    const one = new THREE.Vector3(1, 1, 1);
+    const shirts = [0xe10600, 0xffffff, 0x1e5bc6, 0xffd700, 0xff8700, 0x111111, 0x00a19c];
+    for (let i = 0; i < n && placed < max; i += 1) {
+      if (!this.kerb[i]) continue;
+      // Spectators stand on the side opposite the gravel trap when there is one.
+      const sides = this.gravelSide[i] ? [-this.gravelSide[i]] : [-1, 1];
+      for (const side of sides) {
+        for (let row = 0; row < 4; row++) {
+          if (rand() > 0.55) continue;
+          const off = this.barrierOffset + 3.5 + row * 1.1 + rand() * 0.4;
+          p.copy(this.points[i]).addScaledVector(this.rights[i], side * off).addScaledVector(this.tangents[i], (rand() - 0.5) * 2);
+          if (this.clearance(p.x, p.z) < this.barrierOffset + 2.5) continue;
+          // Face the track: -Z towards the centerline point.
+          const dx = this.points[i].x - p.x;
+          const dz = this.points[i].z - p.z;
+          q.setFromAxisAngle(UP, Math.atan2(-dx, -dz) + (rand() - 0.5) * 0.5);
+          const color = new THREE.Color(shirts[Math.floor(rand() * shirts.length)]);
+          this.crowdSeats.push({ matrix: new THREE.Matrix4().compose(p.clone().setY(0.25), q, one), color });
+          placed++;
+        }
+      }
+    }
   }
 
   /** Instanced mixed forest (4 draw calls) outside the barriers. No colliders. */
@@ -670,33 +757,28 @@ export class ProceduralTrack implements Track {
     const spreadX = size.x + 300;
     const spreadZ = size.z + 300;
 
-    // Conifer: trunk + two stacked cones. Broadleaf: trunk + lumpy sphere crown.
-    const coniferTrunk = this.own(new THREE.CylinderGeometry(0.18, 0.3, 3, 6).translate(0, 1.5, 0));
-    const coniferCrown = this.own(mergeCones());
-    const broadTrunk = this.own(new THREE.CylinderGeometry(0.22, 0.35, 3.2, 6).translate(0, 1.6, 0));
-    const broadCrown = this.own(lumpySphere(2.6, rand).translate(0, 5, 0));
-    const bark = this.own(new THREE.MeshStandardMaterial({ color: 0x5b4330, roughness: 1 }));
-    const leaves = this.own(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 }));
+    // Each tree type = one geometry with vertex colors (trunk + crown), in a
+    // detailed and a cheap version; tiles switch to the cheap one with distance.
+    const bark = new THREE.Color(0x5b4330);
+    const pine = new THREE.Color(0x2e5a2c);
+    const leaf = new THREE.Color(0x4a7a2e);
+    const coniferHi = this.own(treeGeometry([[new THREE.CylinderGeometry(0.18, 0.3, 3, 6).translate(0, 1.5, 0), bark], [mergeCones(), pine]]));
+    const coniferLo = this.own(treeGeometry([[new THREE.ConeGeometry(2.2, 8, 5).translate(0, 5, 0), pine]]));
+    const broadHi = this.own(treeGeometry([[new THREE.CylinderGeometry(0.22, 0.35, 3.2, 6).translate(0, 1.6, 0), bark], [lumpySphere(2.6, rand, 1).translate(0, 5, 0), leaf]]));
+    const broadLo = this.own(treeGeometry([[lumpySphere(2.6, rand, 0).translate(0, 4.6, 0), leaf]]));
+    const material = this.own(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }));
 
-    const ct = new THREE.InstancedMesh(coniferTrunk, bark, count);
-    const cc = new THREE.InstancedMesh(coniferCrown, leaves, count);
-    const bt = new THREE.InstancedMesh(broadTrunk, bark, count);
-    const bc = new THREE.InstancedMesh(broadCrown, leaves, count);
-    for (const mesh of [ct, cc, bt, bc]) mesh.castShadow = true;
-    cc.name = 'Conifers';
-    bc.name = 'BroadleafTrees';
-
-    const m = new THREE.Matrix4();
+    const conifers: THREE.Matrix4[] = [];
+    const coniferColors: THREE.Color[] = [];
+    const broads: THREE.Matrix4[] = [];
+    const broadColors: THREE.Color[] = [];
     const q = new THREE.Quaternion();
     const s = new THREE.Vector3();
     const p = new THREE.Vector3();
-    const col = new THREE.Color();
-    let conifers = 0;
-    let broad = 0;
     // Trees grow in clusters: pick a cluster center, scatter a few around it.
     let clusterX = 0;
     let clusterZ = 0;
-    for (let attempt = 0; attempt < count * 20 + fixed.length && conifers + broad < count; attempt++) {
+    for (let attempt = 0; attempt < count * 20 + fixed.length && conifers.length + broads.length < count; attempt++) {
       if (attempt % 6 === 0) {
         clusterX = center.x + (rand() - 0.5) * spreadX;
         clusterZ = center.z + (rand() - 0.5) * spreadZ;
@@ -707,24 +789,56 @@ export class ProceduralTrack implements Track {
       const scale = 0.75 + rand() * 0.7;
       q.setFromAxisAngle(UP, rand() * Math.PI * 2);
       s.set(scale * (0.9 + rand() * 0.2), scale, scale * (0.9 + rand() * 0.2));
-      m.compose(p, q, s);
+      const m = new THREE.Matrix4().compose(p, q, s);
+      // Per-tree tint around white (hue/brightness variation).
+      const tint = new THREE.Color().setHSL(0.15 + rand() * 0.12, 0.35, 0.7 + rand() * 0.25);
       if (rand() < 0.45) {
-        ct.setMatrixAt(conifers, m);
-        cc.setMatrixAt(conifers, m);
-        cc.setColorAt(conifers, col.setHSL(0.36 + rand() * 0.04, 0.45, 0.16 + rand() * 0.06));
-        conifers++;
+        conifers.push(m);
+        coniferColors.push(tint);
       } else {
-        bt.setMatrixAt(broad, m);
-        bc.setMatrixAt(broad, m);
-        bc.setColorAt(broad, col.setHSL(0.24 + rand() * 0.07, 0.45, 0.22 + rand() * 0.08));
-        broad++;
+        broads.push(m);
+        broadColors.push(tint);
       }
     }
-    ct.count = cc.count = conifers;
-    bt.count = bc.count = broad;
-    for (const mesh of [ct, cc, bt, bc]) mesh.computeBoundingSphere();
-    this.root.add(ct, cc, bt, bc);
+    const LOD_DISTANCE = 160;
+    const opts = { castShadow: true };
+    const c = new TiledInstances(
+      [
+        { geometry: coniferHi, material, distance: 0 },
+        { geometry: coniferLo, material, distance: LOD_DISTANCE },
+      ],
+      conifers,
+      coniferColors,
+      { name: 'Conifers', ...opts },
+    );
+    const t = new TiledInstances(
+      [
+        { geometry: broadHi, material, distance: 0 },
+        { geometry: broadLo, material, distance: LOD_DISTANCE },
+      ],
+      broads,
+      broadColors,
+      { name: 'BroadleafTrees', ...opts },
+    );
+    this.root.add(c.group, t.group);
   }
+}
+
+/** Merges parts into one non-indexed geometry with per-part vertex colors. */
+function treeGeometry(parts: [THREE.BufferGeometry, THREE.Color][]): THREE.BufferGeometry {
+  const prepared = parts.map(([g, color]) => {
+    const ni = g.index ? g.toNonIndexed() : g.clone();
+    ni.deleteAttribute('uv');
+    const n = ni.attributes.position.count;
+    const colors = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) color.toArray(colors, i * 3);
+    ni.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    g.dispose();
+    return ni;
+  });
+  const merged = mergeGeometries(prepared)!;
+  for (const g of prepared) g.dispose();
+  return merged;
 }
 
 /** Two stacked cones as one geometry (conifer crown). */
@@ -744,8 +858,8 @@ function mergeCones(): THREE.BufferGeometry {
 }
 
 /** Icosphere with randomly displaced vertices (organic crown). */
-function lumpySphere(radius: number, rand: () => number): THREE.BufferGeometry {
-  const geo = new THREE.IcosahedronGeometry(radius, 1);
+function lumpySphere(radius: number, rand: () => number, detail = 1): THREE.BufferGeometry {
+  const geo = new THREE.IcosahedronGeometry(radius, detail);
   const pos = geo.attributes.position as THREE.BufferAttribute;
   const v = new THREE.Vector3();
   // Displace consistently per unique position so the mesh stays watertight.

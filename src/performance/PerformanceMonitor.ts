@@ -16,6 +16,10 @@ export interface PerfSnapshot {
   textures: number;
   /** JS heap in MB (Chromium only; null elsewhere). */
   heapMB: number | null;
+  /** Increments every time a new snapshot is published. */
+  windowId: number;
+  /** Current renderer pixel ratio (dynamic resolution). */
+  pixelRatio: number;
 }
 
 interface ChromeMemory {
@@ -40,6 +44,8 @@ export class PerformanceMonitor {
     geometries: 0,
     textures: 0,
     heapMB: null,
+    windowId: 0,
+    pixelRatio: 1,
   };
 
   /** Ring buffer of recent frame times (ms), for graphs / export. */
@@ -109,6 +115,7 @@ export class PerformanceMonitor {
     s.stepsPerFrame = this.steps / this.frames;
     const mem = (performance as Performance & { memory?: ChromeMemory }).memory;
     s.heapMB = mem ? mem.usedJSHeapSize / 1048576 : null;
+    s.windowId++;
 
     this.windowStart = now;
     this.frames = 0;

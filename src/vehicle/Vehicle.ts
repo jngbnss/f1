@@ -89,7 +89,9 @@ export class Vehicle {
 
   /** Upside down or on its side. */
   isFlipped(): boolean {
-    const upY = new THREE.Vector3(0, 1, 0).applyQuaternion(this.currQuat).y;
+    // Y of the local up axis, without allocating: 1 - 2(x² + z²).
+    const q = this.currQuat;
+    const upY = 1 - 2 * (q.x * q.x + q.z * q.z);
     return upY < 0.3;
   }
 

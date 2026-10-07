@@ -1,5 +1,8 @@
+import { makeNoiseBuffer, makeReverbBuffer, type AudioAssets } from './EngineSound';
+
 /**
- * Owns the AudioContext. Browsers only allow audio after a user gesture, so
+ * Owns the AudioContext and shared audio assets (recorded engine loop,
+ * reverb, noise). Browsers only allow audio after a user gesture, so
  * the context is created on the first key press / click (or immediately if
  * the page already had one, e.g. the menu's Start click). M toggles mute.
  */
@@ -8,7 +11,8 @@ export class AudioSystem {
   master: GainNode | null = null;
   muted = false;
   private readonly volume = 0.8;
-  private readonly readyCallbacks: ((ctx: AudioContext, master: GainNode) => void)[] = [];
+  assets: AudioAssets | null = null;
+  private readonly readyCallbacks: ((ctx: AudioContext, master: GainNode, assets: AudioAssets) => void)[] = [];
 
   constructor() {
     window.addEventListener('keydown', this.onGesture);
@@ -21,9 +25,9 @@ export class AudioSystem {
     return this.ctx?.state === 'running';
   }
 
-  /** Runs `cb` once audio is available (immediately if it already is). */
-  onReady(cb: (ctx: AudioContext, master: GainNode) => void): void {
-    if (this.ctx && this.master) cb(this.ctx, this.master);
+  /** Runs `cb` once audio and its assets are available (immediately if they already are). */
+  onReady(cb: (ctx: AudioContext, master: GainNode, assets: AudioAssets) => void): void {
+    if (this.ctx && this.master && this.assets) cb(this.ctx, this.master, this.assets);
     else this.readyCallbacks.push(cb);
   }
 
@@ -53,7 +57,27 @@ export class AudioSystem {
     master.connect(compressor).connect(ctx.destination);
     this.ctx = ctx;
     this.master = master;
-    for (const cb of this.readyCallbacks.splice(0)) cb(ctx, master);
+
+    const reverb = new ConvolverNode(ctx, { buffer: makeReverbBuffer(ctx) });
+    const wet = ctx.createGain();
+    wet.gain.value = 0.5;
+    reverb.connect(wet).connect(master);
+    const noise = makeNoiseBuffer(ctx);
+    void this.loadBuffer(`${import.meta.env.BASE_URL}audio/engine_loop.wav`).then((engineLoop) => {
+      this.assets = { engineLoop, reverb, noise };
+      for (const cb of this.readyCallbacks.splice(0)) cb(ctx, master, this.assets);
+    });
+  }
+
+  private async loadBuffer(url: string): Promise<AudioBuffer | null> {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${res.status}`);
+      return await this.ctx!.decodeAudioData(await res.arrayBuffer());
+    } catch (e) {
+      console.warn('Engine sample unavailable, using synth only', e);
+      return null;
+    }
   }
 
   private onGesture = (e: Event): void => {

@@ -44,8 +44,8 @@ export const DEMO_TRACK: TrackLayout = {
     [4, 160],
     [0, 120],
   ],
-  roadWidth: 13,
-  runoff: 5,
+  roadWidth: 18,
+  runoff: 6,
   sampleSpacing: 2.5,
 };
 
@@ -76,9 +76,10 @@ export function parseTumCsv(id: string, name: string, csv: string, racelineCsv?:
     id,
     name,
     points,
-    // Real widths are ~10-16 m; clamp so every circuit stays drivable with the arcade cars.
-    roadWidth: Math.min(Math.max(avgWidth, 12), 16),
-    runoff: 7,
+    // Real widths are ~10-16 m. Widened by 40% (clamped 16-22 m) so a 20-car arcade
+    // field has room to race side by side; the layout itself stays real.
+    roadWidth: Math.min(Math.max(avgWidth * 1.4, 16), 22),
+    runoff: 8,
     sampleSpacing: 2.5,
     raceline: racelineCsv ? parseXY(racelineCsv) : undefined,
     attribution: 'Track & racing line: TUMFTM racetrack-database (LGPL-3.0), based on © OpenStreetMap contributors',

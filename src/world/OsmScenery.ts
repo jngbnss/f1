@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { TribuneSpec } from './Crowd';
 
 /**
  * Real-world surroundings from OpenStreetMap, pre-aligned to the track frame
@@ -22,6 +23,8 @@ export interface SceneryContext {
   clearance(x: number, z: number): number;
   /** Nothing may be placed closer to the centerline than this (barrier line + margin). */
   minClearance: number;
+  /** Nearest point on the circuit centerline. */
+  nearestPoint(x: number, z: number): { x: number; z: number };
   /** Shared (texturable) asphalt material for car parks and roads. */
   asphalt: THREE.Material;
   rand: () => number;
@@ -31,11 +34,13 @@ export interface SceneryResult {
   group: THREE.Group;
   /** Tree positions inside OSM forests. */
   trees: [number, number][];
+  /** Real grandstands (OSM building=grandstand), turned into seated tribunes by the track. */
+  grandstands: TribuneSpec[];
   disposables: { dispose(): void }[];
   stats: { buildings: number; forests: number; roads: number };
 }
 
-const WALLS = [0xd8d2c4, 0xc9c2b5, 0xe6e1d6, 0xb9b5ad, 0xd4cbbb];
+const WALLS = [0xe3d9c3, 0xcfc4ae, 0xf0ebe0, 0xbfc7cf, 0xd9c2a3, 0xc8b8a6, 0xe6d3b8];
 const HOUSE_WALLS = [0xe8dcc8, 0xd9c6a5, 0xf0e6d6];
 const ROOF = 0x6b6e72;
 const HOUSE_ROOF = 0x9c4a32;
@@ -76,17 +81,47 @@ function inside(pts: [number, number][], x: number, z: number): boolean {
   return c;
 }
 
+/**
+ * Window-grid facade texture (one floor x one bay per tile), drawn on a
+ * canvas — no download. Corner texel is plain wall, used for roofs.
+ */
+function facadeTexture(): THREE.Texture | null {
+  if (typeof document === 'undefined') return null; // headless tests
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  if (!g) return null;
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, 64, 64);
+  g.fillStyle = '#2b3442';
+  g.fillRect(12, 14, 40, 30); // window
+  g.fillStyle = '#56657a';
+  g.fillRect(14, 16, 18, 12); // sky reflection
+  g.fillStyle = '#d6d6d6';
+  g.fillRect(10, 44, 44, 3); // sill
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1 / 3.6, 1 / 3.2); // one bay = 3.6 m, one floor = 3.2 m (UVs are meters)
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 function colorize(geo: THREE.BufferGeometry, wall: THREE.Color, roof: THREE.Color): void {
   const count = geo.attributes.position.count;
   const colors = new Float32Array(count * 3);
   // ExtrudeGeometry groups: 0 = caps (roof/floor), 1 = side walls.
   const groups = geo.groups.length ? geo.groups : [{ start: 0, count, materialIndex: 1 }];
+  const uv = geo.attributes.uv as THREE.BufferAttribute | undefined;
   for (const g of groups) {
-    const c = g.materialIndex === 0 ? roof : wall;
+    const isRoof = g.materialIndex === 0;
+    const c = isRoof ? roof : wall;
     for (let i = g.start; i < g.start + g.count; i++) {
       colors[i * 3] = c.r;
       colors[i * 3 + 1] = c.g;
       colors[i * 3 + 2] = c.b;
+      // Roofs sample the plain-wall corner of the facade texture (no windows on top).
+      if (isRoof && uv) uv.setXY(i, 0.05, 0.05);
     }
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -99,8 +134,12 @@ export function buildOsmScenery(data: OsmData, ctx: SceneryContext): SceneryResu
   const disposables: { dispose(): void }[] = [];
   const clear = (pts: [number, number][], margin = 0) => pts.every(([x, z]) => ctx.clearance(x, z) > ctx.minClearance + margin);
 
-  // --- buildings: extruded footprints merged into one draw call ----------
-  const buildingGeos: THREE.BufferGeometry[] = [];
+  // --- buildings: extruded footprints merged per 300 m tile ---------------
+  // (one mesh per tile so the camera and shadow camera can cull them)
+  const TILE = 300;
+  const tiles = new Map<string, THREE.BufferGeometry[]>();
+  let buildingCount = 0;
+  const grandstands: TribuneSpec[] = [];
   const wall = new THREE.Color();
   const roof = new THREE.Color();
   for (const b of data.buildings) {
@@ -108,9 +147,15 @@ export function buildOsmScenery(data: OsmData, ctx: SceneryContext): SceneryResu
     const kind = b[1];
     const pts = pairs(b, 2);
     if (pts.length < 3 || !clear(pts, 2)) continue;
+    if (kind === 1) {
+      const spec = tribuneFromFootprint(pts, h, ctx);
+      if (spec) {
+        grandstands.push(spec);
+        continue;
+      }
+    }
     const geo = new THREE.ExtrudeGeometry(shapeOf(pts), { depth: h, bevelEnabled: false, curveSegments: 1 });
     geo.rotateX(-Math.PI / 2);
-    geo.deleteAttribute('uv');
     const r = ctx.rand();
     if (kind === 1) {
       wall.set(STAND_WALL);
@@ -123,19 +168,27 @@ export function buildOsmScenery(data: OsmData, ctx: SceneryContext): SceneryResu
       roof.set(ROOF);
     }
     colorize(geo, wall, roof);
-    buildingGeos.push(geo);
+    const key = `${Math.floor(pts[0][0] / TILE)},${Math.floor(pts[0][1] / TILE)}`;
+    let list = tiles.get(key);
+    if (!list) tiles.set(key, (list = []));
+    list.push(geo);
+    buildingCount++;
   }
-  if (buildingGeos.length) {
-    const merged = mergeGeometries(buildingGeos, false);
-    for (const g of buildingGeos) g.dispose();
-    if (merged) {
-      const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
+  if (tiles.size) {
+    const facade = facadeTexture();
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, map: facade });
+    disposables.push(mat);
+    if (facade) disposables.push(facade);
+    for (const [key, geos] of tiles) {
+      const merged = mergeGeometries(geos, false);
+      for (const g of geos) g.dispose();
+      if (!merged) continue;
       const mesh = new THREE.Mesh(merged, mat);
-      mesh.name = 'OsmBuildings';
+      mesh.name = `OsmBuildings[${key}]`;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       group.add(mesh);
-      disposables.push(merged, mat);
+      disposables.push(merged);
     }
   }
 
@@ -253,5 +306,57 @@ export function buildOsmScenery(data: OsmData, ctx: SceneryContext): SceneryResu
     }
   }
 
-  return { group, trees, disposables, stats: { buildings: buildingGeos.length, forests: data.forests.length, roads: roadCount } };
+  return { group, trees, grandstands, disposables, stats: { buildings: buildingCount, forests: data.forests.length, roads: roadCount } };
+}
+
+/** Oriented footprint of a grandstand -> tribune facing the nearest part of the circuit. */
+function tribuneFromFootprint(pts: [number, number][], height: number, ctx: SceneryContext): TribuneSpec | null {
+  // Long axis = longest edge.
+  let ux = 1;
+  let uz = 0;
+  let longest = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x0, z0] = pts[i];
+    const [x1, z1] = pts[(i + 1) % pts.length];
+    const l = Math.hypot(x1 - x0, z1 - z0);
+    if (l > longest) {
+      longest = l;
+      ux = (x1 - x0) / l;
+      uz = (z1 - z0) / l;
+    }
+  }
+  const vx = -uz;
+  const vz = ux;
+  let u0 = Infinity;
+  let u1 = -Infinity;
+  let v0 = Infinity;
+  let v1 = -Infinity;
+  for (const [x, z] of pts) {
+    const u = x * ux + z * uz;
+    const v = x * vx + z * vz;
+    u0 = Math.min(u0, u);
+    u1 = Math.max(u1, u);
+    v0 = Math.min(v0, v);
+    v1 = Math.max(v1, v);
+  }
+  const length = u1 - u0;
+  const depth = Math.min(40, Math.max(6, v1 - v0));
+  if (length < 8) return null;
+  const cu = (u0 + u1) / 2;
+  const cv = (v0 + v1) / 2;
+  const cx = ux * cu + vx * cv;
+  const cz = uz * cu + vz * cv;
+  // Front (local -X) = the short-axis direction pointing at the track.
+  const near = ctx.nearestPoint(cx, cz);
+  const side = Math.sign((near.x - cx) * vx + (near.z - cz) * vz) || 1;
+  const fx = vx * side;
+  const fz = vz * side;
+  return {
+    x: cx,
+    z: cz,
+    yaw: Math.atan2(fz, -fx),
+    length,
+    depth,
+    height: Math.min(Math.max(height, 6), depth * 0.7, 25),
+  };
 }

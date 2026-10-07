@@ -158,6 +158,7 @@ export class RacingLine {
     const prev = this.carIndex;
     this.carIndex = this.findIndex(carPosition);
 
+    this.colorAttr.clearUpdateRanges();
     // Hide the previous window again.
     if (prev >= 0) this.paintWindow(prev, () => GREEN, () => 0);
 
@@ -173,6 +174,38 @@ export class RacingLine {
       return this.tmp.copy(YELLOW).lerp(RED, Math.min((ratio - 1) / 0.06, 1));
     });
     this.colorAttr.needsUpdate = true;
+  }
+
+  /** Nearest sample to `p`, searching around `hint` first (pass -1 for a full search). */
+  nearestFrom(p: THREE.Vector3, hint: number): number {
+    const count = this.points.length;
+    const dist = (i: number) => (this.points[i].x - p.x) ** 2 + (this.points[i].z - p.z) ** 2;
+    let best = -1;
+    let bestD = Infinity;
+    if (hint >= 0) {
+      for (let k = -30; k <= 50; k++) {
+        const i = (hint + k + count) % count;
+        const d = dist(i);
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+      if (bestD < 25 * 25) return best;
+    }
+    for (let i = 0; i < count; i++) {
+      const d = dist(i);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  /** Distance (m) between consecutive samples i -> i+1. */
+  segmentLength(i: number): number {
+    return this.segLen[i % this.points.length];
   }
 
   /** Ideal lap time (s) of the computed speed profile. */
@@ -202,11 +235,16 @@ export class RacingLine {
   ): void {
     const count = this.points.length;
     let dist = 0;
-    for (let step = 0; dist < LOOKAHEAD && step < count; step++) {
-      const j = (start + step) % count;
-      this.setColor(j, color(j, step), alpha(dist));
+    let steps = 0;
+    for (; dist < LOOKAHEAD && steps < count; steps++) {
+      const j = (start + steps) % count;
+      this.setColor(j, color(j, steps), alpha(dist));
       dist += this.segLen[j];
     }
+    // Upload only the touched samples (8 floats each), split at the wrap-around.
+    const first = Math.min(steps, count - start);
+    this.colorAttr.addUpdateRange(start * 8, first * 8);
+    if (steps > first) this.colorAttr.addUpdateRange(0, (steps - first) * 8);
   }
 
   private setColor(i: number, c: THREE.Color, a: number): void {

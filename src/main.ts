@@ -17,9 +17,16 @@ async function main(): Promise<void> {
 
     if (config.showMenu) {
       loading?.classList.add('hidden');
-      ({ carId, trackId } = await showMenu(CARS, TRACKS, { carId, trackId }));
+      const sel = await showMenu(CARS, TRACKS, { carId, trackId, ai: config.ai, laps: config.laps });
+      ({ carId, trackId } = sel);
+      config.ai = sel.ai;
+      config.laps = sel.laps;
       // Shareable / reload-safe URL for this selection.
-      history.replaceState(null, '', urlWith({ car: carId, track: trackId, menu: null }));
+      history.replaceState(
+        null,
+        '',
+        urlWith({ car: carId, track: trackId, ai: String(sel.ai), laps: String(sel.laps), menu: null }),
+      );
       loading?.classList.remove('hidden');
     }
 
