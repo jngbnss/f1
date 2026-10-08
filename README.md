@@ -124,7 +124,7 @@ npx tsx scripts/fetch-osm.ts [circuit]   # OpenStreetMap 주변 환경 데이터
 | 서킷 중심선, 폭, 레이싱 라인 | [TUMFTM/racetrack-database](https://github.com/TUMFTM/racetrack-database) | LGPL-3.0 (원본은 OSM 기반) |
 | 건물, 숲, 물, 주차장, 도로 | [OpenStreetMap](https://www.openstreetmap.org/copyright) (Overpass API) | © OpenStreetMap contributors, **ODbL** |
 | 아스팔트, 잔디, 그래블 텍스처 | [Poly Haven](https://polyhaven.com) `asphalt_02`, `leafy_grass`, `gravelly_sand` | CC0 |
-| 하늘 HDRI | Poly Haven `kloofendal_48d_partly_cloudy_puresky` | CC0 |
+| 하늘 HDRI | Poly Haven `kloofendal_48d_partly_cloudy_puresky`, `qwantani_late_afternoon_puresky`, `kloofendal_overcast_puresky`, `kloofendal_28d_misty_puresky` | CC0 |
 | 엔진 녹음 루프 | [OpenGameArt "Racing car engine sound loops"](https://opengameart.org/node/5633) by domasx2 | CC0 |
 
 - OSM 데이터는 `scripts/fetch-osm.ts`가 받습니다.
@@ -143,7 +143,9 @@ npx tsx scripts/fetch-osm.ts [circuit]   # OpenStreetMap 주변 환경 데이터
 | `shadowmap` | `2048` | 그림자 맵 해상도 |
 | `aa` | `1` | MSAA |
 | `pr` | `2` | 최대 devicePixelRatio |
-| `trees` | `300` | km당 나무 수 (OSM 숲이 없는 Test Circuit에만 적용) |
+| `trees` | `0` | 나무 (기본 끔. 0보다 크면 OSM 숲 + Test Circuit에 km당 개수만큼) |
+| `theme` | 서킷별 | 배경 테마 강제 (`default`, `alpine`, `lombardy`, `england`, `ardennes`) |
+| `bench` | – | 벤치마크 모드 (초). 서킷을 빼면 전체 서킷을 차례로 측정 |
 | `hz` | `60` | 고정 물리 스텝 주파수 |
 | `sound` | `1` | 오디오 on/off |
 | `debug` | `0` | Rapier 콜라이더 와이어프레임 |

@@ -26,6 +26,7 @@ const SETS: Record<keyof TrackMaterials, TextureSet> = {
 export async function applyTrackTextures(
   materials: TrackMaterials,
   renderer: THREE.WebGLRenderer,
+  grassTint?: number,
   baseUrl: string = import.meta.env.BASE_URL,
 ): Promise<void> {
   const loader = new THREE.TextureLoader();
@@ -55,7 +56,7 @@ export async function applyTrackTextures(
       m.normalScale.set(set.normalScale, set.normalScale);
       m.roughnessMap = arm;
       m.roughness = 1;
-      m.color.set(set.tint ?? 0xffffff);
+      m.color.set((key === 'grass' ? grassTint : undefined) ?? set.tint ?? 0xffffff);
       m.needsUpdate = true;
     }),
   );

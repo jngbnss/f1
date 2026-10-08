@@ -12,6 +12,7 @@ import { PerformanceMonitor } from '../performance/PerformanceMonitor';
 import { PhysicsDebugRenderer } from '../physics/PhysicsDebugRenderer';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { HUD } from '../ui/HUD';
+import { Minimap } from '../ui/Minimap';
 import { Vehicle } from '../vehicle/Vehicle';
 import type { CarDefinition } from '../vehicle/cars';
 import { AIDriver } from '../race/AIDriver';
@@ -20,6 +21,8 @@ import { RaceManager, type Racer } from '../race/RaceManager';
 import type { VehicleInput } from '../input/VehicleInput';
 import { Environment } from '../world/Environment';
 import { RacingLine } from '../world/RacingLine';
+import { buildTerrain } from '../world/Terrain';
+import { themeFor, type WorldTheme } from '../world/themes';
 import { applyTrackTextures } from '../world/TrackTextures';
 import { ProceduralTrack, type Surface, type Track } from '../world/Track';
 import type { TrackLayout } from '../world/TrackLayout';
@@ -30,6 +33,9 @@ const PALETTE = [
   0xe10600, 0x00a19c, 0xff8700, 0x0090ff, 0x2b4562, 0xf596c8, 0x37bedd, 0x52e252, 0xb6babd, 0xffd700,
   0x6c0000, 0x1e5bc6, 0x00352f, 0xc92d4b, 0x900000, 0x5e8faa, 0xffffff, 0x358c75, 0x8a2be2,
 ];
+
+/** Player's dot on the minimap. */
+const PLAYER_DOT = 0xffd23f;
 
 /** Input used while cars wait on the grid. */
 const HOLD: VehicleInput = { throttle: 0, brake: 1, steer: 0, handbrake: 1 };
@@ -80,6 +86,9 @@ export class Game {
   /** Benchmark mode: the player's car is driven by an AI and frames are recorded. */
   private readonly autopilot: AIDriver | null = null;
   private readonly bench: Benchmark | null = null;
+  readonly theme: WorldTheme;
+  private readonly terrain: THREE.Mesh;
+  private readonly minimap: Minimap;
 
   private constructor(
     private readonly container: HTMLElement,
@@ -95,15 +104,19 @@ export class Game {
     this.renderer.shadowMap.enabled = config.shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.theme = themeFor(layout.id, config.theme);
+    this.renderer.toneMappingExposure = this.theme.exposure;
     container.appendChild(this.renderer.domElement);
     this.dynamicResolution = config.dynamicResolution
       ? new DynamicResolution(this.renderer, Math.min(window.devicePixelRatio, config.pixelRatio))
       : null;
 
     // --- world --------------------------------------------------------
-    this.environment = new Environment(this.scene, { shadows: config.shadows, shadowMapSize: config.shadowMapSize });
+    this.environment = new Environment(this.scene, { shadows: config.shadows, shadowMapSize: config.shadowMapSize, theme: this.theme });
     this.track = new ProceduralTrack(physics, layout, { treesPerKm: config.treesPerKm, scenery: layout.scenery });
     this.scene.add(this.track.root);
+    this.terrain = buildTerrain(this.track.bounds, this.theme.terrain);
+    this.scene.add(this.terrain);
     this.racingLine = new RacingLine(layout.raceline ?? layout.points, car.physics);
     this.scene.add(this.racingLine.mesh);
     this.lapTimer = new LapTimer(this.track.getCenterline().length, this.track.spawnIndex, `best:${car.id}:${layout.id}`);
@@ -163,6 +176,7 @@ export class Game {
     this.player.render(1);
     this.followCamera.snap(this.player.object3D);
     this.hud = new HUD(layout.name, layout.attribution);
+    this.minimap = new Minimap(this.track.getCenterline());
 
     if (config.sound) {
       this.audio = new AudioSystem();
@@ -203,8 +217,8 @@ export class Game {
     this.loop.start();
     // Stream heavy assets after the first frame: drive first, prettier a moment later.
     const base = import.meta.env.BASE_URL;
-    applyTrackTextures(this.track.materials, this.renderer).catch((e) => console.warn('Track textures failed', e));
-    this.environment.loadSky(`${base}hdri/sky_2k.hdr`, this.renderer).catch((e) => console.warn('HDRI sky failed', e));
+    applyTrackTextures(this.track.materials, this.renderer, this.theme.grassTint).catch((e) => console.warn('Track textures failed', e));
+    this.environment.loadSky(base, this.renderer).catch((e) => console.warn('HDRI sky failed', e));
   }
 
   /** Put the player back on the track centerline nearest to where it is. */
@@ -217,6 +231,18 @@ export class Game {
     this.flippedTime = 0;
     const me = this.race?.player;
     if (me) this.race!.resync(me);
+  }
+
+  private _minimapCars: { position: THREE.Vector3; color: number; isPlayer: boolean }[] | null = null;
+
+  /** Minimap entries (built once; positions are live references). */
+  private get minimapCars() {
+    if (!this._minimapCars) {
+      this._minimapCars = this.race
+        ? this.race.racers.map((r) => ({ position: r.vehicle.position, color: r.isPlayer ? PLAYER_DOT : r.color, isPlayer: r.isPlayer }))
+        : [{ position: this.player.position, color: PLAYER_DOT, isPlayer: true }];
+    }
+    return this._minimapCars;
   }
 
   private racer(name: string, vehicle: Vehicle, ai: AIDriver | null, isPlayer: boolean, color: number): Racer {
@@ -253,6 +279,10 @@ export class Game {
     this.track.dispose();
     this.racingLine.dispose();
     this.environment.dispose();
+    this.terrain.removeFromParent();
+    this.terrain.geometry.dispose();
+    (this.terrain.material as THREE.Material).dispose();
+    this.minimap.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -320,7 +350,8 @@ export class Game {
     const speedRatio = this.player.physics.forwardSpeed / this.player.config.maxSpeed;
     this.followCamera.update(this.player.object3D, speedRatio, frameDt);
     this.environment.update(this.player.object3D.position);
-    this.track.update(performance.now() / 1000);
+    this.track.update(performance.now() / 1000, this.followCamera.camera.position);
+    this.minimap.update(this.minimapCars);
     this.racingLine.update(this.player.object3D.position, this.player.physics.forwardSpeed);
     this.debugRenderer?.update();
     this.hud.updateLaps(this.lapTimer, this.lapEvent);

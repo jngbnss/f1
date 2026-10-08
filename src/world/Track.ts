@@ -40,9 +40,13 @@ export interface Track {
   /** Ground type under a world position (grip / drag / sound). */
   surfaceAt(p: THREE.Vector3): Surface;
   /** Per-frame animation (crowd), `time` in seconds. */
-  update(time: number): void;
+  /** Per frame: animations + distance culling around the camera. */
+  update(time: number, camera?: THREE.Vector3): void;
   dispose(): void;
 }
+
+/** Scenery pieces further than this from the camera are hidden (m). Haze makes them faint there anyway. */
+const SCENERY_CULL_DISTANCE = 3200;
 
 export interface TrackMaterials {
   asphalt: THREE.MeshStandardMaterial;
@@ -155,6 +159,7 @@ export class ProceduralTrack implements Track {
   private readonly barrierOffset: number;
   private readonly crowdSeats: CrowdSeat[] = [];
   private readonly crowdMaterial = new CrowdMaterial();
+  private readonly cullables: { object: THREE.Object3D; center: THREE.Vector3; radius: number }[] = [];
   private standMaterials: { concrete: THREE.Material; seats: THREE.Material; roof: THREE.Material } | null = null;
 
   constructor(
@@ -191,14 +196,18 @@ export class ProceduralTrack implements Track {
     if (options.scenery) forestTrees = this.buildScenery(options.scenery);
     else this.buildPitAndGrandstand();
     // With OSM data, trees come from real forests (random ones could land in lakes or buildings).
-    const scatter = options.scenery ? 0 : Math.round((options.treesPerKm * this.length) / 1000);
-    if (scatter + forestTrees.length > 0) this.buildTrees(scatter, forestTrees);
+    // Trees are opt-in (treesPerKm > 0): the low-poly ones looked toy-like.
+    if (options.treesPerKm > 0) {
+      const scatter = options.scenery ? 0 : Math.round((options.treesPerKm * this.length) / 1000);
+      if (scatter + forestTrees.length > 0) this.buildTrees(scatter, forestTrees);
+    }
     this.buildSpectatorBanks();
     if (this.crowdSeats.length) {
       const crowd = buildCrowd(this.crowdSeats, this.crowdMaterial);
       this.disposables.push(...crowd.disposables, this.crowdMaterial);
       this.root.add(crowd.group);
     }
+    this.collectCullables();
   }
 
   get spawnIndex(): number {
@@ -276,8 +285,11 @@ export class ProceduralTrack implements Track {
     return pose;
   }
 
-  update(time: number): void {
+  update(time: number, camera?: THREE.Vector3): void {
     this.crowdMaterial.setTime(time);
+    if (camera) {
+      for (const c of this.cullables) c.object.visible = c.center.distanceTo(camera) - c.radius < SCENERY_CULL_DISTANCE;
+    }
   }
 
   /** Number of spectators placed (stands + trackside). */
@@ -292,6 +304,26 @@ export class ProceduralTrack implements Track {
   }
 
   // --------------------------------------------------------------------
+
+  /**
+   * Small scenery (building tiles, stands, rail tiles, LODs) gets a bounding
+   * sphere for distance culling; long objects like the road stay always on.
+   */
+  private collectCullables(): void {
+    this.root.updateMatrixWorld(true);
+    const box = new THREE.Box3();
+    const sphere = new THREE.Sphere();
+    const visit = (o: THREE.Object3D) => {
+      const leaf = o instanceof THREE.Mesh || o instanceof THREE.LOD;
+      if (leaf) {
+        box.setFromObject(o).getBoundingSphere(sphere);
+        if (!box.isEmpty() && sphere.radius < 900) this.cullables.push({ object: o, center: sphere.center.clone(), radius: sphere.radius });
+        return; // LOD levels / mesh children follow their parent
+      }
+      for (const child of o.children) visit(child);
+    };
+    for (const child of this.root.children) visit(child);
+  }
 
   private own<T extends { dispose(): void }>(resource: T): T {
     this.disposables.push(resource);

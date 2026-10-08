@@ -30,6 +30,8 @@ export interface SimConfig {
   laps: number;
   /** Engine/tyre/wind audio. */
   sound: boolean;
+  /** World look override (see world/themes.ts); null = the circuit's own theme. */
+  theme: string | null;
   /** Benchmark length in seconds (0 = off). `?bench` alone = 40 s. */
   bench: number;
   /** Track ids still to benchmark after the current one. */
@@ -68,13 +70,15 @@ export function readConfig(search = window.location.search): SimConfig {
     // Benchmarks measure the full-resolution cost, so dynamic resolution is off unless asked for.
     dynamicResolution: bool(p, 'dynres', !bench),
     physicsDebug: bool(p, 'debug', false),
-    treesPerKm: num(p, 'trees', 300),
+    // Off by default: low-poly trees looked toy-like. ?trees=300 brings them back for instancing experiments.
+    treesPerKm: num(p, 'trees', 0),
     physicsHz: num(p, 'hz', 60),
     sound: bool(p, 'sound', !bench),
     ai: num(p, 'ai', bench ? 19 : 11),
     // Benchmarks must not reach the finish (results screen) during the run.
     laps: bench ? 99 : num(p, 'laps', 3),
     bench,
+    theme: p.get('theme'),
     benchQueue: (p.get('benchq') ?? '').split(',').filter(Boolean),
     benchFirst: !p.has('benchi'),
   };

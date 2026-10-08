@@ -54,7 +54,7 @@ export class FollowCamera {
 
   constructor(aspect: number, options: Partial<FollowCameraOptions> = {}) {
     this.options = { ...DEFAULTS, ...options };
-    this.camera = new THREE.PerspectiveCamera(this.options.baseFov, aspect, 0.1, 1200); // ≈ fog end: nothing further is visible
+    this.camera = new THREE.PerspectiveCamera(this.options.baseFov, aspect, 0.3, 15000); // distant hills; small scenery is distance-culled by the track
   }
 
   /**

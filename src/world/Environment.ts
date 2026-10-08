@@ -1,17 +1,15 @@
 import * as THREE from 'three';
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
+import type { WorldTheme } from './themes';
 
 export interface EnvironmentOptions {
   shadows: boolean;
   shadowMapSize: number;
+  theme: WorldTheme;
 }
 
-const SKY_TOP = new THREE.Color(0x3d7cc9);
-const SKY_HORIZON = new THREE.Color(0xc9e3f5);
-const FOG_COLOR = 0xbcd9ef;
-
 /**
- * Sky, lights, fog. The sun's shadow camera follows the player with a tight
+ * Sky, lights, haze (exponential, so distant hills fade like real air). The sun's shadow camera follows the player with a tight
  * frustum, so one modest shadow map stays sharp around the car regardless of
  * track size (cheap compared to covering the whole track).
  */
@@ -24,20 +22,22 @@ export class Environment {
   private readonly hemi: THREE.HemisphereLight;
   private envMap: THREE.Texture | null = null;
   private skyTexture: THREE.Texture | null = null;
+  private readonly theme: WorldTheme;
 
   constructor(
     private readonly scene: THREE.Scene,
     options: EnvironmentOptions,
   ) {
-    scene.background = SKY_HORIZON.clone();
-    scene.fog = new THREE.Fog(FOG_COLOR, 250, 1100);
+    const theme = (this.theme = options.theme);
+    scene.background = new THREE.Color(theme.skyHorizon);
+    scene.fog = new THREE.FogExp2(theme.skyHorizon, theme.fogDensity);
 
-    this.sky = this.createSky();
+    this.sky = this.createSky(new THREE.Color(theme.skyTop), new THREE.Color(theme.skyHorizon));
     scene.add(this.sky);
 
     const ambient = (this.ambient = new THREE.AmbientLight(0xffffff, 0.35));
     const hemi = (this.hemi = new THREE.HemisphereLight(0xcfe6ff, 0x4f6b3a, 1.1));
-    this.sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
+    this.sun = new THREE.DirectionalLight(theme.sunColor, theme.sunIntensity);
     this.sun.position.copy(this.sunOffset);
 
     if (options.shadows) {
@@ -64,8 +64,8 @@ export class Environment {
    * running): becomes the visible sky, the image-based lighting for PBR
    * materials (car paint reflections), and drives sun direction + fog color.
    */
-  async loadSky(url: string, renderer: THREE.WebGLRenderer): Promise<void> {
-    const texture = await new HDRLoader().loadAsync(url);
+  async loadSky(baseUrl: string, renderer: THREE.WebGLRenderer): Promise<void> {
+    const texture = await new HDRLoader().loadAsync(`${baseUrl}hdri/${this.theme.hdri}`);
     texture.mapping = THREE.EquirectangularReflectionMapping;
 
     const pmrem = new THREE.PMREMGenerator(renderer);
@@ -75,15 +75,15 @@ export class Environment {
     this.skyTexture = texture;
     this.scene.background = texture;
     this.scene.environment = this.envMap;
-    this.scene.environmentIntensity = 0.9;
+    this.scene.environmentIntensity = this.theme.envIntensity;
     this.sky.visible = false;
     // IBL now provides the ambient term.
     this.ambient.intensity = 0;
-    this.hemi.intensity = 0.25;
+    this.hemi.intensity = this.theme.hemiIntensity;
 
     const { sunDir, horizon } = analyzeEquirect(texture);
     if (sunDir) this.sunOffset.copy(sunDir).multiplyScalar(130);
-    if (horizon && this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(horizon);
+    if (horizon && this.scene.fog) this.scene.fog.color.copy(horizon);
   }
 
   /** Keep the shadow frustum and sky centred on the player. */
@@ -110,15 +110,16 @@ export class Environment {
   }
 
   /** Vertical-gradient sky dome; 1 draw call, no textures. */
-  private createSky(): THREE.Mesh {
-    const geo = new THREE.SphereGeometry(900, 24, 12);
+  private createSky(top: THREE.Color, horizon: THREE.Color): THREE.Mesh {
+    // Inside the camera far plane, beyond the distant hills.
+    const geo = new THREE.SphereGeometry(13000, 24, 12);
     const mat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
       fog: false,
       uniforms: {
-        top: { value: SKY_TOP },
-        horizon: { value: SKY_HORIZON },
+        top: { value: top },
+        horizon: { value: horizon },
       },
       vertexShader: /* glsl */ `
         varying float vHeight;
