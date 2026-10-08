@@ -53,7 +53,11 @@ export class RacingLine {
   private carIndex = -1;
   private readonly tmp = new THREE.Color();
 
-  constructor(path: readonly [number, number][], car: VehicleConfig, options: RacingLineOptions = {}) {
+  constructor(
+    readonly path: readonly [number, number][],
+    car: VehicleConfig,
+    options: RacingLineOptions = {},
+  ) {
     const width = options.width ?? 0.9;
     const spacing = options.spacing ?? 2;
 

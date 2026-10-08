@@ -16,7 +16,7 @@ import type { TrackLayout } from '../src/world/TrackLayout';
 const dt = 1 / 60;
 const G = 9.81;
 
-/** 9 km straight with a huge road (skidpad circles fit on it). */
+/** 20 km straight with a huge road (skidpad circles fit on it). */
 const RUNWAY: TrackLayout = {
   id: 'runway',
   name: 'Runway',
@@ -24,12 +24,12 @@ const RUNWAY: TrackLayout = {
   runoff: 20,
   sampleSpacing: 10,
   points: [
-    [0, 4500],
-    [0, -4500],
-    [2000, -4800],
-    [4000, -4500],
-    [4000, 4500],
-    [2000, 4800],
+    [0, 10000],
+    [0, -10000],
+    [2000, -10300],
+    [4000, -10000],
+    [4000, 10000],
+    [2000, 10300],
   ],
 };
 
@@ -47,7 +47,7 @@ async function rig(car: CarDefinition) {
   const physics = await PhysicsWorld.create(dt);
   const track = new ProceduralTrack(physics, RUNWAY, { treesPerKm: 0 });
   // Start of the long straight, facing -Z (car forward).
-  const pose = { position: new Vector3(-150, 1, 4300), quaternion: new Quaternion() };
+  const pose = { position: new Vector3(-150, 1, 9800), quaternion: new Quaternion() };
   const v = new Vehicle(physics, car.physics, car.createVisual(), pose, car.gearbox);
   const tick = (input: Partial<VehicleInput>) => {
     v.fixedUpdate({ throttle: 0, brake: 0, steer: 0, handbrake: 0, ...input }, dt);
@@ -67,8 +67,8 @@ export async function measure(car: CarDefinition): Promise<HandlingResult> {
   let last = 0;
   let stall = 0;
   let topKmh = 0;
-  // Until the speed stops rising or the 9 km straight runs out.
-  while (t < 120 && stall < 4 && v.position.z > -4300) {
+  // Until the speed stops rising or the 20 km straight runs out.
+  while (t < 120 && stall < 4 && v.position.z > -9800) {
     tick({ throttle: 1 });
     topKmh = Math.max(topKmh, v.speedKmh);
     t += dt;
@@ -124,7 +124,9 @@ export async function measure(car: CarDefinition): Promise<HandlingResult> {
 
 async function main(): Promise<void> {
   const ids = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-  const cars = ids.length ? CARS.filter((c) => ids.includes(c.id)) : CARS;
+  // Default: one car per class ('all' = the whole catalog, slow).
+  const reps = ['vw-golf-gti', 'porsche-911-carrera-s', 'porsche-911-gt3r', 'mclaren-p1', 'f1-ferrari'];
+  const cars = ids.includes('all') ? CARS : CARS.filter((c) => (ids.length ? ids : reps).includes(c.id));
   const json = process.argv.includes('--json');
   const results: HandlingResult[] = [];
   for (const car of cars) {

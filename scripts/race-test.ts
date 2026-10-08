@@ -8,28 +8,21 @@ import { readFileSync } from 'node:fs';
 import { PhysicsWorld } from '../src/physics/PhysicsWorld';
 import { AIDriver } from '../src/race/AIDriver';
 import { RaceManager, type Racer } from '../src/race/RaceManager';
-import { CARS } from '../src/vehicle/cars';
+import { findCar } from '../src/vehicle/cars';
 import { Vehicle } from '../src/vehicle/Vehicle';
 import { racingLineFor } from '../src/world/RacingLineOptimizer';
 import { RacingLine } from '../src/world/RacingLine';
+import { loadLayout } from './tracks-node';
 import { ProceduralTrack } from '../src/world/Track';
 import { DEMO_TRACK, parseTumCsv, type TrackLayout } from '../src/world/TrackLayout';
 
 const [trackId = 'test', carsArg = '20', lapsArg = '2', carId = 'gt'] = process.argv.slice(2);
-const FILES: Record<string, [string, string]> = {
-  spielberg: ['Red Bull Ring', 'Spielberg'],
-  monza: ['Monza', 'Monza'],
-  silverstone: ['Silverstone', 'Silverstone'],
-  spa: ['Spa-Francorchamps', 'Spa'],
-};
-const read = (f: string) => readFileSync(new URL(`../src/world/tracks/data/${f}`, import.meta.url), 'utf8');
-let layout: TrackLayout = DEMO_TRACK;
-if (FILES[trackId]) layout = parseTumCsv(trackId, FILES[trackId][0], read(`${FILES[trackId][1]}.csv`), read(`${FILES[trackId][1]}_raceline.csv`));
+const layout: TrackLayout = loadLayout(trackId);
 
 const dt = 1 / 60;
 const physics = await PhysicsWorld.create(dt);
 const track = new ProceduralTrack(physics, layout, { treesPerKm: 0 });
-const car = CARS.find((c) => c.id === carId) ?? CARS[1];
+const car = findCar(carId);
 const line = new RacingLine(racingLineFor(track), car.physics);
 const total = Number(carsArg);
 const racers: Racer[] = [];

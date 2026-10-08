@@ -136,3 +136,13 @@ html, body {
   position: fixed; left: 16px; bottom: 44px; z-index: 5; pointer-events: none;
   background: rgba(10, 14, 20, 0.55); border-radius: 10px;
 }
+.menu h2 small { font-weight: 400; margin-left: 8px; color: #6f7c89; }
+.menu-classes { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); margin-bottom: 10px; }
+.menu-spec { margin-top: 12px; padding: 12px 14px; background: rgba(255, 255, 255, 0.05); border-radius: 8px; }
+.menu-spec-head { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.menu-spec-head span { color: #ff5a5f; font-weight: 700; }
+.menu-bar { display: grid; grid-template-columns: 64px 1fr 120px; gap: 10px; align-items: center; font-size: 12px; margin: 4px 0; }
+.menu-bar span { color: #9fb0c0; }
+.menu-bar div { height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 4px; overflow: hidden; }
+.menu-bar i { display: block; height: 100%; background: linear-gradient(90deg, #ff5a5f, #ffb35a); }
+.menu-bar b { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }

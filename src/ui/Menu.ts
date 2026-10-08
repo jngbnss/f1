@@ -1,3 +1,4 @@
+import { CLASS_INFO, type CarClass } from '../vehicle/catalog/specs';
 import type { CarDefinition } from '../vehicle/cars';
 import type { TrackEntry } from '../world/tracks';
 
@@ -37,8 +38,10 @@ export function showMenu(
     root.innerHTML = `
       <div class="menu-panel">
         <h1>web-sim-lab <span>Racing</span></h1>
-        <h2>자동차</h2>
+        <h2>자동차 <small>등급을 고른 뒤 차량을 선택하세요 · 총 ${cars.length}대</small></h2>
+        <div class="menu-grid menu-classes" data-group="class"></div>
         <div class="menu-grid" data-group="car"></div>
+        <div class="menu-spec" data-group="spec"></div>
         <h2>서킷</h2>
         <div class="menu-grid" data-group="track"></div>
         <h2>레이스</h2>
@@ -49,6 +52,9 @@ export function showMenu(
       </div>`;
 
     const carGrid = root.querySelector<HTMLDivElement>('[data-group="car"]')!;
+    const classGrid = root.querySelector<HTMLDivElement>('[data-group="class"]')!;
+    const specEl = root.querySelector<HTMLDivElement>('[data-group="spec"]')!;
+    let cls: CarClass = cars.find((c) => c.id === carId)?.cls ?? 'formula';
     const trackGrid = root.querySelector<HTMLDivElement>('[data-group="track"]')!;
     const aiGrid = root.querySelector<HTMLDivElement>('[data-group="ai"]')!;
     const lapGrid = root.querySelector<HTMLDivElement>('[data-group="laps"]')!;
@@ -68,14 +74,27 @@ export function showMenu(
     };
 
     const render = () => {
-      carGrid.replaceChildren(
-        ...cars.map((c) =>
-          card(c.name, c.description, c.id === carId, () => {
-            carId = c.id;
+      classGrid.replaceChildren(
+        ...(Object.keys(CLASS_INFO) as CarClass[]).map((k) =>
+          card(CLASS_INFO[k].label, CLASS_INFO[k].description, k === cls, () => {
+            cls = k;
+            // Keep the selection inside the visible class.
+            if (cars.find((c) => c.id === carId)?.cls !== k) carId = cars.find((c) => c.cls === k)!.id;
             render();
           }),
         ),
       );
+      carGrid.replaceChildren(
+        ...cars
+          .filter((c) => c.cls === cls)
+          .map((c) =>
+            card(c.name, `PI ${c.stats.pi} · ${c.description}`, c.id === carId, () => {
+              carId = c.id;
+              render();
+            }),
+          ),
+      );
+      renderSpec(specEl, cars.find((c) => c.id === carId)!);
       trackGrid.replaceChildren(
         ...tracks.map((t) =>
           card(t.name, `${t.location} · ${t.lengthKm} km`, t.id === trackId, () => {
@@ -117,4 +136,24 @@ export function showMenu(
     render();
     document.body.append(root);
   });
+}
+
+/** Five rating bars of the selected car, with the figures behind them. */
+function renderSpec(el: HTMLElement, car: CarDefinition): void {
+  const s = car.stats;
+  const bars: [string, number, string][] = [
+    ['최고속도', s.topSpeed, `${car.spec.top} km/h`],
+    ['가속', s.acceleration, `0-100 ${s.t100.toFixed(1)} s`],
+    ['핸들링', s.handling, `${s.lateralG.toFixed(2)} g @150`],
+    ['제동', s.braking, `200-0 ${s.brake200} m`],
+    ['무게', s.weight, `${car.spec.kg} kg`],
+  ];
+  el.innerHTML = `<div class="menu-spec-head"><strong></strong><span>PI ${s.pi}</span></div>` +
+    bars
+      .map(
+        ([label, value, raw]) =>
+          `<div class="menu-bar"><span>${label}</span><div><i style="width:${Math.max(value, 3)}%"></i></div><b>${raw}</b></div>`,
+      )
+      .join('');
+  el.querySelector('strong')!.textContent = car.name;
 }

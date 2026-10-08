@@ -14,7 +14,7 @@ import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { HUD } from '../ui/HUD';
 import { Minimap } from '../ui/Minimap';
 import { Vehicle } from '../vehicle/Vehicle';
-import type { CarDefinition } from '../vehicle/cars';
+import { opponentsFor, type CarDefinition } from '../vehicle/cars';
 import { AIDriver } from '../race/AIDriver';
 import { LapTimer } from '../race/LapTimer';
 import { RaceManager, type Racer } from '../race/RaceManager';
@@ -86,6 +86,10 @@ export class Game {
   /** 3D engine sounds of the opponents. */
   private readonly voices = new Map<Vehicle, EngineVoice>();
   private readonly _camDir = new THREE.Vector3();
+  /** Car model of each opponent (engine sound, name). */
+  private readonly carOf = new Map<Vehicle, CarDefinition>();
+  /** Speed profiles per car model (the player's one is also the visible line). */
+  private readonly rivalLines = new Map<string, RacingLine>();
   /** Benchmark mode: the player's car is driven by an AI and frames are recorded. */
   private readonly autopilot: AIDriver | null = null;
   private readonly bench: Benchmark | null = null;
@@ -137,25 +141,36 @@ export class Game {
 
     if (opponents > 0) {
       const racers: Racer[] = [];
-      let colorIndex = 0;
+      // Same-class rivals closest in performance; quicker cars start further up.
+      const rivals = opponentsFor(car, opponents).sort((a, b) => b.stats.pi - a.stats.pi);
+      // Each distinct rival car gets its own speed profile on the shared racing line.
+      const lines = this.rivalLines;
+      lines.set(car.id, this.racingLine);
+      let rivalIndex = 0;
       for (let slot = 0; slot < total; slot++) {
         if (slot === playerSlot) {
           racers.push(this.racer('YOU', this.player, null, true, 0xffffff));
           continue;
         }
-        const color = PALETTE[colorIndex++ % PALETTE.length];
-        const vehicle = new Vehicle(physics, car.physics, car.createVisual(color), this.track.gridPose(slot), car.gearbox);
+        const def = rivals[rivalIndex++];
+        // Repeated models (small classes) get an alternative paint.
+        const repeat = rivals.indexOf(def) !== rivalIndex - 1;
+        const color = repeat ? PALETTE[rivalIndex % PALETTE.length] : def.spec.color;
+        const vehicle = new Vehicle(physics, def.physics, def.createVisual(color), this.track.gridPose(slot), def.gearbox);
         this.scene.add(vehicle.object3D);
         this.vehicles.push(vehicle);
+        this.carOf.set(vehicle, def);
+        let line = lines.get(def.id);
+        if (!line) lines.set(def.id, (line = new RacingLine(this.racingLine.path, def.physics)));
         // Front of the grid = faster drivers, with some randomness.
         const r = Math.sin(slot * 12.9898) * 43758.5453;
         const rand = r - Math.floor(r);
-        const ai = new AIDriver(vehicle, this.racingLine, this.track, {
+        const ai = new AIDriver(vehicle, line, this.track, {
           pace: 0.97 - (slot / total) * 0.07 + (rand - 0.5) * 0.04,
           lane: (rand - 0.5) * 2.4,
           aggression: rand,
         });
-        racers.push(this.racer(`CPU ${String(colorIndex).padStart(2, '0')}`, vehicle, ai, false, color));
+        racers.push(this.racer(def.spec.brand, vehicle, ai, false, color));
       }
       this.race = new RaceManager(this.track, racers, Math.max(1, Math.round(config.laps)));
     }
@@ -193,7 +208,7 @@ export class Game {
         this.carAudio = new CarAudio(ctx, master, car.engine, assets);
         if (assets.engineLoop) {
           for (const v of this.vehicles) {
-            if (v !== this.player) this.voices.set(v, new EngineVoice(ctx, master, car.engine, assets.engineLoop));
+            if (v !== this.player) this.voices.set(v, new EngineVoice(ctx, master, (this.carOf.get(v) ?? car).engine, assets.engineLoop));
           }
         }
       });
@@ -286,6 +301,7 @@ export class Game {
     this.input.dispose();
     for (const v of this.vehicles) v.dispose();
     this.track.dispose();
+    for (const line of this.rivalLines.values()) if (line !== this.racingLine) line.dispose();
     this.racingLine.dispose();
     this.environment.dispose();
     this.terrain.removeFromParent();

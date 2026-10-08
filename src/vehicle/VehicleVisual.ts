@@ -37,6 +37,11 @@ export abstract class PrimitiveCarVisual implements VehicleVisual {
   private readonly steers: THREE.Object3D[] = [];
   private readonly spins: THREE.Object3D[] = [];
   private readonly disposables: { dispose(): void }[] = [];
+  /**
+   * Scale applied to the body (not the wheels) when merged in optimize():
+   * lets one modelled body serve cars of different size.
+   */
+  protected bodyScale: [number, number, number] = [1, 1, 1];
 
   protected constructor(config: VehicleConfig, wheelStyle: WheelStyle) {
     this.buildWheels(config, wheelStyle);
@@ -64,6 +69,10 @@ export abstract class PrimitiveCarVisual implements VehicleVisual {
    */
   optimize(): this {
     this.mergeChildren(this.root, (o) => o instanceof THREE.Mesh);
+    const [sx, sy, sz] = this.bodyScale;
+    if (sx !== 1 || sy !== 1 || sz !== 1) {
+      for (const child of this.root.children) if (child instanceof THREE.Mesh) child.geometry.scale(sx, sy, sz);
+    }
     for (const spin of this.spins) {
       for (const child of spin.children) if (child instanceof THREE.Group) this.mergeChildren(child, (o) => o instanceof THREE.Mesh);
     }

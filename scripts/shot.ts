@@ -2,7 +2,7 @@
  * Screenshots of the built game in a real browser (visual checks without
  * playing). The player is on autopilot (?bench), so shots are mid-race.
  *
- *   npm run build && npx tsx scripts/shot.ts [track ...] [--wait 12] [--out shots] [--query "&ai=0"]
+ *   npm run build && npx tsx scripts/shot.ts [track | track@car ...] [--wait 12] [--out shots] [--query "&ai=0"]
  *
  * Writes <out>/<track>.png (1600x900). Uses Chrome or Edge (BROWSER env var to override).
  */
@@ -92,11 +92,12 @@ async function main(): Promise<void> {
     const page = targets.find((t) => t.type === 'page');
     if (!page) throw new Error('no page target');
     const cdp = await connect(page.webSocketDebuggerUrl);
-    for (const track of tracks) {
-      await cdp.send('Page.navigate', { url: `http://localhost:${port}/?bench=999&track=${track}${query}` });
+    for (const entry of tracks) {
+      const [track, car] = entry.split('@');
+      await cdp.send('Page.navigate', { url: `http://localhost:${port}/?bench=999&track=${track}${car ? `&car=${car}` : ''}${query}` });
       await sleep(wait * 1000);
       const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
-      const file = join(out, `${track}.png`);
+      const file = join(out, `${entry.replace('@', '_')}.png`);
       writeFileSync(file, Buffer.from(String(shot.result?.data ?? ''), 'base64'));
       console.log(`saved ${file}`);
     }

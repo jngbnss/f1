@@ -14,11 +14,12 @@ import { readFileSync } from 'node:fs';
 import { Vector3 } from 'three';
 import type { VehicleInput } from '../src/input/VehicleInput';
 import { PhysicsWorld } from '../src/physics/PhysicsWorld';
-import { CARS, type CarDefinition } from '../src/vehicle/cars';
+import { CARS, findCar, type CarDefinition } from '../src/vehicle/cars';
 import { Vehicle } from '../src/vehicle/Vehicle';
 import type { OsmData } from '../src/world/OsmScenery';
 import { racingLineFor } from '../src/world/RacingLineOptimizer';
 import { RacingLine } from '../src/world/RacingLine';
+import { loadLayout, REAL_CIRCUITS } from './tracks-node';
 import { ProceduralTrack } from '../src/world/Track';
 import { DEMO_TRACK, parseTumCsv, type TrackLayout } from '../src/world/TrackLayout';
 
@@ -31,19 +32,10 @@ function check(ok: boolean, message: string): void {
   if (!ok) failures++;
 }
 
-const realTracks: TrackLayout[] = [
-  ['spielberg', 'Red Bull Ring', 'Spielberg'],
-  ['monza', 'Monza', 'Monza'],
-  ['silverstone', 'Silverstone', 'Silverstone'],
-  ['spa', 'Spa-Francorchamps', 'Spa'],
-].map(([id, name, file]) =>
-  {
-    const read = (f: string) => readFileSync(new URL(`../src/world/tracks/data/${f}`, import.meta.url), 'utf8');
-    const layout = parseTumCsv(id, name, read(`${file}.csv`), read(`${file}_raceline.csv`));
-    layout.scenery = JSON.parse(read(`${file}_osm.json`)) as OsmData;
-    return layout;
-  },
-);
+/** One car per class: hot hatch, sports car, GT3, hypercar, F1. */
+const CLASS_REPS = ['vw-golf-gti', 'porsche-911-carrera-s', 'porsche-911-gt3r', 'mclaren-p1', 'f1-ferrari'].map((id) => findCar(id));
+
+const realTracks: TrackLayout[] = REAL_CIRCUITS.map(([id]) => loadLayout(id));
 
 async function setup(car: CarDefinition, layout: TrackLayout) {
   const physics = await PhysicsWorld.create(dt);
@@ -148,17 +140,19 @@ async function botLap(car: CarDefinition, layout: TrackLayout): Promise<void> {
   );
 }
 
-for (const car of CARS) await manoeuvres(car);
+// Every car of the catalog must be drivable; laps use one car per class
+// on the test track, and the default F1 car on every real circuit.
+for (const car of quick ? CLASS_REPS : CARS) await manoeuvres(car);
 
 console.log('Bot laps');
 const only = process.argv.slice(2).find((a) => a !== 'quick');
-const layouts = (quick ? [DEMO_TRACK] : [DEMO_TRACK, ...realTracks]).filter((l) => !only || l.id === only);
-for (const layout of layouts) for (const car of CARS) await botLap(car, layout);
+for (const car of CLASS_REPS) if (!only || only === 'test') await botLap(car, DEMO_TRACK);
+if (!quick) for (const layout of realTracks.filter((l) => !only || l.id === only)) await botLap(findCar(null), layout);
 
 // --- 3. dynamic racing line ------------------------------------------------
 console.log('Racing line');
 {
-  const rbr = realTracks[0];
+  const rbr = loadLayout('spielberg');
   const physics = await PhysicsWorld.create(dt);
   const rbrTrack = new ProceduralTrack(physics, rbr, { treesPerKm: 0 });
   const path = racingLineFor(rbrTrack);
@@ -166,7 +160,7 @@ console.log('Racing line');
   let widest = 0;
   for (const [x, z] of path) widest = Math.max(widest, Math.abs(rbrTrack.lateral(new Vector3(x, 0, z))));
   check(widest > rbrTrack.halfWidth - 2.5, `racing line uses the road width: max offset ${widest.toFixed(1)} m of ${rbrTrack.halfWidth.toFixed(1)} m`);
-  const line = new RacingLine(path, CARS[1].physics);
+  const line = new RacingLine(path, findCar('porsche-911-gt3r').physics);
   // Car ~60 m before the slowest point of the first 300 m (turn 1).
   let slow = 0;
   for (let i = 0; i < 150; i++) if (line.speeds[i] < line.speeds[slow]) slow = i;
