@@ -17,6 +17,7 @@ import { PhysicsWorld } from '../src/physics/PhysicsWorld';
 import { CARS, type CarDefinition } from '../src/vehicle/cars';
 import { Vehicle } from '../src/vehicle/Vehicle';
 import type { OsmData } from '../src/world/OsmScenery';
+import { racingLineFor } from '../src/world/RacingLineOptimizer';
 import { RacingLine } from '../src/world/RacingLine';
 import { ProceduralTrack } from '../src/world/Track';
 import { DEMO_TRACK, parseTumCsv, type TrackLayout } from '../src/world/TrackLayout';
@@ -74,7 +75,7 @@ async function manoeuvres(car: CarDefinition): Promise<void> {
   check(vehicle.physics.groundedWheels === 4 && Math.abs(vehicle.speedKmh) < 2, `settles on 4 wheels (y=${vehicle.position.y.toFixed(2)})`);
   const yaw0 = yawDeg(vehicle);
   run(3, { throttle: 1 });
-  check(vehicle.speedKmh > 60, `accelerates: ${vehicle.speedKmh.toFixed(0)} km/h after 3s, gear ${vehicle.gearbox?.label}, ${vehicle.gearbox?.rpm.toFixed(0)} rpm`);
+  check(vehicle.speedKmh > 50, `accelerates: ${vehicle.speedKmh.toFixed(0)} km/h after 3s, gear ${vehicle.gearbox?.label}, ${vehicle.gearbox?.rpm.toFixed(0)} rpm`);
   check(Math.abs(yawDeg(vehicle) - yaw0) < 1, `drives straight without input (Δyaw ${(yawDeg(vehicle) - yaw0).toFixed(2)}°)`);
   run(3.5, { brake: 1 });
   check(vehicle.speedKmh < 0 && vehicle.gearbox?.label === 'R', `brake then reverse: ${vehicle.speedKmh.toFixed(0)} km/h, gear ${vehicle.gearbox?.label}`);
@@ -158,7 +159,14 @@ for (const layout of layouts) for (const car of CARS) await botLap(car, layout);
 console.log('Racing line');
 {
   const rbr = realTracks[0];
-  const line = new RacingLine(rbr.raceline ?? rbr.points, CARS[1].physics);
+  const physics = await PhysicsWorld.create(dt);
+  const rbrTrack = new ProceduralTrack(physics, rbr, { treesPerKm: 0 });
+  const path = racingLineFor(rbrTrack);
+  // Out-in-out: the line should use most of the road width somewhere.
+  let widest = 0;
+  for (const [x, z] of path) widest = Math.max(widest, Math.abs(rbrTrack.lateral(new Vector3(x, 0, z))));
+  check(widest > rbrTrack.halfWidth - 2.5, `racing line uses the road width: max offset ${widest.toFixed(1)} m of ${rbrTrack.halfWidth.toFixed(1)} m`);
+  const line = new RacingLine(path, CARS[1].physics);
   // Car ~60 m before the slowest point of the first 300 m (turn 1).
   let slow = 0;
   for (let i = 0; i < 150; i++) if (line.speeds[i] < line.speeds[slow]) slow = i;

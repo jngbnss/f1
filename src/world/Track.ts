@@ -27,6 +27,7 @@ export interface Track {
   getResetPose(near: THREE.Vector3): Pose;
   /** Closed centerline samples in driving order (AI racing line, lap timing, minimap). */
   getCenterline(): readonly THREE.Vector3[];
+  getRights(): readonly THREE.Vector3[];
   /** Index of the centerline sample closest to `p`. */
   nearestIndex(p: THREE.Vector3): number;
   /** Centerline index the car spawns at. */
@@ -256,6 +257,11 @@ export class ProceduralTrack implements Track {
 
   getCenterline(): readonly THREE.Vector3[] {
     return this.points;
+  }
+
+  /** Unit right vector per centerline sample. */
+  getRights(): readonly THREE.Vector3[] {
+    return this.rights;
   }
 
   /** Half of the asphalt width (m). */

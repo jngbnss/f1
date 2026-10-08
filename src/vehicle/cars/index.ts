@@ -31,19 +31,21 @@ const FORMULA: VehicleConfig = {
   suspensionRestLength: 0.3,
   suspensionStiffness: 45000,
   suspensionDamping: 2600,
-  engineForce: 10500,
+  // ~1000 hp hybrid power unit; drag/downforce of a medium-downforce setup.
+  enginePower: 700000,
+  engineForce: 15000,
   reverseForce: 4500,
-  brakeForce: 26000,
+  brakeForce: 60000, // friction-limited: ~2 g at low speed, 5 g+ with full aero
   handbrakeForce: 5000,
-  maxSpeed: 92, // ≈ 331 km/h
+  maxSpeed: 98, // limiter ≈ 353 km/h; drag tops it out ≈ 340
   maxReverseSpeed: 10,
-  dragCoefficient: 0.3,
-  rollingResistance: 20,
-  downforce: 2.6,
+  dragCoefficient: 0.78, // CdA ≈ 1.27 m²
+  rollingResistance: 0.012,
+  downforce: 2.9, // ClA ≈ 4.7 m²: downforce = weight at ≈ 190 km/h
   frontGrip: 0.9,
   rearGrip: 0.95,
-  frontFriction: 2.0,
-  rearFriction: 2.1,
+  frontFriction: 1.75,
+  rearFriction: 1.8,
   handbrakeGripFactor: 0.35,
   maxSteerLowSpeed: 0.5,
   maxSteerHighSpeed: 0.07,
@@ -67,19 +69,20 @@ const GT: VehicleConfig = {
   suspensionRestLength: 0.38,
   suspensionStiffness: 30000,
   suspensionDamping: 2800,
-  engineForce: 16000,
+  enginePower: 400000, // GT3-class ≈ 540 hp
+  engineForce: 15000,
   reverseForce: 7000,
-  brakeForce: 22000,
+  brakeForce: 45000,
   handbrakeForce: 8000,
-  maxSpeed: 84, // ≈ 302 km/h
+  maxSpeed: 86, // limiter ≈ 310 km/h
   maxReverseSpeed: 12,
-  dragCoefficient: 0.38,
-  rollingResistance: 30,
-  downforce: 1.1,
+  dragCoefficient: 0.62, // CdA ≈ 1.0 m²
+  rollingResistance: 0.013,
+  downforce: 0.9,
   frontGrip: 0.85,
   rearGrip: 0.9,
-  frontFriction: 1.65,
-  rearFriction: 1.75,
+  frontFriction: 1.45,
+  rearFriction: 1.5,
   handbrakeGripFactor: 0.3,
   maxSteerLowSpeed: 0.55,
   maxSteerHighSpeed: 0.085,

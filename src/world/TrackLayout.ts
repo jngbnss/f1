@@ -82,7 +82,7 @@ export function parseTumCsv(id: string, name: string, csv: string, racelineCsv?:
     runoff: 8,
     sampleSpacing: 2.5,
     raceline: racelineCsv ? parseXY(racelineCsv) : undefined,
-    attribution: 'Track & racing line: TUMFTM racetrack-database (LGPL-3.0), based on © OpenStreetMap contributors',
+    attribution: 'Track: TUMFTM racetrack-database (LGPL-3.0), based on © OpenStreetMap contributors',
   };
 }
 

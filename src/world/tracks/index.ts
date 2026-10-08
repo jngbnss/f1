@@ -13,7 +13,7 @@ export interface TrackEntry {
 
 // Lazy loaders for every data file; a missing optional file (e.g. no OSM
 // scenery fetched yet) simply means "not available".
-const files = import.meta.glob<string>('./data/*.{csv,json}', { query: '?raw', import: 'default' });
+const files = import.meta.glob<string>(['./data/*.{csv,json}', '!./data/*_raceline.csv'], { query: '?raw', import: 'default' });
 const loadFile = async (name: string): Promise<string | null> => {
   const loader = files[`./data/${name}`];
   return loader ? loader() : null;
@@ -27,13 +27,10 @@ function realCircuit(id: string, name: string, location: string, lengthKm: numbe
     location,
     lengthKm,
     load: async () => {
-      const [csv, raceline, osm] = await Promise.all([
-        loadFile(`${file}.csv`),
-        loadFile(`${file}_raceline.csv`),
-        loadFile(`${file}_osm.json`),
-      ]);
+      // The dataset's racing line is for the real road width; the game computes its own.
+      const [csv, osm] = await Promise.all([loadFile(`${file}.csv`), loadFile(`${file}_osm.json`)]);
       if (!csv) throw new Error(`Missing track data: ${file}.csv`);
-      const layout = parseTumCsv(id, name, csv, raceline ?? undefined);
+      const layout = parseTumCsv(id, name, csv);
       if (osm) {
         layout.scenery = JSON.parse(osm) as OsmData;
         layout.attribution += ' · Scenery © OpenStreetMap contributors (ODbL)';

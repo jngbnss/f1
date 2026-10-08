@@ -27,26 +27,28 @@ export interface VehicleConfig {
   suspensionStiffness: number;
   suspensionDamping: number;
 
-  /** Peak engine force at standstill (N). Fades out towards maxSpeed. */
+  /** Engine power at the wheels (W). Drive force = min(engineForce, power / speed). */
+  enginePower: number;
+  /** Max tractive force (N): launch limit before power takes over. */
   engineForce: number;
   reverseForce: number;
   brakeForce: number;
   handbrakeForce: number;
-  /** m/s */
+  /** Rev limiter in top gear (m/s). Real top speed usually comes from power vs drag first. */
   maxSpeed: number;
   maxReverseSpeed: number;
 
-  /** Quadratic aerodynamic drag coefficient (F = c·v²). */
+  /** Aerodynamic drag ½ρ·Cd·A (F = c·v², N per (m/s)²). */
   dragCoefficient: number;
-  /** Linear rolling resistance coefficient (F = c·v). */
+  /** Rolling resistance coefficient Crr (F = Crr · wheel load). */
   rollingResistance: number;
-  /** Extra down force (F = c·v²), keeps fast cars planted. */
+  /** Aerodynamic downforce ½ρ·Cl·A (F = c·v²); adds tyre load, so grip grows with speed. */
   downforce: number;
 
   /** Fraction of lateral slip cancelled per step (0..1). <1 = some slide. */
   frontGrip: number;
   rearGrip: number;
-  /** Friction coefficient: caps lateral force to μ·load. */
+  /** Tyre friction coefficient μ: total (lateral + longitudinal) force ≤ μ·load. */
   frontFriction: number;
   rearFriction: number;
   /** Rear friction multiplier while handbrake is held (drift). */
@@ -82,21 +84,22 @@ export const DEFAULT_CAR: VehicleConfig = {
   suspensionStiffness: 22000,
   suspensionDamping: 2200,
 
-  engineForce: 13000,
+  enginePower: 92000, // ≈ 125 hp at the wheels
+  engineForce: 9000,
   reverseForce: 6000,
-  brakeForce: 18000,
+  brakeForce: 30000,
   handbrakeForce: 7000,
-  maxSpeed: 58, // ≈ 209 km/h
+  maxSpeed: 60, // limiter 216 km/h; drag tops it out ≈ 209
   maxReverseSpeed: 12,
 
-  dragCoefficient: 0.42,
-  rollingResistance: 30,
-  downforce: 1.2,
+  dragCoefficient: 0.4, // CdA ≈ 0.65 m²
+  rollingResistance: 0.013,
+  downforce: 0.05,
 
   frontGrip: 0.85,
   rearGrip: 0.9,
-  frontFriction: 1.5,
-  rearFriction: 1.6,
+  frontFriction: 1.05,
+  rearFriction: 1.1,
   handbrakeGripFactor: 0.3,
 
   maxSteerLowSpeed: 0.6,

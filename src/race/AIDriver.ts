@@ -104,13 +104,14 @@ export class AIDriver {
     inp.steer = THREE.MathUtils.clamp(this.steerTowards(this.lookaheadPoint(speed)) * 2.6, -1, 1);
 
     // --- speed: brake for the slowest point within braking distance ----
-    const brakeDecel = (v.config.brakeForce / v.config.mass) * 0.55;
+    // Braking grip is planned at the (lower) target speed: conservative with aero.
     let target = line.speeds[this.index] * this.profile.pace;
     let dist = 0;
-    for (let k = 1; k < 120 && dist < 260; k++) {
+    for (let k = 1; k < 160 && dist < 320; k++) {
       dist += line.segmentLength(this.index + k - 1);
       const j = (this.index + k) % count;
-      const allowed = Math.sqrt((line.speeds[j] * this.profile.pace) ** 2 + 2 * brakeDecel * dist);
+      const vj = line.speeds[j] * this.profile.pace;
+      const allowed = Math.sqrt(vj * vj + 2 * line.brakeAt(vj) * 0.9 * dist);
       if (allowed < target) target = allowed;
     }
     target = Math.min(target, followSpeed);

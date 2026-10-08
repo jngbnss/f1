@@ -21,6 +21,7 @@ import { RaceManager, type Racer } from '../race/RaceManager';
 import type { VehicleInput } from '../input/VehicleInput';
 import { Environment } from '../world/Environment';
 import { RacingLine } from '../world/RacingLine';
+import { racingLineFor } from '../world/RacingLineOptimizer';
 import { buildTerrain } from '../world/Terrain';
 import { themeFor, type WorldTheme } from '../world/themes';
 import { applyTrackTextures } from '../world/TrackTextures';
@@ -47,8 +48,10 @@ const FLIP_RESET_DELAY = 2.5;
 const SURFACES: Record<Surface, { grip: number; drag: number }> = {
   asphalt: { grip: 1, drag: 0 },
   kerb: { grip: 0.95, drag: 0.3 },
-  grass: { grip: 0.6, drag: 2.5 },
-  gravel: { grip: 0.45, drag: 7 },
+  // Grass: tyres slide (low μ) but little rolling drag — you skate across it.
+  grass: { grip: 0.32, drag: 1.2 },
+  // Gravel: loose and deep — little grip and it bogs the car down.
+  gravel: { grip: 0.4, drag: 6.5 },
 };
 
 /**
@@ -117,7 +120,8 @@ export class Game {
     this.scene.add(this.track.root);
     this.terrain = buildTerrain(this.track.bounds, this.theme.terrain);
     this.scene.add(this.terrain);
-    this.racingLine = new RacingLine(layout.raceline ?? layout.points, car.physics);
+    // Racing line computed on the game's own (widened) road, not the real-width dataset line.
+    this.racingLine = new RacingLine(racingLineFor(this.track), car.physics);
     this.scene.add(this.racingLine.mesh);
     this.lapTimer = new LapTimer(this.track.getCenterline().length, this.track.spawnIndex, `best:${car.id}:${layout.id}`);
 
@@ -155,6 +159,11 @@ export class Game {
       }
       this.race = new RaceManager(this.track, racers, Math.max(1, Math.round(config.laps)));
     }
+
+    // Surface is sampled under each wheel (two wheels on the grass pull the car around).
+    const probe = new THREE.Vector3();
+    const surfaceAt = (x: number, z: number) => SURFACES[this.track.surfaceAt(probe.set(x, 0, z))];
+    for (const v of this.vehicles) v.physics.surfaceAt = surfaceAt;
 
     if (config.bench > 0) {
       this.autopilot = new AIDriver(this.player, this.racingLine, this.track, { pace: 0.95, lane: 0, aggression: 0.5 });
@@ -299,11 +308,6 @@ export class Game {
     }
 
     const frozen = this.race?.frozen ?? false;
-    for (const v of this.vehicles) {
-      const s = SURFACES[this.track.surfaceAt(v.position)];
-      v.physics.surfaceGrip = s.grip;
-      v.physics.surfaceDrag = s.drag;
-    }
     const playerInput = this.autopilot ? this.autopilot.update(dt, this.vehicles) : input;
     this.player.fixedUpdate(frozen ? HOLD : playerInput, dt);
     if (this.race) {

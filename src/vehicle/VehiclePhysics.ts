@@ -37,14 +37,25 @@ const _angvel = new THREE.Vector3();
 const _com = new THREE.Vector3();
 const _steerQuat = new THREE.Quaternion();
 
+/** Grip multiplier and extra deceleration (m/s²) of the ground under one wheel. */
+export interface SurfaceSample {
+  grip: number;
+  drag: number;
+}
+
 /**
- * Arcade raycast vehicle on top of a single Rapier rigid body.
+ * Raycast vehicle on top of a single Rapier rigid body.
  *
  * - Chassis = one dynamic box (collides with barriers, falls with gravity).
  * - Each wheel = a downward ray; a spring-damper pushes the chassis up.
- * - Tyre model = per-wheel impulses: cancel a fraction of lateral slip
- *   (capped by mu * load -> natural sliding), plus drive/brake along the wheel.
- * - Body forces = drag, downforce, speed cap.
+ * - Engine = constant power (force = P / v) limited by a max tractive force,
+ *   so acceleration and top speed come out of power, drag and mass.
+ * - Tyre model = per-wheel impulses: cancel a fraction of lateral slip, plus
+ *   drive/brake along the wheel, all inside a friction circle of μ·load —
+ *   braking or flooring it while cornering eats into lateral grip.
+ *   Load includes aero downforce, so fast corners hold more g.
+ * - Surface sampled per wheel: two wheels on the grass pull the car around.
+ * - Body forces = drag (½ρCdA·v²), downforce (½ρClA·v²), rev limiter.
  *
  * No wheel rigid bodies or joints: cheap, stable and easy to tune.
  */
@@ -54,9 +65,10 @@ export class VehiclePhysics {
   private readonly ray: RAPIER.Ray;
   private readonly massPerWheel: number;
   private readonly drivenCount: number;
-  /** Set by the game from the ground under the car: grip multiplier and extra deceleration (m/s²). */
+  /** Ground under a wheel contact (x, z). Unset = asphalt everywhere. */
+  surfaceAt: ((x: number, z: number) => SurfaceSample) | null = null;
+  /** Average surface grip under the grounded wheels in the last step (1 = asphalt). */
   surfaceGrip = 1;
-  surfaceDrag = 0;
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -69,7 +81,7 @@ export class VehiclePhysics {
     const bodyDesc = rapier.RigidBodyDesc.dynamic()
       .setTranslation(spawn.position.x, spawn.position.y, spawn.position.z)
       .setRotation(spawn.quaternion)
-      .setLinearDamping(0.05)
+      .setLinearDamping(0)
       .setAngularDamping(1.5)
       .setCcdEnabled(true)
       .setCanSleep(false);
@@ -151,17 +163,20 @@ export class VehiclePhysics {
     const forwardSpeed = _linvel.dot(_fwd);
     const speed = _linvel.length();
 
-    // Engine force fades out quadratically towards top speed.
+    // Constant power above the traction-limited launch force; rev limiter at maxSpeed.
     let driveForce = 0;
     if (cmd.drive > 0) {
-      const r = Math.min(Math.max(forwardSpeed, 0) / c.maxSpeed, 1);
-      driveForce = cmd.drive * c.engineForce * (1 - r * r);
+      const v = Math.max(forwardSpeed, 1);
+      const limiter = 1 - Math.min(Math.max((forwardSpeed - c.maxSpeed * 0.985) / (c.maxSpeed * 0.015), 0), 1);
+      driveForce = cmd.drive * Math.min(c.engineForce, c.enginePower / v) * limiter;
     } else if (cmd.drive < 0) {
       const r = Math.min(Math.max(-forwardSpeed, 0) / c.maxReverseSpeed, 1);
       driveForce = cmd.drive * c.reverseForce * (1 - r * r);
     }
     const maxRay = c.suspensionRestLength + c.wheelRadius;
     let grounded = 0;
+    let gripSum = 0;
+    let dragSum = 0;
 
     for (let i = 0; i < c.wheels.length; i++) {
       const wc = c.wheels[i];
@@ -210,35 +225,56 @@ export class VehiclePhysics {
       ws.slip = vLat;
       ws.spin += (vLong / c.wheelRadius) * dt;
 
-      // --- lateral grip --------------------------------------------
+      // --- surface under this wheel -----------------------------------
+      let surfGrip = 1;
+      let surfDrag = 0;
+      if (this.surfaceAt) {
+        const sf = this.surfaceAt(_origin.x, _origin.z);
+        surfGrip = sf.grip;
+        surfDrag = sf.drag;
+      }
+      gripSum += surfGrip;
+      dragSum += surfDrag;
+
+      // --- tyre forces inside the friction circle -----------------------
       const isFront = wc.steerable;
-      let grip = (isFront ? c.frontGrip : c.rearGrip) * this.surfaceGrip;
-      let mu = (isFront ? c.frontFriction : c.rearFriction) * this.surfaceGrip;
+      let grip = (isFront ? c.frontGrip : c.rearGrip) * Math.min(1, 0.35 + 0.65 * surfGrip);
+      let mu = (isFront ? c.frontFriction : c.rearFriction) * surfGrip;
       if (wc.handbrake && cmd.handbrake > 0) {
         const f = 1 - (1 - c.handbrakeGripFactor) * cmd.handbrake;
         grip *= f;
         mu *= f;
       }
-      const maxLateral = mu * load * dt;
-      let lateral = -vLat * this.massPerWheel * grip;
-      lateral = Math.max(-maxLateral, Math.min(maxLateral, lateral));
-
-      // --- longitudinal: drive + brakes + rolling resistance --------
-      let longitudinal = 0;
-      if (wc.driven) longitudinal += ((driveForce * (0.5 + 0.5 * this.surfaceGrip)) / this.drivenCount) * dt;
-
-      let brake = (cmd.brake * c.brakeForce) / c.wheels.length;
-      if (wc.handbrake) brake += (cmd.handbrake * c.handbrakeForce) / 2;
-      brake += c.rollingResistance * Math.abs(vLong);
-      if (brake > 0 && vLong !== 0) {
-        // Never brake past zero (braking must not push the car backwards).
-        const stop = Math.abs(vLong) * this.massPerWheel;
-        longitudinal -= Math.sign(vLong) * Math.min(brake * dt, stop);
+      const maxForce = mu * load; // N
+      // Lateral: cancel a fraction of the sideways slip this step.
+      let lateralF = (-vLat * this.massPerWheel * grip) / dt;
+      // Longitudinal: engine (driven wheels) minus brakes, signed against travel.
+      let driveF = wc.driven ? driveForce / this.drivenCount : 0;
+      let brakeF = (cmd.brake * c.brakeForce) / c.wheels.length;
+      if (wc.handbrake) brakeF += (cmd.handbrake * c.handbrakeForce) / 2;
+      // Friction circle: what the tyre can't transmit is lost (wheelspin / lock-up).
+      const longF = driveF - brakeF * Math.sign(vLong || 1);
+      const total = Math.hypot(lateralF, longF);
+      if (total > maxForce) {
+        const k = maxForce / total;
+        lateralF *= k;
+        driveF *= k;
+        brakeF *= k;
       }
 
-      _impulse.copy(_wheelRight).multiplyScalar(lateral).addScaledVector(_wheelFwd, longitudinal);
+      let longitudinal = driveF * dt;
+      // Brakes + rolling resistance never push the car backwards.
+      const resist = (brakeF + c.rollingResistance * load) * dt;
+      if (resist > 0 && vLong !== 0) {
+        const stop = Math.abs(vLong) * this.massPerWheel;
+        longitudinal -= Math.sign(vLong) * Math.min(resist, stop);
+      }
+
+      _impulse.copy(_wheelRight).multiplyScalar(lateralF * dt).addScaledVector(_wheelFwd, longitudinal);
       body.applyImpulseAtPoint(_impulse, _origin, true);
     }
+    this.surfaceGrip = grounded > 0 ? gripSum / grounded : 1;
+    const surfaceDrag = grounded > 0 ? dragSum / c.wheels.length : 0;
 
     // --- body forces -----------------------------------------------
     if (speed > 0.01) {
@@ -246,9 +282,9 @@ export class VehiclePhysics {
       _impulse.copy(_linvel).multiplyScalar(-c.dragCoefficient * speed * dt);
       body.applyImpulse(_impulse, true);
     }
-    if (grounded > 0 && this.surfaceDrag > 0 && speed > 0.1) {
+    if (surfaceDrag > 0 && speed > 0.1) {
       // Grass / gravel: speed-scrubbing drag, never reversing the car.
-      const dv = Math.min(this.surfaceDrag * (0.4 + speed / 30) * dt, speed);
+      const dv = Math.min(surfaceDrag * (0.4 + speed / 30) * dt, speed);
       _impulse.copy(_linvel).multiplyScalar((-dv / speed) * c.mass);
       body.applyImpulse(_impulse, true);
     }
@@ -257,8 +293,8 @@ export class VehiclePhysics {
       body.applyImpulse(_impulse, true);
     }
 
-    // Hard speed cap (safety net; the engine curve normally keeps us under).
-    const cap = forwardSpeed >= 0 ? c.maxSpeed * 1.08 : c.maxReverseSpeed * 1.2;
+    // Hard speed cap (safety net; the limiter normally keeps us under).
+    const cap = forwardSpeed >= 0 ? c.maxSpeed * 1.12 : c.maxReverseSpeed * 1.2;
     if (speed > cap) {
       const s = cap / speed;
       body.setLinvel({ x: lv.x * s, y: lv.y * s, z: lv.z * s }, true);

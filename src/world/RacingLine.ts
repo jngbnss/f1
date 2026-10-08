@@ -3,6 +3,9 @@ import type { VehicleConfig } from '../vehicle/VehicleConfig';
 import { smooth } from '../vehicle/cars/shapes';
 
 const G = 9.81;
+/** Share of the tyre limit the line plans with in corners / under braking (measured skidpad ≈ 0.8–0.95). */
+const CORNER_MARGIN = 0.8;
+const BRAKE_MARGIN = 0.8;
 /** How far ahead of the car the line reacts to the current speed (m). */
 const LOOKAHEAD = 400;
 
@@ -22,9 +25,10 @@ const ALPHA = 0.8;
 /**
  * Forza-style driving assist line drawn on the road.
  *
- * Path: an optimal racing line (TUMFTM minimum-curvature line for the real
- * circuits) or the centerline. A speed profile is computed for the selected
- * car (cornering limit from curvature + acceleration/braking passes).
+ * Path: the racing line from RacingLineOptimizer (minimum curvature on the
+ * game's road width + late apexes). A speed profile is computed for the
+ * selected car (aero-dependent cornering limit + power/drag acceleration and
+ * braking passes).
  *
  * Coloring is dynamic: for every point ahead of the car we check whether the
  * car's *current* speed can still be braked down to the target speed there:
@@ -44,7 +48,8 @@ export class RacingLine {
   private readonly colorAttr: THREE.BufferAttribute;
   /** Distance from sample i to i+1. */
   private readonly segLen: Float32Array;
-  private readonly brakeDecel: number;
+  /** Braking deceleration (m/s²) available at a speed (aero adds grip). */
+  readonly brakeAt: (speed: number) => number;
   private carIndex = -1;
   private readonly tmp = new THREE.Color();
 
@@ -83,25 +88,34 @@ export class RacingLine {
       curvature[i] = s / 7;
     }
 
-    // --- speed profile -------------------------------------------------
-    // Effective arcade limits (a bit below the raw friction numbers).
-    const latAccel = Math.min(car.frontFriction, car.rearFriction) * G * 0.55;
-    const accel = (car.engineForce / car.mass) * 0.55;
-    this.brakeDecel = (car.brakeForce / car.mass) * 0.6;
+    // --- speed profile (same physics as VehiclePhysics) -------------------
+    // Tyre limit grows with aero load: a(v) = k·μ·(g + downforce·v²/m).
+    const mu = Math.min(car.frontFriction, car.rearFriction);
+    const aero = car.downforce / car.mass;
+    const km = CORNER_MARGIN;
+    this.brakeAt = (speed) => BRAKE_MARGIN * mu * (G + aero * speed * speed);
+    const accelAt = (speed: number) => {
+      const vv = Math.max(speed, 1);
+      const traction = mu * G * car.mass * 0.6; // rear-axle share
+      const drive = Math.min(car.engineForce, car.enginePower / vv, traction);
+      return Math.max((drive - car.dragCoefficient * vv * vv) / car.mass - car.rollingResistance * G, 0.05);
+    };
     const vMax = car.maxSpeed;
     const v = new Float32Array(count);
     for (let i = 0; i < count; i++) {
-      v[i] = curvature[i] > 1e-5 ? Math.min(vMax, Math.sqrt(latAccel / curvature[i])) : vMax;
+      // v² = kμg / (κ − kμ·aero); if the aero term wins, the corner is flat out.
+      const denom = curvature[i] - km * mu * aero;
+      v[i] = denom > 1e-6 ? Math.min(vMax, Math.sqrt((km * mu * G) / denom)) : vMax;
     }
     // Two laps of each pass so the closed loop converges.
     for (let lap = 0; lap < 2; lap++) {
       for (let i = 0; i < count; i++) {
         const j = (i + 1) % count;
-        v[j] = Math.min(v[j], Math.sqrt(v[i] * v[i] + 2 * accel * this.segLen[i]));
+        v[j] = Math.min(v[j], Math.sqrt(v[i] * v[i] + 2 * accelAt(v[i]) * this.segLen[i]));
       }
       for (let i = count - 1; i >= 0; i--) {
         const j = (i + 1) % count;
-        v[i] = Math.min(v[i], Math.sqrt(v[j] * v[j] + 2 * this.brakeDecel * this.segLen[i]));
+        v[i] = Math.min(v[i], Math.sqrt(v[j] * v[j] + 2 * this.brakeAt(v[j]) * this.segLen[i]));
       }
     }
     this.speeds = v;
@@ -167,7 +181,7 @@ export class RacingLine {
     this.paintWindow(this.carIndex, (j, step) => {
       if (step > 0) dist += this.segLen[(j - 1 + count) % count];
       // Highest speed we may carry *now* and still brake to the target speed at j.
-      const allowed = Math.sqrt(this.speeds[j] ** 2 + 2 * this.brakeDecel * dist);
+      const allowed = Math.sqrt(this.speeds[j] ** 2 + 2 * this.brakeAt(this.speeds[j]) * dist);
       const ratio = speed / allowed;
       if (ratio <= 0.9) return GREEN;
       if (ratio <= 1) return this.tmp.copy(GREEN).lerp(YELLOW, (ratio - 0.9) / 0.1);
