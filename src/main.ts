@@ -1,6 +1,7 @@
 import './style.css';
 import { readConfig, urlWith } from './config';
 import { Game } from './core/Game';
+import { clearBenchResults } from './performance/Benchmark';
 import { showMenu } from './ui/Menu';
 import { CARS, findCar } from './vehicle/cars';
 import { findTrack, TRACKS } from './world/tracks';
@@ -14,6 +15,12 @@ async function main(): Promise<void> {
     const config = readConfig();
     let carId = findCar(config.car).id;
     let trackId = findTrack(config.track).id;
+
+    if (config.bench > 0) {
+      if (config.benchFirst) clearBenchResults();
+      // ?bench without a track: run every circuit in turn.
+      if (!config.track) [trackId, ...config.benchQueue] = TRACKS.map((t) => t.id);
+    }
 
     if (config.showMenu) {
       loading?.classList.add('hidden');

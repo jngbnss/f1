@@ -48,6 +48,9 @@ export class PerformanceMonitor {
     pixelRatio: 1,
   };
 
+  /** CPU ms accumulated since the consumer last zeroed it (benchmarks read it once per frame). */
+  readonly frame = { physicsMs: 0, renderMs: 0 };
+
   /** Ring buffer of recent frame times (ms), for graphs / export. */
   readonly history: Float32Array;
   private historyIndex = 0;
@@ -91,12 +94,16 @@ export class PerformanceMonitor {
   }
 
   endPhysics(): void {
-    this.physicsSum += performance.now() - this.sectionStart;
+    const ms = performance.now() - this.sectionStart;
+    this.physicsSum += ms;
+    this.frame.physicsMs += ms;
     this.steps++;
   }
 
   endRender(info: THREE.WebGLInfo): void {
-    this.renderSum += performance.now() - this.sectionStart;
+    const ms = performance.now() - this.sectionStart;
+    this.renderSum += ms;
+    this.frame.renderMs += ms;
     const s = this.snapshot;
     s.drawCalls = info.render.calls;
     s.triangles = info.render.triangles;

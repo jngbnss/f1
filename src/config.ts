@@ -30,6 +30,12 @@ export interface SimConfig {
   laps: number;
   /** Engine/tyre/wind audio. */
   sound: boolean;
+  /** Benchmark length in seconds (0 = off). `?bench` alone = 40 s. */
+  bench: number;
+  /** Track ids still to benchmark after the current one. */
+  benchQueue: string[];
+  /** First run of a benchmark series (earlier results are discarded). */
+  benchFirst: boolean;
 }
 
 function num(params: URLSearchParams, key: string, fallback: number): number {
@@ -49,21 +55,28 @@ export function readConfig(search = window.location.search): SimConfig {
   const p = new URLSearchParams(search);
   const car = p.get('car');
   const track = p.get('track');
+  const benchRaw = p.get('bench');
+  const bench = benchRaw === null ? 0 : Number(benchRaw) > 1 ? Number(benchRaw) : 40;
   return {
     car,
     track,
-    showMenu: p.has('menu') || !car || !track,
+    showMenu: !bench && (p.has('menu') || !car || !track),
     shadows: bool(p, 'shadows', true),
     shadowMapSize: num(p, 'shadowmap', 2048),
     antialias: bool(p, 'aa', true),
     pixelRatio: num(p, 'pr', 1.5),
-    dynamicResolution: bool(p, 'dynres', true),
+    // Benchmarks measure the full-resolution cost, so dynamic resolution is off unless asked for.
+    dynamicResolution: bool(p, 'dynres', !bench),
     physicsDebug: bool(p, 'debug', false),
     treesPerKm: num(p, 'trees', 300),
     physicsHz: num(p, 'hz', 60),
-    sound: bool(p, 'sound', true),
-    ai: num(p, 'ai', 11),
-    laps: num(p, 'laps', 3),
+    sound: bool(p, 'sound', !bench),
+    ai: num(p, 'ai', bench ? 19 : 11),
+    // Benchmarks must not reach the finish (results screen) during the run.
+    laps: bench ? 99 : num(p, 'laps', 3),
+    bench,
+    benchQueue: (p.get('benchq') ?? '').split(',').filter(Boolean),
+    benchFirst: !p.has('benchi'),
   };
 }
 

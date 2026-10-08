@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "sim:test": "tsx scripts/sim-test.ts",
-    "race:test": "tsx scripts/race-test.ts"
+    "race:test": "tsx scripts/race-test.ts",
+    "bench": "tsx scripts/bench.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",

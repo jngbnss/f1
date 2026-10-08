@@ -6,6 +6,7 @@ import { urlWith, type SimConfig } from '../config';
 import { GamepadInput } from '../input/GamepadInput';
 import { InputManager } from '../input/InputManager';
 import { KeyboardInput } from '../input/KeyboardInput';
+import { Benchmark } from '../performance/Benchmark';
 import { DynamicResolution } from '../performance/DynamicResolution';
 import { PerformanceMonitor } from '../performance/PerformanceMonitor';
 import { PhysicsDebugRenderer } from '../physics/PhysicsDebugRenderer';
@@ -76,6 +77,9 @@ export class Game {
   /** 3D engine sounds of the opponents. */
   private readonly voices = new Map<Vehicle, EngineVoice>();
   private readonly _camDir = new THREE.Vector3();
+  /** Benchmark mode: the player's car is driven by an AI and frames are recorded. */
+  private readonly autopilot: AIDriver | null = null;
+  private readonly bench: Benchmark | null = null;
 
   private constructor(
     private readonly container: HTMLElement,
@@ -137,6 +141,18 @@ export class Game {
         racers.push(this.racer(`CPU ${String(colorIndex).padStart(2, '0')}`, vehicle, ai, false, color));
       }
       this.race = new RaceManager(this.track, racers, Math.max(1, Math.round(config.laps)));
+    }
+
+    if (config.bench > 0) {
+      this.autopilot = new AIDriver(this.player, this.racingLine, this.track, { pace: 0.95, lane: 0, aggression: 0.5 });
+      this.bench = new Benchmark(config.bench, {
+        track: layout.id,
+        car: car.id,
+        cars: this.vehicles.length,
+        renderer: this.renderer,
+        queue: config.benchQueue,
+        nextUrl: (track, queue) => urlWith({ track, benchq: queue.length ? queue.join(',') : null, benchi: '1' }),
+      });
     }
 
     // --- input / camera / ui -----------------------------------------
@@ -258,7 +274,8 @@ export class Game {
       v.physics.surfaceGrip = s.grip;
       v.physics.surfaceDrag = s.drag;
     }
-    this.player.fixedUpdate(frozen ? HOLD : input, dt);
+    const playerInput = this.autopilot ? this.autopilot.update(dt, this.vehicles) : input;
+    this.player.fixedUpdate(frozen ? HOLD : playerInput, dt);
     if (this.race) {
       for (const r of this.race.racers) {
         if (!r.ai) continue;
@@ -274,6 +291,12 @@ export class Game {
 
     // Fell off the world?
     if (this.player.position.y < this.track.bounds.min.y - 10) this.resetPlayer(true);
+
+    if (this.autopilot && this.autopilot.unstuckCount >= 3) {
+      this.resetPlayer();
+      this.autopilot.resetState();
+      this.autopilot.unstuckCount = 0;
+    }
 
     // Stuck on its roof / side?
     if (this.player.isFlipped() && this.player.physics.speed < 3) {
@@ -353,6 +376,11 @@ export class Game {
     this.perf.beginSection();
     this.renderer.render(this.scene, this.followCamera.camera);
     this.perf.endRender(this.renderer.info);
+    if (this.bench) {
+      this.bench.frame(!(this.race?.frozen ?? false), this.perf.frame, this.renderer.info);
+      this.perf.frame.physicsMs = 0;
+      this.perf.frame.renderMs = 0;
+    }
   }
 
   /** Esc: back to the start menu (keeps the current car/track preselected). */

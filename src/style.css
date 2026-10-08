@@ -119,3 +119,16 @@ html, body {
 .results li.me { color: #ffd23f; font-weight: 700; }
 .results p { font-size: 11px; color: #8b97a5; margin-top: 12px; }
 .menu-grid.laps { margin-top: 10px; grid-template-columns: repeat(3, minmax(90px, 140px)); }
+.bench {
+  position: fixed; inset: 50% auto auto 50%; transform: translate(-50%, -50%); z-index: 20;
+  background: rgba(10, 14, 20, 0.94); color: #e6edf3; padding: 20px 24px; border-radius: 10px;
+  font: 13px/1.4 system-ui, sans-serif; max-width: calc(100vw - 32px); overflow-x: auto;
+}
+.bench h2 { margin: 0 0 4px; font-size: 18px; }
+.bench p { margin: 0 0 12px; color: #8b97a5; font-size: 12px; }
+.bench table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.bench th, .bench td { padding: 4px 10px; text-align: right; white-space: nowrap; }
+.bench th:first-child, .bench td:first-child { text-align: left; }
+.bench th { color: #8b97a5; font-weight: 600; border-bottom: 1px solid #2a323c; }
+.bench td.bad { color: #ff7b72; }
+.bench button { margin-top: 12px; padding: 6px 14px; border: 0; border-radius: 6px; background: #ff5a5f; color: #fff; cursor: pointer; }
