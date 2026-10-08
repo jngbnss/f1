@@ -27,10 +27,28 @@ const CIRCUITS: Circuit[] = [
   { id: 'monza', file: 'Monza', lat: 45.6156, lon: 9.2811 },
   { id: 'silverstone', file: 'Silverstone', lat: 52.0786, lon: -1.0169 },
   { id: 'spa', file: 'Spa', lat: 50.4372, lon: 5.9714 },
+  { id: 'melbourne', file: 'Melbourne', lat: -37.8497, lon: 144.968 },
+  { id: 'shanghai', file: 'Shanghai', lat: 31.3389, lon: 121.2197 },
+  { id: 'suzuka', file: 'Suzuka', lat: 34.8431, lon: 136.541 },
+  { id: 'sakhir', file: 'Sakhir', lat: 26.0325, lon: 50.5106 },
+  { id: 'montreal', file: 'Montreal', lat: 45.5, lon: -73.5228 },
+  { id: 'catalunya', file: 'Catalunya', lat: 41.57, lon: 2.2611 },
+  { id: 'budapest', file: 'Budapest', lat: 47.5789, lon: 19.2486 },
+  { id: 'zandvoort', file: 'Zandvoort', lat: 52.3888, lon: 4.5409 },
+  { id: 'austin', file: 'Austin', lat: 30.1328, lon: -97.6411 },
+  { id: 'mexicocity', file: 'MexicoCity', lat: 19.4042, lon: -99.0907 },
+  { id: 'saopaulo', file: 'SaoPaulo', lat: -23.7036, lon: -46.6997 },
+  { id: 'yasmarina', file: 'YasMarina', lat: 24.4672, lon: 54.6031 },
 ];
 
 const DATA_DIR = new URL('../src/world/tracks/data/', import.meta.url);
-const OVERPASS = 'https://overpass-api.de/api/interpreter';
+/** Public Overpass instances, tried in turn (the main one often answers 504 when busy). */
+const OVERPASS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
 const USER_AGENT = 'web-sim-lab/0.1 (https://github.com/jngbnss/web-sim-lab; offline scenery build script)';
 /** Extra margin around the circuit to include (m). */
 const MARGIN = 600;
@@ -38,15 +56,27 @@ const MARGIN = 600;
 type V2 = [number, number];
 
 async function overpass(query: string): Promise<{ elements: OsmElement[] }> {
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const res = await fetch(OVERPASS, {
-      method: 'POST',
-      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ data: query }),
-    });
-    if (res.ok) return (await res.json()) as { elements: OsmElement[] };
-    console.warn(`  overpass ${res.status}, retrying…`);
-    await new Promise((r) => setTimeout(r, 15000 * (attempt + 1)));
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const url = OVERPASS[attempt % OVERPASS.length];
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'User-Agent': USER_AGENT, Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ data: query }),
+        signal: AbortSignal.timeout(180000),
+      });
+      if (res.ok) {
+        const json = (await res.json()) as { elements: OsmElement[]; remark?: string };
+        // Timeouts come back as 200 with a remark and partial/empty data.
+        if (!json.remark || !/error|timed out/i.test(json.remark)) return json;
+        console.warn(`  ${new URL(url).host}: ${json.remark}`);
+      } else {
+        console.warn(`  ${new URL(url).host}: HTTP ${res.status}`);
+      }
+    } catch (e) {
+      console.warn(`  ${new URL(url).host}: ${e instanceof Error ? e.message : e}`);
+    }
+    await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
   }
   throw new Error('Overpass request failed');
 }
@@ -132,9 +162,18 @@ function align(tum: V2[], osm: V2[]): { theta: number; tx: number; ty: number; r
 
   // Coarse search: OSM raceway bbox center vs TUM bbox center gives the start; search ±800 m.
   const bb = (pts: V2[]) => {
-    const xs = pts.map((p) => p[0]);
-    const ys = pts.map((p) => p[1]);
-    return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+    // Loops, not Math.min(...xs): road networks have too many points for spread arguments.
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let y0 = Infinity;
+    let y1 = -Infinity;
+    for (const [x, y] of pts) {
+      x0 = Math.min(x0, x);
+      x1 = Math.max(x1, x);
+      y0 = Math.min(y0, y);
+      y1 = Math.max(y1, y);
+    }
+    return [(x0 + x1) / 2, (y0 + y1) / 2];
   };
   const [ox, oy] = bb(osm);
   const [mx, my] = bb(tum);
@@ -274,8 +313,20 @@ async function processCircuit(c: Circuit): Promise<void> {
 
   const race = await overpass(`[out:json][timeout:90];way["highway"="raceway"](around:${radius},${c.lat},${c.lon});out geom;`);
   const raceLines = race.elements.filter((e) => e.geometry).map((e) => densify(e.geometry!.map((g) => proj(g.lat, g.lon)), 2));
-  const t = align(tum, raceLines.flat());
+  let t = align(tum, raceLines.flat());
+  if (t.inliers < 0.8) {
+    // Street / park circuits (Albert Park, parts of Montréal) are public roads, not raceways.
+    console.log(`  raceway fit ${(t.inliers * 100).toFixed(0)}% -> trying public roads`);
+    const roads = await overpass(`[out:json][timeout:120];way["highway"~"^(primary|secondary|tertiary|unclassified|residential|service|raceway)$"](around:${radius},${c.lat},${c.lon});out geom;`);
+    const roadLines = roads.elements.filter((e) => e.geometry).map((e) => densify(e.geometry!.map((g) => proj(g.lat, g.lon)), 2));
+    const t2 = align(tum, roadLines.flat());
+    if (t2.inliers > t.inliers) t = t2;
+  }
   console.log(`  aligned: θ=${((t.theta * 180) / Math.PI).toFixed(2)}°, rms ${t.rms.toFixed(2)} m, inliers ${(t.inliers * 100).toFixed(0)}%`);
+  if (t.inliers < 0.6) {
+    console.warn('  SKIPPED: alignment too weak, not writing scenery');
+    return;
+  }
   if (t.inliers < 0.8) console.warn('  WARNING: weak alignment');
 
   // OSM local -> TUM frame: tum = Rᵀ (osm - t); world = (x, -y)

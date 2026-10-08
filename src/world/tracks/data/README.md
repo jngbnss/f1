@@ -1,6 +1,8 @@
 # Real circuit data
 
-`Spielberg.csv`, `Monza.csv`, `Silverstone.csv`, `Spa.csv` come unmodified from
+The 16 circuit CSVs (`Melbourne`, `Shanghai`, `Suzuka`, `Sakhir`, `Montreal`,
+`Catalunya`, `Spielberg`, `Silverstone`, `Spa`, `Budapest`, `Zandvoort`, `Monza`,
+`Austin`, `MexicoCity`, `SaoPaulo`, `YasMarina`) come unmodified from
 [TUMFTM/racetrack-database](https://github.com/TUMFTM/racetrack-database)
 (Technical University of Munich, Institute of Automotive Technology),
 licensed under **LGPL-3.0**.
@@ -19,15 +21,20 @@ this project is not affiliated with or endorsed by any circuit, series or team.
 
 ## Racing lines
 
-`*_raceline.csv` — minimum-curvature racing lines from the same TUMFTM
-repository (LGPL-3.0), computed with their open-source
-[global_racetrajectory_optimization](https://github.com/TUMFTM/global_racetrajectory_optimization).
+`*_raceline.csv` (four circuits) — minimum-curvature racing lines from the same
+TUMFTM repository (LGPL-3.0), kept for reference. The game no longer loads
+them: it computes its own line on the widened game road
+(`src/world/RacingLineOptimizer.ts`).
+
+Some dataset layouts predate recent changes to the real circuits (e.g. Yas
+Marina before 2021, Barcelona with the final chicane, Albert Park before 2022).
 
 ## Surroundings (`*_osm.json`)
 
 Buildings, forests, water, car parks and roads around each circuit, downloaded
 from **OpenStreetMap** via the Overpass API by `scripts/fetch-osm.ts` and
-rigidly aligned to the TUMFTM frame (RMS error ≈ 2–3 m).
+rigidly aligned to the TUMFTM frame (RMS error ≈ 1–3 m; street circuits such as
+Albert Park are aligned to the public road network, ≈ 7 m).
 
 © OpenStreetMap contributors. This derived data is made available under the
 [Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/).

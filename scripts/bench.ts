@@ -78,7 +78,7 @@ async function main(): Promise<void> {
     );
 
     const results: BenchResult[] = [];
-    const tracks = 5;
+    const tracks = 17;
     const timeoutMs = tracks * (seconds + 60) * 1000;
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`timed out after ${results.length} result(s)`)), timeoutMs);

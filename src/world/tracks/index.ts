@@ -42,10 +42,24 @@ function realCircuit(id: string, name: string, location: string, lengthKm: numbe
 
 export const TRACKS: TrackEntry[] = [
   { id: 'test', name: 'Test Circuit', location: 'web-sim-lab', lengthKm: 1.2, load: async () => DEMO_TRACK },
+  // 2026 calendar order (circuits available in the TUMFTM dataset). Some
+  // layouts in the dataset predate recent track changes (e.g. Yas Marina 2021).
+  realCircuit('melbourne', 'Albert Park', 'Melbourne, Australia', 5.3, 'Melbourne'),
+  realCircuit('shanghai', 'Shanghai International', 'Shanghai, China', 5.5, 'Shanghai'),
+  realCircuit('suzuka', 'Suzuka', 'Suzuka, Japan', 5.8, 'Suzuka'),
+  realCircuit('sakhir', 'Bahrain International', 'Sakhir, Bahrain', 5.4, 'Sakhir'),
+  realCircuit('montreal', 'Circuit Gilles Villeneuve', 'Montréal, Canada', 4.4, 'Montreal'),
+  realCircuit('catalunya', 'Barcelona-Catalunya', 'Montmeló, Spain', 4.7, 'Catalunya'),
   realCircuit('spielberg', 'Red Bull Ring', 'Spielberg, Austria', 4.3, 'Spielberg'),
-  realCircuit('monza', 'Monza', 'Monza, Italy', 5.8, 'Monza'),
   realCircuit('silverstone', 'Silverstone', 'Silverstone, UK', 5.9, 'Silverstone'),
   realCircuit('spa', 'Spa-Francorchamps', 'Stavelot, Belgium', 7.0, 'Spa'),
+  realCircuit('budapest', 'Hungaroring', 'Mogyoród, Hungary', 4.4, 'Budapest'),
+  realCircuit('zandvoort', 'Zandvoort', 'Zandvoort, Netherlands', 4.3, 'Zandvoort'),
+  realCircuit('monza', 'Monza', 'Monza, Italy', 5.8, 'Monza'),
+  realCircuit('austin', 'Circuit of the Americas', 'Austin, USA', 5.5, 'Austin'),
+  realCircuit('mexicocity', 'Hermanos Rodríguez', 'Mexico City, Mexico', 4.3, 'MexicoCity'),
+  realCircuit('saopaulo', 'Interlagos', 'São Paulo, Brazil', 4.3, 'SaoPaulo'),
+  realCircuit('yasmarina', 'Yas Marina', 'Abu Dhabi, UAE', 5.3, 'YasMarina'),
 ];
 
 export function findTrack(id: string | null | undefined): TrackEntry {
