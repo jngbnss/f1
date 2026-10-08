@@ -1,9 +1,8 @@
 import './style.css';
 import { readConfig, urlWith } from './config';
-import { Game } from './core/Game';
 import { clearBenchResults } from './performance/Benchmark';
 import { showMenu } from './ui/Menu';
-import { CARS, findCar } from './vehicle/cars';
+import { CAR_LIST, resolveCarId } from './vehicle/catalog';
 import { findTrack, TRACKS } from './world/tracks';
 
 async function main(): Promise<void> {
@@ -13,7 +12,9 @@ async function main(): Promise<void> {
 
   try {
     const config = readConfig();
-    let carId = findCar(config.car).id;
+    // The 3D engine, physics WASM and car models download while the menu is open.
+    const engine = Promise.all([import('./core/Game'), import('./vehicle/cars')]);
+    let carId = resolveCarId(config.car);
     let trackId = findTrack(config.track).id;
 
     if (config.bench > 0) {
@@ -24,7 +25,7 @@ async function main(): Promise<void> {
 
     if (config.showMenu) {
       loading?.classList.add('hidden');
-      const sel = await showMenu(CARS, TRACKS, { carId, trackId, ai: config.ai, laps: config.laps });
+      const sel = await showMenu(CAR_LIST, TRACKS, { carId, trackId, ai: config.ai, laps: config.laps });
       ({ carId, trackId } = sel);
       config.ai = sel.ai;
       config.laps = sel.laps;
@@ -39,14 +40,14 @@ async function main(): Promise<void> {
 
     const trackEntry = findTrack(trackId);
     if (loading) loading.textContent = `Loading ${trackEntry.name}…`;
-    const layout = await trackEntry.load();
+    const [layout, [{ Game }, { findCar }]] = await Promise.all([trackEntry.load(), engine]);
     const game = await Game.create(container, config, findCar(carId), layout);
     game.start();
     loading?.remove();
 
     if (import.meta.env.DEV) {
       // Console handle for experiments: sim.perf.snapshot, sim.player, sim.resetPlayer() ...
-      (window as unknown as { sim: Game }).sim = game;
+      (window as unknown as { sim: typeof game }).sim = game;
     }
   } catch (err) {
     console.error(err);

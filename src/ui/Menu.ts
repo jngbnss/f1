@@ -1,5 +1,5 @@
 import { CLASS_INFO, type CarClass } from '../vehicle/catalog/specs';
-import type { CarDefinition } from '../vehicle/cars';
+import type { CarInfo as CarDefinition } from '../vehicle/catalog';
 import type { TrackEntry } from '../world/tracks';
 
 export interface MenuSelection {

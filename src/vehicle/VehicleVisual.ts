@@ -14,6 +14,8 @@ export interface VehicleVisual {
   readonly root: THREE.Object3D;
   /** Update wheel suspension travel / steering / spin. */
   updateWheels(wheels: readonly WheelState[]): void;
+  /** Level of detail: false = far away (small parts hidden to save draw calls). */
+  setDetail?(near: boolean): void;
   dispose(): void;
 }
 
@@ -36,6 +38,9 @@ export abstract class PrimitiveCarVisual implements VehicleVisual {
   readonly root = new THREE.Group();
   private readonly steers: THREE.Object3D[] = [];
   private readonly spins: THREE.Object3D[] = [];
+  /** Rims and brake discs: invisible details from a distance (tyres stay). */
+  private readonly details: THREE.Object3D[] = [];
+  private near = true;
   private readonly disposables: { dispose(): void }[] = [];
   /**
    * Scale applied to the body (not the wheels) when merged in optimize():
@@ -55,6 +60,12 @@ export abstract class PrimitiveCarVisual implements VehicleVisual {
       // Rolling forward (-Z) = negative rotation about +X.
       this.spins[i].rotation.x = -w.spin;
     }
+  }
+
+  setDetail(near: boolean): void {
+    if (near === this.near) return;
+    this.near = near;
+    for (const d of this.details) d.visible = near;
   }
 
   dispose(): void {
@@ -204,10 +215,12 @@ export abstract class PrimitiveCarVisual implements VehicleVisual {
       // Outer face points away from the car.
       rim.scale.x = Math.sign(wc.position.x) || 1;
       spin.add(tyre, rim);
+      this.details.push(rim);
       // Brake disc doesn't spin.
       const disc = new THREE.Mesh(discGeo, discMat);
       disc.position.x = -Math.sign(wc.position.x) * w * 0.1;
       steer.add(disc);
+      this.details.push(disc);
       steer.add(spin);
       mount.add(steer);
       this.root.add(mount);

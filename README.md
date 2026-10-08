@@ -1,7 +1,7 @@
 # web-sim-lab · Racing
 
 브라우저에서 설치 없이 바로 실행되는 경량 3D 레이싱 시뮬레이터입니다.
-실제 서킷 4곳과 차량 3종이 있고, **최대 20대 AI 레이스**, 관중, 엔진 소리, 다이내믹 레이싱 라인, 랩타임 기록을 지원합니다.
+**2026 F1 캘린더 서킷 16곳**과 **5등급 차량 100대**가 있고, **최대 20대 AI 레이스**, 지역별 배경 테마, 미니맵, 관중, 엔진 소리, 다이내믹 레이싱 라인, 랩타임 기록을 지원합니다.
 **브라우저 게임 최적화 실험**(LOD, instancing, 압축, 스트리밍, Worker, WebGPU 등)의 테스트베드로 쓰기 위해 만들었습니다.
 
 - Vite + TypeScript (React 없음)
@@ -12,8 +12,10 @@
 
 배포 링크: **https://jngbnss.github.io/web-sim-lab/** (GitHub Pages, `main`에 push할 때마다 자동 배포)
 
+메뉴는 바로 뜨고(첫 다운로드 약 13 KB gzip), 3D 엔진과 물리는 메뉴를 보는 동안 뒤에서 받습니다.
+
 링크를 열고 → 차, 서킷, 레이스 규모(자유 주행 / 6, 12, 20대)를 고른 뒤 → **Enter**를 누르면 바로 출발합니다.
-URL로 바로 시작할 수도 있습니다: `.../web-sim-lab/?car=formula&track=monza&ai=19&laps=3`
+URL로 바로 시작할 수도 있습니다: `.../web-sim-lab/?car=f1-ferrari&track=monza&ai=19&laps=3`
 
 ## 로컬 실행
 
@@ -23,7 +25,10 @@ npm run dev        # http://localhost:5173
 npm run build      # 타입 체크 + 프로덕션 빌드 (dist/)
 npm run preview    # 빌드 결과 확인
 npm run sim:test   # 헤드리스 테스트: 차량 3종 조작 + 서킷 5곳 봇 랩 + 레이싱 라인 (-- quick: 테스트 서킷만)
-npm run race:test -- spielberg 20 1   # 헤드리스 20대 AI 레이스 (서킷, 대수, 랩)
+npm run race:test -- spielberg 20 1 f1-ferrari   # 헤드리스 20대 AI 레이스 (서킷, 대수, 랩, 차)
+npx tsx scripts/handling.ts [차 id | all]      # 0-100, 최고속도, 제동 거리, 속도별 횡 g
+npm run bench                                   # 로컬 Chrome/Edge로 전체 서킷 fps 측정 → docs/perf/
+npx tsx scripts/shot.ts monza@f1-ferrari        # 헤드리스 스크린샷
 npx tsx scripts/scene-stats.ts monza  # 서킷 장면의 삼각형/드로우콜 추정 (GPU 불필요)
 npx tsx scripts/fetch-osm.ts [circuit]   # OpenStreetMap 주변 환경 데이터 다시 받기
 ```
@@ -46,31 +51,47 @@ npx tsx scripts/fetch-osm.ts [circuit]   # OpenStreetMap 주변 환경 데이터
 
 ## 콘텐츠
 
-### 차량
+### 차량 (100대, 5등급)
 
-| 차량 | 특징 |
-|---|---|
-| Formula | F1 스타일 오픈휠. 800 kg, 다운포스가 크고 최고 331 km/h. V10 사운드, 8단 |
-| GT Sports | 프런트 엔진 GT. 1450 kg, 302 km/h. V8 사운드, 7단 |
-| Street | 해치백. 1200 kg, 209 km/h. 4기통 사운드, 6단 |
+| 등급 | 예시 | 대수 |
+|---|---|---|
+| 스트리트 | 골프 GTI·R, 시빅 타입 R, GR 야리스, i30 N, 아이오닉 5 N, M3, RS 6 … | 20 |
+| 스포츠 | MX-5, GR86, 911 카레라 S·터보 S·GT3, 콜벳 Z06, GT-R NISMO, 밴티지 … | 20 |
+| GT 레이스 | 296 GT3, 911 GT3 R, 우라칸 GT3, 720S GT3, M4 GT3 … (GT2 포함) | 20 |
+| 하이퍼 | 시론 슈퍼 스포츠, 제스코, 네베라, P1, 라페라리, 발키리 + 르망 하이퍼카(GR010, 499P, 963 …) | 20 |
+| 포뮬러 | F1 2026 11개 팀, F2, F3, 포뮬러 E, 인디카, 슈퍼 포뮬러, F4 … | 20 |
 
-- 차체는 측면 프로파일 곡선을 둥근 모서리로 압출한 뒤, 폭 함수(노즈를 좁히고 휠 부분을 부풀리고 위로 갈수록 좁힘)로 다듬어 만듭니다.
-- 클리어코트 카페인트(MeshPhysicalMaterial)가 HDRI 하늘을 반사합니다.
-- 실제 브랜드 디자인이나 리버리는 쓰지 않았습니다.
+- 차마다 실제 출력, 무게, 최고속도, 구동 방식, 크기(전장·전폭·전고·휠베이스)를 넣었습니다(`src/vehicle/catalog/specs.ts`, 공개 제원 기준 근삿값).
+- 물리 값은 이 숫자에서 자동으로 계산합니다: 실제 최고속도에 맞춘 공기저항, 등급별 타이어 μ와 다운포스, 크기에 맞춘 차체·휠 위치, FWD/RWD/AWD, 엔진 위치(앞/미드/리어).
+- 메뉴의 스펙 바 5개(최고속도, 가속, 핸들링, 제동, 무게)와 PI(성능 지수)도 같은 힘 모델로 계산합니다.
+- 외형은 실제 크기를 바탕으로 코드로 만듭니다. 해치백, 세단, 쿠페, 로드스터, 미드십, GT3, 하이퍼카, LMP 형태가 있고, 싱글시터는 F1 차체를 차 크기에 맞춰 늘이거나 줄입니다(인디카는 에어로스크린). 브랜드·팀 색을 칠합니다.
+- 상대 AI는 같은 등급에서 PI가 가장 가까운 차들입니다. 차마다 각자의 속도 프로파일로 달립니다.
+- 엔진 소리는 엔진 형식별로 다릅니다(직렬 4·6기통, 수평대향 6, V6, V8, V10, V12, W16, F1, 전기).
 
 ### 서킷
 
 | 서킷 | 길이 | 데이터 |
 |---|---|---|
 | Test Circuit | 1.1 km | 직접 만든 레이아웃 |
-| Red Bull Ring (Spielberg) | 4.32 km | 실제 중심선, 레이싱 라인, OSM 주변 환경 |
-| Monza | 5.79 km | 〃 (건물 2,240개) |
-| Silverstone | 5.89 km | 〃 |
-| Spa-Francorchamps | 7.00 km | 〃 |
+| Albert Park, Shanghai, Suzuka, Bahrain, Montréal, Barcelona | 4.4–5.8 km | 실제 중심선 + OSM 주변 환경 |
+| Red Bull Ring, Silverstone, Spa, Hungaroring, Zandvoort, Monza | 4.3–7.0 km | 〃 |
+| COTA, Mexico City, Interlagos, Yas Marina | 4.3–5.5 km | 〃 |
+
+- 2026 F1 캘린더 중 TUMFTM 데이터셋에 있는 16곳을 캘린더 순서로 넣었습니다. 데이터셋에 없는 제다, 마이애미, 모나코, 바쿠, 싱가포르, 라스베이거스, 카타르, 마드리드는 아직 없습니다.
+- 일부 레이아웃은 데이터셋이 만들어진 시점 기준입니다(예: 2021년 이전 야스 마리나).
+- 서킷마다 지역 테마가 있습니다: 하늘 HDRI, 햇빛, 안개 농도, 잔디 색, 먼 지형(알프스 산맥, 아르덴 숲 언덕, 사막, 모래 언덕, 멕시코 고원 등). `?theme=`로 바꿔 볼 수 있습니다.
+- 장난감 같던 나무는 기본으로 껐습니다. 먼 산의 숲은 지형 색으로 표현합니다.
+- 화면 왼쪽 아래 미니맵에 트랙과 모든 차가 표시됩니다.
 
 - 실제 서킷은 고저차 없이 평지로 재현합니다(원본 데이터가 2D).
 - 연석은 코너에만, 그래블 트랩은 코너 바깥쪽에만 자동 배치됩니다.
-- 잔디와 그래블에 올라가면 그립이 떨어지고 감속합니다.
+- 노면은 바퀴마다 따로 판정합니다. 잔디는 미끄럽고(접지력 ×0.32), 그래블은 감속이 큽니다. 두 바퀴만 잔디에 올라가도 차가 그쪽으로 끌려갑니다.
+
+### 물리
+
+- 엔진: 출력(kW) 기반이라 속도가 붙을수록 힘이 줄고(힘 = 출력 / 속도), 최고속도는 출력과 공기저항으로 정해집니다.
+- 타이어: 횡력과 종력(가속·제동)이 마찰원 μ·하중을 나눠 씁니다. 코너에서 브레이크를 밟거나 가속하면 횡 그립이 줄어듭니다.
+- 다운포스가 하중에 더해져서 빠를수록 더 붙습니다. F1 측정값은 최고 339 km/h, 0-200 5.2 s, 200→0 제동 55 m, 300 km/h에서 5.9 g입니다(`scripts/handling.ts`).
 
 ### AI 레이스
 
@@ -94,8 +115,8 @@ npx tsx scripts/fetch-osm.ts [circuit]   # OpenStreetMap 주변 환경 데이터
 
 ### 레이싱 라인 (L)
 
-- 실제 서킷의 라인은 TUMFTM이 오픈소스 최적화 툴로 계산한 **최소 곡률 레이싱 라인**입니다. Test Circuit은 중심선을 사용합니다.
-- 선택한 차의 성능으로 각 지점의 목표 속도를 계산합니다(코너링 한계 → 가속/감속 패스).
+- 게임 도로 폭에 맞춰 직접 계산합니다(`RacingLineOptimizer.ts`). **최소 곡률**(아웃-인-아웃)로 풀고, 느린 코너는 에이펙스를 뒤로 미룹니다(슬로우 인 패스트 아웃).
+- 선택한 차의 성능으로 각 지점의 목표 속도를 계산합니다(다운포스를 반영한 코너링 한계, 출력·공기저항 가속, 마찰 한계 제동).
 - 앞쪽 400 m의 라인 색이 **현재 속도에 따라 실시간으로** 바뀝니다.
   - 빨강: 지금 브레이크를 밟지 않으면 코너 목표 속도까지 못 줄임
   - 노랑: 곧 브레이크
@@ -137,7 +158,7 @@ npx tsx scripts/fetch-osm.ts [circuit]   # OpenStreetMap 주변 환경 데이터
 
 | 파라미터 | 기본값 | 설명 |
 |---|---|---|
-| `car` / `track` | – | 메뉴 없이 바로 시작 (`formula`, `gt`, `street` / `test`, `spielberg`, `monza`, `silverstone`, `spa`) |
+| `car` / `track` | – | 메뉴 없이 바로 시작 (차 id 예: `f1-ferrari`, `porsche-911-gt3r`, `vw-golf-gti` / 서킷 id 예: `suzuka`, `monza`, `yasmarina`) |
 | `menu` | – | 메뉴 강제 표시 |
 | `shadows` | `1` | 그림자 on/off |
 | `shadowmap` | `2048` | 그림자 맵 해상도 |
@@ -168,23 +189,32 @@ src/
     Gearbox.ts               자동 변속, RPM (사운드/HUD용)
     VehicleVisual.ts         VehicleVisual 인터페이스 + PrimitiveCarVisual (바퀴, 재질)
     Vehicle.ts               controller + physics + gearbox + visual, 렌더 보간
-    cars/                    CarDefinition 카탈로그, 차체 형상(shapes.ts), 차량 비주얼
+    catalog/                 100대 제원(specs.ts), 제원 → 물리/변속기/소리/점수(build.ts),
+                             메뉴용 경량 목록(index.ts), 실제 크기 기반 차체(ParametricCarVisual.ts)
+    cars/                    CarDefinition(물리 + 비주얼), 상대 선택, F1 차체(CarVisuals.ts), 형상 도구(shapes.ts)
   audio/       AudioSystem.ts (컨텍스트, 음소거), EngineSound.ts (엔진/스키드/바람 합성)
-  race/        LapTimer.ts
+  race/        LapTimer.ts, RaceManager.ts, AIDriver.ts
   world/
     TrackLayout.ts           트랙 데이터 형식 + TUM CSV 파서
     Track.ts                 Track 인터페이스 + ProceduralTrack (도로, 연석, 그래블, 가드레일, 나무 …)
     OsmScenery.ts            OSM 건물, 숲, 물, 주차장, 도로 → 3D (병합 메시, 인스턴싱)
+    RacingLineOptimizer.ts   최소 곡률 + 레이트 에이펙스 레이싱 라인 계산
     RacingLine.ts            속도 프로파일 + 다이내믹 색상 레이싱 라인
+    themes.ts                서킷별 배경 테마 (하늘, 빛, 안개, 지형 색)
+    Terrain.ts               서킷 밖 먼 지형 (평지 → 언덕/산맥)
     TrackTextures.ts         PBR 텍스처 스트리밍
     Environment.ts           HDRI 하늘, IBL, 태양 방향 자동 추정, 그림자, 안개
     tracks/                  서킷 카탈로그 + data/ (CSV, OSM JSON)
   camera/      FollowCamera.ts
-  performance/ PerformanceMonitor.ts
-  ui/          HUD.ts, Menu.ts
+  performance/ PerformanceMonitor.ts, Benchmark.ts (?bench), DynamicResolution.ts
+  ui/          HUD.ts, Menu.ts, Minimap.ts
 scripts/
   sim-test.ts                헤드리스 테스트 (CI에서도 실행)
-  fetch-osm.ts               OSM 주변 환경 다운로드 + 정합
+  race-test.ts               헤드리스 20대 레이스
+  handling.ts                차량 성능 측정 (가속, 최고속도, 제동, 횡 g)
+  bench.ts / shot.ts         실제 브라우저 fps 벤치마크 / 스크린샷
+  fetch-osm.ts               OSM 주변 환경 다운로드 + 정합 (Overpass 미러 순환)
+  tracks-node.ts             Node 스크립트용 서킷 로더
 public/
   textures/, hdri/           CC0 에셋 (게임 시작 후 스트리밍)
 .github/workflows/deploy.yml GitHub Pages 자동 배포
@@ -246,7 +276,7 @@ Monza 실측(`scene-stats`): 이전에는 매 프레임 약 78만 삼각형을 2
 1. 라이선스가 확인된 GLB(예: Sketchfab CC-BY)를 `public/cars/`에 넣습니다.
 2. `GLTFLoader`로 불러와 `root`에 추가합니다. 전방은 -Z, 원점은 차체 중심에 맞춥니다.
 3. 바퀴 노드(`wheel_FL` 등)를 찾아 `updateWheels`에서 `suspensionLength`, `steerAngle`, `spin`을 적용합니다.
-4. `src/vehicle/cars/index.ts`의 `CARS`에 새 `CarDefinition`을 추가합니다. 이때 `physics`, `gearbox`, `engine`, `createVisual`을 지정합니다.
+4. `src/vehicle/catalog/specs.ts`에 제원을 추가하고, `src/vehicle/cars/index.ts`의 `visualFor`에서 그 차의 비주얼을 GLB로 바꿉니다. 물리와 소리는 제원에서 자동으로 만들어집니다.
 
 ## GLB 트랙 넣기
 

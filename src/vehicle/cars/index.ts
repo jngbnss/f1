@@ -1,20 +1,15 @@
 import type { EngineSoundProfile } from '../../audio/EngineSound';
-import { buildGearbox, buildPhysics, buildSound, rateCar, type CarStats } from '../catalog/build';
+import { buildGearbox, buildPhysics, buildSound } from '../catalog/build';
+import { carInfo, resolveCarId, type CarInfo } from '../catalog';
 import { ParametricCarVisual } from '../catalog/ParametricCarVisual';
-import { CAR_SPECS, type CarClass, type CarSpec } from '../catalog/specs';
+import { CAR_SPECS, type CarSpec } from '../catalog/specs';
 import type { GearboxConfig } from '../Gearbox';
 import type { VehicleConfig } from '../VehicleConfig';
 import type { VehicleVisual } from '../VehicleVisual';
 import { FormulaCarVisual } from './CarVisuals';
 
 /** Everything that makes one selectable car. Swap any part independently. */
-export interface CarDefinition {
-  id: string;
-  name: string;
-  description: string;
-  cls: CarClass;
-  spec: CarSpec;
-  stats: CarStats;
+export interface CarDefinition extends CarInfo {
   physics: VehicleConfig;
   gearbox: GearboxConfig;
   engine: EngineSoundProfile;
@@ -34,15 +29,8 @@ function visualFor(spec: CarSpec, physics: VehicleConfig, color?: number): Vehic
 
 function define(spec: CarSpec): CarDefinition {
   const physics = buildPhysics(spec);
-  const stats = rateCar(spec, physics);
-  const hp = Math.round(spec.kw * 1.341);
   return {
-    id: spec.id,
-    name: `${spec.brand} ${spec.model}`,
-    description: `${hp} hp · ${spec.kg} kg · ${spec.top} km/h · ${spec.drive}`,
-    cls: spec.cls,
-    spec,
-    stats,
+    ...carInfo(spec),
     physics,
     gearbox: buildGearbox(spec),
     engine: buildSound(spec),
@@ -52,13 +40,9 @@ function define(spec: CarSpec): CarDefinition {
 
 export const CARS: CarDefinition[] = CAR_SPECS.map(define);
 
-/** Old ids (before the 100-car catalog) still work in URLs and saved settings. */
-const ALIASES: Record<string, string> = { formula: 'f1-ferrari', gt: 'porsche-911-gt3r', street: 'vw-golf-gti' };
-export const DEFAULT_CAR_ID = 'f1-ferrari';
-
 export function findCar(id: string | null | undefined): CarDefinition {
-  const key = id ? (ALIASES[id] ?? id) : DEFAULT_CAR_ID;
-  return CARS.find((c) => c.id === key) ?? CARS.find((c) => c.id === DEFAULT_CAR_ID)!;
+  const key = resolveCarId(id);
+  return CARS.find((c) => c.id === key)!;
 }
 
 /**

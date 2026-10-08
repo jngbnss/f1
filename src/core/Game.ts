@@ -367,6 +367,9 @@ export class Game {
     this.dynamicResolution?.update(this.perf.snapshot);
     this.perf.snapshot.pixelRatio = this.renderer.getPixelRatio();
     for (const v of this.vehicles) v.render(alpha);
+    // Car LOD: beyond ~70 m wheel rims and brake discs are a few pixels; hide them.
+    const cam = this.followCamera.camera.position;
+    for (const v of this.vehicles) v.visual.setDetail?.(v.object3D.position.distanceToSquared(cam) < 70 * 70);
     const speedRatio = this.player.physics.forwardSpeed / this.player.config.maxSpeed;
     this.followCamera.update(this.player.object3D, speedRatio, frameDt);
     this.environment.update(this.player.object3D.position);
