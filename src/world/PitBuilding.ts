@@ -49,7 +49,8 @@ export function buildPitBuilding(
     pit.path[k].clone().addScaledVector(rights[pit.pathIndex[k]], pit.side * (PIT_BUILDING_FRONT + depth)).setY(pit.path[k].y + y);
 
   // --- facade canvas: row 0 = garages (GROUND_H), row 1 = roof fascia ---------
-  const W = Math.min(8192, Math.ceil(length * PX_PER_M));
+  // 4096 is the texture limit on many phone / ARM GPUs.
+  const W = Math.min(4096, Math.ceil(length * PX_PER_M));
   const sx = W / length;
   const gH = Math.round(GROUND_H * PX_PER_M);
   const fH = Math.round(FASCIA_H * PX_PER_M);

@@ -1,5 +1,6 @@
 import './style.css';
 import './ui/responsive.css';
+import { installDiagnostics } from './ui/Diagnostics';
 import { driveSettings } from './ui/DriveSettings';
 import { readConfig, urlWith } from './config';
 import { clearBenchResults } from './performance/Benchmark';
@@ -9,6 +10,7 @@ import { CAR_LIST, resolveCarId } from './vehicle/catalog';
 import { FEATURED_TRACKS, findTrack, TRACKS } from './world/tracks';
 
 async function main(): Promise<void> {
+  installDiagnostics();
   const container = document.getElementById('app');
   const loading = document.getElementById('loading');
   if (!container) throw new Error('#app container missing');

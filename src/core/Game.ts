@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { watchRenderer } from '../ui/Diagnostics';
 import { CAMERA_LABELS, CAMERA_MODES, FollowCamera, type CameraMode } from '../camera/FollowCamera';
 import { CarAudio, EngineVoice } from '../audio/EngineSound';
 import { AudioSystem } from '../audio/AudioSystem';
@@ -144,6 +145,7 @@ export class Game {
     // --- renderer -----------------------------------------------------
     // With post-processing, SMAA in the chain replaces the canvas MSAA.
     this.renderer = new THREE.WebGLRenderer({ antialias: config.antialias && !config.postfx, powerPreference: 'high-performance' });
+    watchRenderer(this.renderer);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, config.pixelRatio));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     this.renderer.shadowMap.enabled = config.shadows;
