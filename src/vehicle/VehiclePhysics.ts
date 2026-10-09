@@ -92,6 +92,8 @@ export class VehiclePhysics {
   brakeGrip = BRAKE_GRIP;
   /** Brake pedal force multiplier (human drivers; AI keeps 1). */
   brakeForceScale = 1.5;
+  /** Front tyre cornering grip multiplier (human drivers: less understeer; AI keeps 1). */
+  frontGripScale = 1.1;
   /**
    * Keep the downforce while all four wheels are off the ground (circuits with real
    * crests: Spa, Suzuka). On flat circuits a car only takes off in a crash, where
@@ -274,7 +276,7 @@ export class VehiclePhysics {
       const isFront = wc.steerable;
       const tyre = isFront ? this.tyreGrip.front : this.tyreGrip.rear;
       let grip = (isFront ? c.frontGrip : c.rearGrip) * Math.min(1, 0.35 + 0.65 * surfGrip) * Math.min(1, tyre);
-      let mu = (isFront ? c.frontFriction : c.rearFriction) * surfGrip * tyre;
+      let mu = (isFront ? c.frontFriction * this.frontGripScale : c.rearFriction) * surfGrip * tyre;
       if (wc.handbrake && cmd.handbrake > 0) {
         const f = 1 - (1 - c.handbrakeGripFactor) * cmd.handbrake;
         grip *= f;

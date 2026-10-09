@@ -22,6 +22,9 @@ export interface VehicleCommands {
  * An AI driver or a ghost replay can bypass this and feed VehicleCommands
  * directly, or produce a VehicleInput and go through it.
  */
+/** Human steering boost: rate (turn-in speed), self-centring, lock kept at speed. */
+const AGILE = { rate: 1.9, returnRate: 1.4, highSpeedLock: 1.35 };
+
 export class VehicleController {
   readonly commands: VehicleCommands = { drive: 0, brake: 0, handbrake: 0, steerAngle: 0 };
   /** Smoothed steering input, -1..1. */
@@ -30,6 +33,11 @@ export class VehicleController {
   private brakePressure = 0;
   /** Human drivers get the pedal build-up; AI (already analog and planned) does not. */
   brakeRamp = true;
+  /**
+   * Sharper steering for human drivers: an F1 car turns in instantly and keeps
+   * more lock at speed than a road car. AI (planned steering) keeps the base values.
+   */
+  agileSteering = true;
 
   constructor(private readonly config: VehicleConfig) {}
 
@@ -58,13 +66,15 @@ export class VehicleController {
     // --- steering -----------------------------------------------------
     const target = input.steer;
     const returning = Math.abs(target) < Math.abs(this.steer) || Math.sign(target) !== Math.sign(this.steer);
-    const rate = returning ? c.steerReturnRate : c.steerRate;
+    const quick = this.agileSteering ? AGILE.rate : 1;
+    const rate = (returning ? c.steerReturnRate * (this.agileSteering ? AGILE.returnRate : 1) : c.steerRate) * (returning ? 1 : quick);
     const maxDelta = rate * dt;
     this.steer += Math.max(-maxDelta, Math.min(maxDelta, target - this.steer));
 
     const t = Math.min(Math.abs(forwardSpeed) / c.steerFadeSpeed, 1);
     const ease = t * (2 - t); // ease-out: range drops quickly at first
-    const maxSteer = c.maxSteerLowSpeed + (c.maxSteerHighSpeed - c.maxSteerLowSpeed) * ease;
+    const high = c.maxSteerHighSpeed * (this.agileSteering ? AGILE.highSpeedLock : 1);
+    const maxSteer = c.maxSteerLowSpeed + (high - c.maxSteerLowSpeed) * ease;
     cmd.steerAngle = this.steer * maxSteer;
 
     return cmd;

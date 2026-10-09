@@ -53,8 +53,10 @@ export class AIDriver {
   ) {
     this.offset = profile.lane;
     vehicle.controller.brakeRamp = false;
+    vehicle.controller.agileSteering = false;
     vehicle.physics.brakeGrip = 1;
     vehicle.physics.brakeForceScale = 1;
+    vehicle.physics.frontGripScale = 1;
   }
 
   /** @param others every other car on track (player included) */
