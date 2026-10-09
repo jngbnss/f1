@@ -8,6 +8,8 @@ export interface MenuSelection {
   /** AI opponents (0 = free practice). */
   ai: number;
   laps: number;
+  /** Race friends online instead (opens the multiplayer lobby). */
+  multiplayer?: boolean;
 }
 
 const AI_OPTIONS: [number, string, string][] = [
@@ -48,6 +50,7 @@ export function showMenu(
         <div class="menu-grid" data-group="ai"></div>
         <div class="menu-grid menu-laps" data-group="laps"></div>
         <button class="menu-start" type="button">출발 ▶ <small>(Enter)</small></button>
+        <button class="menu-start menu-mp" type="button" style="background:#2f6fde;margin-top:10px">👥 친구와 레이스 <small>방 만들기 · 최대 20명</small></button>
         <p class="menu-note">실제 서킷 레이아웃: TUMFTM racetrack-database (LGPL-3.0) · © OpenStreetMap contributors. 높낮이 없이 평지로 재현됩니다.</p>
       </div>`;
 
@@ -134,6 +137,11 @@ export function showMenu(
     }
 
     root.querySelector('.menu-start')!.addEventListener('click', start);
+    root.querySelector('.menu-mp')!.addEventListener('click', () => {
+      window.removeEventListener('keydown', onKey);
+      root.remove();
+      resolve({ carId, trackId, ai, laps, multiplayer: true });
+    });
     window.addEventListener('keydown', onKey);
     render();
     document.body.append(root);
