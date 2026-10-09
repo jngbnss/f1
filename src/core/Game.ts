@@ -173,7 +173,9 @@ export class Game {
         }
         const def = rivals[rivalIndex++];
         // Teammates share their team's livery.
-        const vehicle = new Vehicle(physics, def.physics, def.createVisual(), this.track.gridPose(slot), def.gearbox);
+        // Second car of a team (or the player's teammate) carries the team's other number.
+        const driver = def.id === car.id || rivals.indexOf(def) !== rivalIndex - 1 ? 1 : 0;
+        const vehicle = new Vehicle(physics, def.physics, def.createVisual(undefined, driver), this.track.gridPose(slot), def.gearbox);
         this.scene.add(vehicle.object3D);
         this.vehicles.push(vehicle);
         this.carOf.set(vehicle, def);

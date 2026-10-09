@@ -7,6 +7,7 @@ import type { GearboxConfig } from '../Gearbox';
 import type { VehicleConfig } from '../VehicleConfig';
 import type { VehicleVisual } from '../VehicleVisual';
 import { FormulaCarVisual } from './CarVisuals';
+import { liveryFor } from './F1Livery';
 import { f1ModelReady, GltfF1Visual } from './GltfF1Visual';
 
 /** Everything that makes one selectable car. Swap any part independently. */
@@ -14,12 +15,12 @@ export interface CarDefinition extends CarInfo {
   physics: VehicleConfig;
   gearbox: GearboxConfig;
   engine: EngineSoundProfile;
-  /** Builds the car body; `color` overrides the default paint. */
-  createVisual(color?: number): VehicleVisual;
+  /** Builds the car body; `color` overrides the default paint, `driver` (0/1) picks the race number. */
+  createVisual(color?: number, driver?: number): VehicleVisual;
 }
 
-function visualFor(spec: CarSpec, physics: VehicleConfig, color?: number): VehicleVisual {
-  if (spec.body === 'f1' && f1ModelReady()) return new GltfF1Visual(physics, color ?? spec.color, spec.accent ?? 0xf2f2f2);
+function visualFor(spec: CarSpec, physics: VehicleConfig, color?: number, driver = 0): VehicleVisual {
+  if (spec.body === 'f1' && f1ModelReady()) return new GltfF1Visual(physics, liveryFor(spec.id, color ?? spec.color, spec.accent ?? 0xf2f2f2), driver);
   if (spec.cls === 'formula') {
     const [, width, , wheelbase] = spec.dims;
     // The modelled body is an F1 car (wheelbase 3.5 m, wheels at ±0.81 m): scale it to this car.
@@ -36,7 +37,7 @@ function define(spec: CarSpec): CarDefinition {
     physics,
     gearbox: buildGearbox(spec),
     engine: buildSound(spec),
-    createVisual: (color) => visualFor(spec, physics, color),
+    createVisual: (color, driver) => visualFor(spec, physics, color, driver),
   };
 }
 
