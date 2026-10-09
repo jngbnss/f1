@@ -6,6 +6,7 @@ import type { Vehicle } from '../vehicle/Vehicle';
 import { COMPOUND_COLORS } from '../vehicle/cars/GltfF1Visual';
 import { INTERP_DELAY, STATE_HZ, type CarState, type RacePlan } from './protocol';
 import type { Room } from './Room';
+import { VoiceOverlay } from '../ui/VoiceControls';
 
 const COMPOUND_ORDER: Compound[] = ['soft', 'medium', 'hard'];
 /** Never extrapolate a remote car further than this past its last state (ms). */
@@ -52,6 +53,9 @@ export class NetRace {
   private sendClock = 0;
   private goAt: number | null = null;
   private banner: HTMLDivElement | null = null;
+  private voiceUi: VoiceOverlay | null = null;
+  /** Tower names without the talking marker, per grid slot of a human player. */
+  private readonly baseNames = new Map<number, { id: string; racer: Racer; name: string }>();
 
   constructor(
     readonly room: Room,
@@ -82,6 +86,8 @@ export class NetRace {
     this.view = view;
     const { rapier } = view.physics;
     view.race.racers.forEach((racer, slot) => {
+      const s = this.plan.slots[slot];
+      if (!s.ai) this.baseNames.set(slot, { id: s.id, racer, name: racer.name });
       if (this.ownsSlot(slot)) {
         this.owned.push({ slot, racer });
         return;
@@ -91,6 +97,7 @@ export class NetRace {
     });
     this.say('다른 플레이어를 기다리는 중…');
     this.room.sendLoaded();
+    this.voiceUi = new VoiceOverlay(this.room, () => new Map([...this.baseNames.values()].map((b) => [b.id, b.name])));
   }
 
   inPit(v: Vehicle): boolean {
@@ -109,6 +116,8 @@ export class NetRace {
     }
     const t = now - INTERP_DELAY;
     for (const remote of this.remotes.values()) this.place(remote, t, dt);
+    // Timing tower: 🎙️ next to whoever is talking on voice chat.
+    for (const b of this.baseNames.values()) b.racer.name = this.room.voice.isSpeaking(b.id) ? `${b.name} 🎙️` : b.name;
   }
 
   /** After the physics step: send the states of the cars this browser owns. */
@@ -124,6 +133,7 @@ export class NetRace {
 
   dispose(): void {
     this.banner?.remove();
+    this.voiceUi?.dispose();
     this.room.leave();
   }
 
@@ -244,6 +254,8 @@ export class NetRace {
       v.object3D.visible = false;
       v.physics.collider.setEnabled(false);
       remote.racer.name = `${remote.racer.name} (나감)`;
+      const base = this.baseNames.get(slot);
+      if (base) base.name = `${base.name} (나감)`;
     });
   }
 

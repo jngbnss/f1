@@ -15,6 +15,7 @@ import {
   type Message,
   type RacePlan,
 } from './protocol';
+import { Voice } from './Voice';
 
 /**
  * A multiplayer room over WebRTC (PeerJS for signalling, its free public
@@ -64,6 +65,8 @@ export class Room {
   onStates?: (states: CarState[]) => void;
   onLeft?: (id: string) => void;
   onEnd?: (reason: string) => void;
+  /** Voice chat over the same peers (listens right away; the mic only when turned on). */
+  readonly voice: Voice;
 
   private constructor(
     private readonly peer: Peer,
@@ -71,6 +74,7 @@ export class Room {
     readonly code: string,
   ) {
     this.myId = peer.id;
+    this.voice = new Voice(peer, () => this.myId);
     peer.on('disconnected', () => {
       // Lost the broker only (open connections keep working); reconnect so others can still join.
       if (!this.closed && !peer.destroyed) peer.reconnect();
@@ -190,6 +194,7 @@ export class Room {
   leave(): void {
     if (this.closed) return;
     this.closed = true;
+    this.voice.stop();
     for (const id of this.links.keys()) this.sendTo(id, { t: 'bye', reason: this.isHost ? '방장이 방을 닫았습니다' : 'left' });
     if (this.hostLink) this.send({ t: 'bye', reason: 'left' });
     for (const t of this.timers) {
@@ -302,6 +307,7 @@ export class Room {
     this.links.delete(id);
     link.conn.close();
     this.lobby.players = this.lobby.players.filter((p) => p.id !== id);
+    this.voice.drop(id);
     if (this.plan) {
       for (const other of this.links.keys()) this.sendTo(other, { t: 'left', id });
       this.onLeft?.(id);
@@ -325,6 +331,7 @@ export class Room {
 
   private broadcastLobby(): void {
     for (const id of this.links.keys()) this.sendTo(id, { t: 'lobby', state: this.lobby, you: id });
+    this.voice.setPeers(this.lobby.players.map((p) => p.id));
     this.onLobby?.(this.lobby);
   }
 
@@ -373,6 +380,7 @@ export class Room {
         if (msg.t === 'lobby') {
           this.lobby = msg.state;
           this.myId = msg.you;
+          this.voice.setPeers(msg.state.players.map((p) => p.id));
           if (!accepted) {
             accepted = true;
             resolve();
@@ -417,6 +425,7 @@ export class Room {
         this.onGo?.(msg.startAt);
         return;
       case 'left':
+        this.voice.drop(msg.id);
         this.onLeft?.(msg.id);
         return;
     }
@@ -436,6 +445,7 @@ export class Room {
   private end(reason: string): void {
     if (this.closed) return;
     this.closed = true;
+    this.voice.stop();
     for (const t of this.timers) {
       clearInterval(t);
       clearTimeout(t);

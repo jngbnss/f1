@@ -16,6 +16,7 @@
     "tyre:test": "tsx scripts/tyre-test.ts",
     "brake:test": "tsx scripts/brake-test.ts",
     "mp:test": "tsx scripts/mp-test.ts",
+    "voice:test": "tsx scripts/voice-test.ts",
     "bench": "tsx scripts/bench.ts",
     "raceline:bake": "tsx scripts/bake-raceline.ts",
     "model:f1": "tsx scripts/build-f1-model.ts"

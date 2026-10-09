@@ -6,12 +6,22 @@ import { makeNoiseBuffer, makeReverbBuffer, type AudioAssets } from './EngineSou
  * the context is created on the first key press / click (or immediately if
  * the page already had one, e.g. the menu's Start click). M toggles mute.
  */
+/** Live game audio systems (normally one), for ducking under voice chat. */
+const live = new Set<AudioSystem>();
+
+/** Lowers game sound (engines, tyres) while a teammate talks on voice chat. */
+export function duckGameAudio(on: boolean): void {
+  for (const a of live) a.setDuck(on);
+}
+
 export class AudioSystem {
   ctx: AudioContext | null = null;
   master: GainNode | null = null;
   muted = false;
   private readonly volume = 0.8;
   assets: AudioAssets | null = null;
+  private duckNode: GainNode | null = null;
+  private ducked = false;
   private readonly readyCallbacks: ((ctx: AudioContext, master: GainNode, assets: AudioAssets) => void)[] = [];
 
   constructor() {
@@ -19,6 +29,12 @@ export class AudioSystem {
     window.addEventListener('pointerdown', this.onGesture);
     document.addEventListener('visibilitychange', this.onVisibility);
     if (navigator.userActivation?.hasBeenActive) this.init();
+    live.add(this);
+  }
+
+  setDuck(on: boolean): void {
+    this.ducked = on;
+    if (this.duckNode && this.ctx) this.duckNode.gain.setTargetAtTime(on ? 0.45 : 1, this.ctx.currentTime, on ? 0.04 : 0.25);
   }
 
   get running(): boolean {
@@ -37,6 +53,7 @@ export class AudioSystem {
   }
 
   dispose(): void {
+    live.delete(this);
     window.removeEventListener('keydown', this.onGesture);
     window.removeEventListener('pointerdown', this.onGesture);
     document.removeEventListener('visibilitychange', this.onVisibility);
@@ -54,7 +71,9 @@ export class AudioSystem {
     compressor.ratio.value = 4;
     const master = ctx.createGain();
     master.gain.value = this.muted ? 0 : this.volume;
-    master.connect(compressor).connect(ctx.destination);
+    const duck = (this.duckNode = ctx.createGain());
+    duck.gain.value = this.ducked ? 0.45 : 1;
+    master.connect(duck).connect(compressor).connect(ctx.destination);
     this.ctx = ctx;
     this.master = master;
 

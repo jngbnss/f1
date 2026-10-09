@@ -1,6 +1,7 @@
 import type { RacePlan, LobbyState } from '../net/protocol';
 import type { Room } from '../net/Room';
 import { CAR_LIST } from '../vehicle/catalog';
+import { lobbyVoice } from './VoiceControls';
 
 /**
  * Multiplayer lobby: pick a name and a team, create a room (or join one
@@ -34,11 +35,11 @@ const STYLE = `
 .lobby .lobby-code { font: 800 34px/1 ui-monospace, monospace; letter-spacing: 6px; color: #ffd23f; }
 .lobby .lobby-btn { padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #fff; font-size: 14px; cursor: pointer; }
 .lobby .lobby-btn:hover { background: rgba(255,255,255,0.16); }
-.lobby .lobby-players { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.lobby .lobby-players { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 .lobby .lobby-players li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,0.06); font-size: 14px; }
 .lobby .lobby-players li i { width: 6px; align-self: stretch; border-radius: 3px; }
 .lobby .lobby-players li.me { outline: 1px solid #ffd23f; }
-.lobby .lobby-players li small { color: #8b97a5; margin-left: auto; }
+.lobby .lobby-players li small { color: #8b97a5; }
 .lobby .menu-card.full { opacity: 0.4; pointer-events: none; }
 .lobby .menu-card .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 .lobby .lobby-status { color: #8b97a5; font-size: 14px; min-height: 1.4em; }
@@ -74,6 +75,7 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
         <h2>팀 <small>팀당 2명까지</small></h2>
         <div class="menu-grid" data-part="teams"></div>
         <div data-part="players"></div>
+        <div data-part="voice"></div>
         <div data-part="settings"></div>
         <p class="lobby-status" data-part="status"></p>
         <div class="lobby-row">
@@ -134,6 +136,8 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
           .querySelector('[data-act="share"]')
           ?.addEventListener('click', () => navigator.share({ title: 'web-sim-lab 레이스', text: `방 코드 ${room!.code}`, url: link }).catch(() => {}));
 
+        const voice = lobbyVoice(room, status, render);
+        part('voice').replaceChildren(voice.section);
         const list = document.createElement('ul');
         list.className = 'lobby-players';
         for (const p of state.players) {
@@ -147,6 +151,7 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
           const small = document.createElement('small');
           small.textContent = def?.spec.brand ?? '';
           li.append(bar, label, small);
+          voice.decorate(li, p.id);
           list.append(li);
         }
         part('players').replaceChildren(Object.assign(document.createElement('h2'), { textContent: `참가자 ${state.players.length}/20` }), list);
@@ -203,6 +208,11 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
 
     const wire = (r: Room) => {
       room = r;
+      // Test/debug handle (like window.sim for the race).
+      (window as unknown as { netRoom?: Room }).netRoom = r;
+      r.voice.onChange = () => {
+        for (const m of root.querySelectorAll<HTMLElement>('.voice-mic[data-voice-id]')) m.classList.toggle('on', r.voice.isSpeaking(m.dataset.voiceId!));
+      };
       r.onLobby = (s) => {
         const me = s.players.find((p) => p.id === r.myId);
         if (me) team = me.team;
