@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
  * Forests of photo-like trees for the price of two triangles each.
@@ -183,23 +184,35 @@ export async function buildImpostorForest(
     return 0;
   };
 
-  const geometry = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
+  // Fixed crossed cards instead of a camera-facing one: each tree is CROSS
+  // vertical planes through its trunk, plane k showing the atlas frame baked
+  // from its own direction. Nothing turns or swaps frames as the camera moves,
+  // so trees stay put and slide past with real parallax (a camera-facing card
+  // visibly changed shape whenever its frame flipped).
+  const CROSS = FRAMES / 2;
+  const planes: THREE.BufferGeometry[] = [];
+  for (let k = 0; k < CROSS; k++) {
+    const plane = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0).rotateY((-k * Math.PI * 2) / FRAMES);
+    plane.setAttribute('treeFrame', new THREE.Float32BufferAttribute(new Array(plane.attributes.position.count).fill(k), 1));
+    planes.push(plane);
+  }
+  const geometry = mergeGeometries(planes)!;
+  planes.forEach((p) => p.dispose());
   const material = new THREE.MeshBasicMaterial({ map: atlas.texture, alphaTest: 0.45, transparent: false, side: THREE.DoubleSide });
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\nattribute vec2 treeData;\nvarying vec2 vAtlasUv;`)
+      .replace('#include <common>', `#include <common>\nattribute vec2 treeData;\nattribute float treeFrame;\nvarying vec2 vAtlasUv;`)
       .replace(
         '#include <project_vertex>',
         `vec4 tCenter = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
         vec2 tScale = vec2(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz));
-        vec2 dir = normalize(cameraPosition.xz - tCenter.xz + vec2(1e-4));
-        vec3 right = vec3(dir.y, 0.0, -dir.x);
-        vec3 world = tCenter.xyz + right * position.x * tScale.x + vec3(0.0, position.y * tScale.y, 0.0);
+        float cy = cos(treeData.y);
+        float sy = sin(treeData.y);
+        vec2 xz = vec2(cy * position.x + sy * position.z, -sy * position.x + cy * position.z) * tScale.x;
+        vec3 world = tCenter.xyz + vec3(xz.x, position.y * tScale.y, xz.y);
         vec4 mvPosition = viewMatrix * vec4(world, 1.0);
         gl_Position = projectionMatrix * mvPosition;
-        float step = 6.2831853 / ${FRAMES.toFixed(1)};
-        float frame = mod(floor(-(atan(dir.x, dir.y) - treeData.y) / step + 0.5), ${FRAMES.toFixed(1)});
-        vAtlasUv = vec2((frame + uv.x) / ${FRAMES.toFixed(1)}, (treeData.x + uv.y) / ${VARIANTS.length.toFixed(1)});`,
+        vAtlasUv = vec2((treeFrame + uv.x) / ${FRAMES.toFixed(1)}, (treeData.x + uv.y) / ${VARIANTS.length.toFixed(1)});`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\nvarying vec2 vAtlasUv;`)
@@ -213,7 +226,7 @@ export async function buildImpostorForest(
         diffuseColor *= tex;`,
       );
   };
-  material.customProgramCacheKey = () => 'tree-impostor';
+  material.customProgramCacheKey = () => 'tree-impostor-cross';
 
   const mesh = new THREE.InstancedMesh(geometry, material, positions.length);
   mesh.name = 'ImpostorForest';
