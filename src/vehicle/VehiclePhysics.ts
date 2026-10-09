@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import type { PhysicsWorld } from '../physics/PhysicsWorld';
+import { SUSPENSION_RAY_GROUPS, type PhysicsWorld } from '../physics/PhysicsWorld';
 import type { VehicleConfig } from './VehicleConfig';
 import type { VehicleCommands } from './VehicleController';
 
@@ -186,7 +186,7 @@ export class VehiclePhysics {
       _origin.set(wc.position.x, wc.position.y, wc.position.z).applyQuaternion(_quat).add(_pos);
       this.ray.origin = _origin;
       this.ray.dir = _down;
-      const hit = world.castRayAndGetNormal(this.ray, maxRay, true, undefined, undefined, undefined, body);
+      const hit = world.castRayAndGetNormal(this.ray, maxRay, true, undefined, SUSPENSION_RAY_GROUPS, undefined, body);
 
       if (!hit) {
         ws.grounded = false;

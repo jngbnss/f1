@@ -43,6 +43,8 @@ const HOLD: VehicleInput = { throttle: 0, brake: 1, steer: 0, handbrake: 1 };
 
 /** Seconds a car may stay flipped before it is put back on its wheels. */
 const FLIP_RESET_DELAY = 2.5;
+/** Seconds a car may be outside the barriers before it is put back on track. */
+const OUT_OF_BOUNDS_DELAY = 0.5;
 
 /** Arcade surface model: grip multiplier and extra deceleration (m/s²). */
 const SURFACES: Record<Surface, { grip: number; drag: number }> = {
@@ -76,6 +78,8 @@ export class Game {
   private readonly hud: HUD;
   private readonly debugRenderer: PhysicsDebugRenderer | null = null;
   private flippedTime = 0;
+  private outTime = 0;
+  private readonly aiOutTime = new Map<Vehicle, number>();
   private readonly dynamicResolution: DynamicResolution | null;
   /** Latched lap event from fixed steps, consumed by the next rendered frame. */
   private lapEvent: 'lap' | 'best' | null = null;
@@ -253,6 +257,7 @@ export class Game {
     this.player.render(1);
     this.followCamera.snap(this.player.object3D);
     this.flippedTime = 0;
+    this.outTime = 0;
     const me = this.race?.player;
     if (me) this.race!.resync(me);
   }
@@ -281,11 +286,14 @@ export class Game {
       let flip = this.aiFlipTime.get(v) ?? 0;
       flip = v.isFlipped() && v.physics.speed < 3 ? flip + dt : 0;
       this.aiFlipTime.set(v, flip);
-      if (flip > FLIP_RESET_DELAY || v.position.y < this.track.bounds.min.y - 10 || r.ai.unstuckCount >= 3) {
+      const out = this.track.isOutOfBounds(v.position) ? (this.aiOutTime.get(v) ?? 0) + dt : 0;
+      this.aiOutTime.set(v, out);
+      if (flip > FLIP_RESET_DELAY || out > OUT_OF_BOUNDS_DELAY || v.position.y < this.track.bounds.min.y - 10 || r.ai.unstuckCount >= 3) {
         v.teleport(this.track.getResetPose(v.position));
         r.ai.resetState();
         r.ai.unstuckCount = 0;
         this.aiFlipTime.set(v, 0);
+        this.aiOutTime.set(v, 0);
         this.race!.resync(r);
       }
     }
@@ -341,6 +349,13 @@ export class Game {
 
     // Fell off the world?
     if (this.player.position.y < this.track.bounds.min.y - 10) this.resetPlayer(true);
+
+    // Escaped over or through the barriers? Back on track, lap invalid.
+    this.outTime = this.track.isOutOfBounds(this.player.position) ? this.outTime + dt : 0;
+    if (this.outTime > OUT_OF_BOUNDS_DELAY) {
+      this.resetPlayer();
+      this.lapTimer.invalidate();
+    }
 
     if (this.autopilot && this.autopilot.unstuckCount >= 3) {
       this.resetPlayer();

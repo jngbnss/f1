@@ -3,6 +3,14 @@ import RAPIER from '@dimforge/rapier3d-compat';
 export type Rapier = typeof RAPIER;
 
 /**
+ * Rapier collision groups (upper 16 bits = member of, lower 16 = interacts with).
+ * Barriers are walls, not ground: suspension rays skip them, otherwise a car
+ * leaning on a barrier drives up its face and over the top.
+ */
+export const BARRIER_GROUPS = 0x0002_ffff;
+export const SUSPENSION_RAY_GROUPS = 0xffff_fffd;
+
+/**
  * Thin owner of the Rapier world. Everything physics-related receives this
  * instead of importing Rapier globals, so a Web Worker physics backend can
  * be swapped in later behind the same surface.

@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "sim:test": "tsx scripts/sim-test.ts",
     "race:test": "tsx scripts/race-test.ts",
+    "barrier:test": "tsx scripts/barrier-test.ts",
     "bench": "tsx scripts/bench.ts"
   },
   "dependencies": {

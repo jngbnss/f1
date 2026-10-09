@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import type { PhysicsWorld } from '../physics/PhysicsWorld';
+import { BARRIER_GROUPS, type PhysicsWorld } from '../physics/PhysicsWorld';
 import type { Pose } from '../vehicle/VehiclePhysics';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildCrowd, buildTribune, CrowdMaterial, type CrowdSeat, type TribuneSpec } from './Crowd';
@@ -36,6 +36,8 @@ export interface Track {
   readonly halfWidth: number;
   /** Signed lateral distance from the centerline (+ = right of the driving direction). */
   lateral(p: THREE.Vector3, index?: number): number;
+  /** True when `p` is clearly outside the barriers (escaped the circuit). */
+  isOutOfBounds(p: THREE.Vector3): boolean;
   /** Starting-grid slot pose (0 = pole position). */
   gridPose(slot: number): Pose;
   /** Ground type under a world position (grip / drag / sound). */
@@ -61,6 +63,10 @@ const SPAWN_HEIGHT = 1.2;
 const KERB_RADIUS = 260;
 const GRAVEL_RADIUS = 200;
 const KERB_WIDTH = 1.2;
+/** Top of the debris fence above the guardrails (m). */
+const FENCE_TOP = 3.4;
+/** Beyond barrier + this (m) a car has escaped the circuit and is put back. */
+const OUT_OF_BOUNDS_MARGIN = 6;
 
 /** Deterministic PRNG so scenery is identical across runs (fair perf comparisons). */
 function mulberry32(seed: number): () => number {
@@ -508,35 +514,56 @@ export class ProceduralTrack implements Track {
     ).name = 'Gravel';
   }
 
-  /** Armco guardrails: rails + posts as two InstancedMeshes (2 draw calls) + box colliders. */
   /**
-   * Armco guardrails: tiled instancing (culled per 300 m tile, also in the
-   * shadow pass) + one box collider per segment.
+   * Armco guardrails + debris fence: tiled instancing (culled per 300 m tile,
+   * also in the shadow pass) + one tall box collider per segment, so a car
+   * that hits the barrier at speed cannot ride up and over it.
    */
   private buildBarriers(): void {
     const { rapier, world } = this.physics;
     const n = this.points.length;
     const offset = this.barrierOffset;
-    const colliderHeight = 1.0;
-    const colliderThickness = 0.5;
+    // Collider reaches below the ground and above the fence; its inner face
+    // stays at the rails, the extra thickness goes outward (no tunnelling).
+    const colliderBottom = -1;
+    const colliderTop = FENCE_TOP + 0.5;
+    const colliderThickness = 1.5;
 
-    // Both W-beam rails in one unit-length geometry (scaled along Z per segment).
-    const lower = new THREE.BoxGeometry(0.08, 0.22, 1).translate(0, 0.45, 0);
-    const upper = new THREE.BoxGeometry(0.08, 0.22, 1).translate(0, 0.72, 0);
-    const railGeo = this.own(mergeGeometries([lower, upper])!);
-    lower.dispose();
-    upper.dispose();
-    const postGeo = this.own(new THREE.BoxGeometry(0.12, 0.8, 0.12).translate(0, 0.4, 0));
+    // Three W-beam rails in one unit-length geometry (scaled along Z per segment).
+    const railParts = [0.42, 0.68, 0.94].map((y) => new THREE.BoxGeometry(0.08, 0.22, 1).translate(0, y, 0));
+    const railGeo = this.own(mergeGeometries(railParts)!);
+    railParts.forEach((g) => g.dispose());
+    const postGeo = this.own(new THREE.BoxGeometry(0.12, 1.06, 0.12).translate(0, 0.53, 0));
     const railMat = this.own(new THREE.MeshStandardMaterial({ color: 0xb8bec6, metalness: 0.85, roughness: 0.35 }));
     const postMat = this.own(new THREE.MeshStandardMaterial({ color: 0x7c838c, metalness: 0.6, roughness: 0.5 }));
+
+    // Debris fence above the rails: a unit-length wire-mesh panel (alpha-tested,
+    // no transparency sorting) and a steel pole every few segments.
+    const fenceH = FENCE_TOP - 1.05;
+    const fenceGeo = this.own(new THREE.PlaneGeometry(1, fenceH).rotateY(Math.PI / 2).translate(0, 1.05 + fenceH / 2, 0));
+    const fenceMat = this.own(
+      new THREE.MeshStandardMaterial({
+        map: this.own(fenceTexture()),
+        color: 0x8a9096,
+        metalness: 0.5,
+        roughness: 0.6,
+        alphaTest: 0.5,
+        side: THREE.DoubleSide,
+      }),
+    );
+    const poleGeo = this.own(new THREE.CylinderGeometry(0.05, 0.05, FENCE_TOP, 6).translate(0, FENCE_TOP / 2, 0));
 
     const body = this.fixedBody();
     const q = new THREE.Quaternion();
     const p = new THREE.Vector3();
+    const c = new THREE.Vector3();
     const a = new THREE.Vector3();
     const b = new THREE.Vector3();
+    const one = new THREE.Vector3(1, 1, 1);
     const railMatrices: THREE.Matrix4[] = [];
     const postMatrices: THREE.Matrix4[] = [];
+    const fenceMatrices: THREE.Matrix4[] = [];
+    const poleMatrices: THREE.Matrix4[] = [];
 
     for (const side of [-1, 1]) {
       for (let i = 0; i < n; i++) {
@@ -550,29 +577,40 @@ export class ProceduralTrack implements Track {
         const len = a.distanceTo(b) + 0.3; // small overlap closes gaps on curves
         q.setFromAxisAngle(UP, Math.atan2(b.x - a.x, b.z - a.z));
         p.y = 0;
-        railMatrices.push(new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, len)));
-        if (i % 2 === 0) postMatrices.push(new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1)));
+        const scaled = new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, len));
+        railMatrices.push(scaled);
+        fenceMatrices.push(scaled.clone());
+        if (i % 2 === 0) postMatrices.push(new THREE.Matrix4().compose(p, q, one));
+        if (i % 4 === 0) poleMatrices.push(new THREE.Matrix4().compose(p, q, one));
 
+        c.addVectors(this.rights[i], this.rights[j])
+          .setY(0)
+          .normalize()
+          .multiplyScalar(side * (colliderThickness / 2 - 0.25));
         world.createCollider(
-          rapier.ColliderDesc.cuboid(colliderThickness / 2, colliderHeight / 2, len / 2)
-            .setTranslation(p.x, colliderHeight / 2, p.z)
+          rapier.ColliderDesc.cuboid(colliderThickness / 2, (colliderTop - colliderBottom) / 2, len / 2)
+            .setTranslation(p.x + c.x, (colliderTop + colliderBottom) / 2, p.z + c.z)
             .setRotation(q)
             .setFriction(0.05)
-            .setRestitution(0.2),
+            .setRestitution(0.1)
+            .setCollisionGroups(BARRIER_GROUPS),
           body,
         );
       }
     }
-    const rails = new TiledInstances([{ geometry: railGeo, material: railMat, distance: 0 }], railMatrices, null, {
-      name: 'GuardrailRails',
-      castShadow: true,
-      receiveShadow: true,
-    });
-    const posts = new TiledInstances([{ geometry: postGeo, material: postMat, distance: 0 }], postMatrices, null, {
-      name: 'GuardrailPosts',
-      castShadow: true,
-    });
-    this.root.add(rails.group, posts.group);
+    const instances = (name: string, geometry: THREE.BufferGeometry, material: THREE.Material, m: THREE.Matrix4[], castShadow: boolean) =>
+      new TiledInstances([{ geometry, material, distance: 0 }], m, null, { name, castShadow, receiveShadow: true }).group;
+    this.root.add(
+      instances('GuardrailRails', railGeo, railMat, railMatrices, true),
+      instances('GuardrailPosts', postGeo, postMat, postMatrices, true),
+      instances('DebrisFence', fenceGeo, fenceMat, fenceMatrices, false),
+      instances('DebrisFencePoles', poleGeo, postMat, poleMatrices, true),
+    );
+  }
+
+  /** True when `p` is clearly outside the barriers (escaped the circuit). */
+  isOutOfBounds(p: THREE.Vector3): boolean {
+    return this.grid.nearest(p.x, p.z, this.barrierOffset + OUT_OF_BOUNDS_MARGIN).index < 0;
   }
 
   private buildStartLine(): void {
@@ -913,4 +951,24 @@ function lumpySphere(radius: number, rand: () => number, detail = 1): THREE.Buff
   }
   geo.computeVertexNormals();
   return geo;
+}
+
+/** Chain-link diamond pattern for the debris fence (alpha-tested; no canvas, so it also runs in Node tests). */
+function fenceTexture(): THREE.DataTexture {
+  const size = 32;
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const wire = Math.min(Math.abs(x - y), Math.abs(x + y - size + 1)) <= 1;
+      data.set([255, 255, 255, wire ? 255 : 0], (y * size + x) * 4);
+    }
+  const tex = new THREE.DataTexture(data, size, size);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.repeat.set(12, 10);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
 }
