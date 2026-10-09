@@ -32,11 +32,13 @@ export class Environment {
     scene.background = new THREE.Color(theme.skyHorizon);
     scene.fog = new THREE.FogExp2(theme.skyHorizon, theme.fogDensity);
 
-    this.sky = this.createSky(new THREE.Color(theme.skyTop), new THREE.Color(theme.skyHorizon));
+    this.sky = this.createSky(new THREE.Color(theme.skyTop), new THREE.Color(theme.skyHorizon), theme.night ? 1 : 0);
     scene.add(this.sky);
 
-    const ambient = (this.ambient = new THREE.AmbientLight(0xffffff, 0.35));
-    const hemi = (this.hemi = new THREE.HemisphereLight(0xcfe6ff, 0x4f6b3a, 1.1));
+    const ambient = (this.ambient = new THREE.AmbientLight(0xffffff, theme.night ? 0.06 : 0.35));
+    const hemi = (this.hemi = theme.night ? new THREE.HemisphereLight(0x5a6c94, 0x10140e, 0.5) : new THREE.HemisphereLight(0xcfe6ff, 0x4f6b3a, 1.1));
+    // Night: the "sun" stands in for the floodlights, high above the track.
+    if (theme.night) this.sunOffset.set(-35, 125, 25);
     this.sun = new THREE.DirectionalLight(theme.sunColor, theme.sunIntensity);
     this.sun.position.copy(this.sunOffset);
 
@@ -65,6 +67,10 @@ export class Environment {
    * materials (car paint reflections), and drives sun direction + fog color.
    */
   async loadSky(baseUrl: string, renderer: THREE.WebGLRenderer): Promise<void> {
+    if (this.theme.night) {
+      this.nightSky(renderer);
+      return;
+    }
     const texture = await new HDRLoader().loadAsync(`${baseUrl}hdri/${this.theme.hdri}`);
     texture.mapping = THREE.EquirectangularReflectionMapping;
 
@@ -81,9 +87,47 @@ export class Environment {
     this.ambient.intensity = 0;
     this.hemi.intensity = this.theme.hemiIntensity;
 
-    const { sunDir, horizon } = analyzeEquirect(texture);
+    const { sunDir, horizon } = analyzeEquirect(texture, this.theme.minSunElevation ?? 0.35);
     if (sunDir) this.sunOffset.copy(sunDir).multiplyScalar(130);
     if (horizon && this.scene.fog) this.scene.fog.color.copy(horizon);
+  }
+
+  /**
+   * Night lighting for PBR materials: no HDRI, a dark sky with a ring of
+   * floodlight banks and a warm glow of the town on the horizon, so car
+   * paint and wet tarmac still catch bright reflections.
+   */
+  private nightSky(renderer: THREE.WebGLRenderer): void {
+    const env = new THREE.Scene();
+    const dome = this.createSky(new THREE.Color(0x03060d), new THREE.Color(0x1c2233), 0);
+    dome.scale.setScalar(0.01);
+    env.add(dome);
+    const glow = new THREE.Mesh(
+      new THREE.CylinderGeometry(120, 120, 18, 32, 1, true),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(0.35, 0.22, 0.12), side: THREE.BackSide }),
+    );
+    glow.position.y = 2;
+    env.add(glow);
+    const panel = new THREE.PlaneGeometry(14, 5);
+    const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 8.6, 7.8), side: THREE.DoubleSide });
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      const m = new THREE.Mesh(panel, lamp);
+      m.position.set(Math.cos(a) * 100, 42 + (i % 3) * 6, Math.sin(a) * 100);
+      m.lookAt(0, 0, 0);
+      env.add(m);
+    }
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    this.envMap = pmrem.fromScene(env, 0.02).texture;
+    pmrem.dispose();
+    env.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      mesh.geometry?.dispose();
+      (mesh.material as THREE.Material | undefined)?.dispose();
+    });
+    this.scene.environment = this.envMap;
+    this.scene.environmentIntensity = this.theme.envIntensity;
+    this.ambient.intensity = 0;
   }
 
   /** Keep the shadow frustum and sky centred on the player. */
@@ -111,8 +155,8 @@ export class Environment {
     this.skyTexture?.dispose();
   }
 
-  /** Vertical-gradient sky dome; 1 draw call, no textures. */
-  private createSky(top: THREE.Color, horizon: THREE.Color): THREE.Mesh {
+  /** Vertical-gradient sky dome (with stars at night); 1 draw call, no textures. */
+  private createSky(top: THREE.Color, horizon: THREE.Color, stars: number): THREE.Mesh {
     // Inside the camera far plane, beyond the distant hills.
     const geo = new THREE.SphereGeometry(13000, 24, 12);
     const mat = new THREE.ShaderMaterial({
@@ -122,20 +166,32 @@ export class Environment {
       uniforms: {
         top: { value: top },
         horizon: { value: horizon },
+        stars: { value: stars },
       },
       vertexShader: /* glsl */ `
         varying float vHeight;
+        varying vec3 vDir;
         void main() {
           vHeight = normalize(position).y;
+          vDir = normalize(position);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }`,
       fragmentShader: /* glsl */ `
         uniform vec3 top;
         uniform vec3 horizon;
+        uniform float stars;
         varying float vHeight;
+        varying vec3 vDir;
         void main() {
           float t = pow(clamp(vHeight, 0.0, 1.0), 0.6);
-          gl_FragColor = vec4(mix(horizon, top, t), 1.0);
+          vec3 col = mix(horizon, top, t);
+          if (stars > 0.0) {
+            vec3 cell = floor(vDir * 420.0);
+            float h = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+            float star = step(0.9965, h) * smoothstep(0.08, 0.35, vHeight);
+            col += vec3(0.8, 0.85, 1.0) * star * (0.4 + 0.6 * fract(h * 97.0)) * stars;
+          }
+          gl_FragColor = vec4(col, 1.0);
           #include <colorspace_fragment>
         }`,
     });
@@ -151,7 +207,7 @@ export class Environment {
  * Finds the sun (brightest region) and the average horizon color in an
  * equirectangular HDR DataTexture (RGBA half-float, rows top->bottom, flipY).
  */
-function analyzeEquirect(texture: THREE.Texture): { sunDir: THREE.Vector3 | null; horizon: THREE.Color | null } {
+function analyzeEquirect(texture: THREE.Texture, minElevation: number): { sunDir: THREE.Vector3 | null; horizon: THREE.Color | null } {
   const image = texture.image as { data?: ArrayLike<number>; width: number; height: number };
   const data = image.data;
   if (!data || !(data instanceof Uint16Array || data instanceof Float32Array)) return { sunDir: null, horizon: null };
@@ -179,7 +235,7 @@ function analyzeEquirect(texture: THREE.Texture): { sunDir: THREE.Vector3 | null
   const u = (bx + 0.5) / w;
   const v = 1 - (by + 0.5) / h;
   const phi = (u - 0.5) * Math.PI * 2;
-  const lat = Math.max((v - 0.5) * Math.PI, 0.35); // keep shadows reasonable if the sun is very low
+  const lat = Math.max((v - 0.5) * Math.PI, minElevation); // keep shadows reasonable if the sun is very low
   const sunDir = new THREE.Vector3(Math.cos(phi) * Math.cos(lat), Math.sin(lat), Math.sin(phi) * Math.cos(lat)).normalize();
 
   // Horizon band: just above the horizon line.

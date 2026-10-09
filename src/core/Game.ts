@@ -29,6 +29,8 @@ import { LapTimer } from '../race/LapTimer';
 import { RaceManager, type Racer } from '../race/RaceManager';
 import type { VehicleInput } from '../input/VehicleInput';
 import { Environment } from '../world/Environment';
+import { buildLandmarks, landmarkClear } from '../world/Landmarks';
+import { readWeather, weatherPostFx, weatherTheme, WeatherFx } from '../world/Weather';
 import { RacingLine } from '../world/RacingLine';
 import { racingLineFor } from '../world/RacingLineOptimizer';
 import { applyTerrainImagery, buildTerrain } from '../world/Terrain';
@@ -131,6 +133,11 @@ export class Game {
   readonly theme: WorldTheme;
   private readonly terrain: THREE.Mesh;
   private readonly minimap: Minimap;
+  /** Weather / time of day (menu or ?weather=&time=) and its effects. */
+  private readonly weather = readWeather();
+  private readonly weatherPost = weatherPostFx(this.weather);
+  private weatherFx: WeatherFx | null = null;
+  private landmarks: { dispose(): void } | null = null;
 
   private constructor(
     private readonly container: HTMLElement,
@@ -151,7 +158,7 @@ export class Game {
     this.renderer.shadowMap.enabled = config.shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    const theme = themeFor(layout.id, config.theme);
+    const theme = weatherTheme(themeFor(layout.id, config.theme), this.weather);
     // Real hills on the horizon are worth seeing: clearer air than the procedural backdrop needs.
     this.theme = realTerrain ? { ...theme, fogDensity: theme.fogDensity * 0.55 } : theme;
     this.renderer.toneMappingExposure = this.theme.exposure;
@@ -185,6 +192,9 @@ export class Game {
     }
     this.terrain = buildTerrain(this.track.bounds, this.theme.terrain, 7, realTerrain, ground ? ground.height : null, this.track.ground ? 90 : undefined);
     this.scene.add(this.terrain);
+    const landmarks = buildLandmarks(layout.id, this.track, (x, z) => ground?.height(x, z) ?? 0);
+    this.scene.add(landmarks.group);
+    this.landmarks = landmarks;
     // Racing line computed on the game's own (widened) road, not the real-width dataset line.
     // Baked minimum-lap-time line when the circuit has one, else minimum curvature.
     const linePath = layout.minTimeLine ?? racingLineFor(this.track);
@@ -286,7 +296,8 @@ export class Game {
     }
     this.drivingFx = new DrivingFx(this.scene, this.track, this.followCamera);
     this.followCamera.snap(this.player.object3D);
-    if (config.postfx) this.postFx = new PostFx(this.renderer, this.scene, this.followCamera.camera);
+    if (config.postfx) this.postFx = new PostFx(this.renderer, this.scene, this.followCamera.camera, this.weatherPost);
+    this.weatherFx = new WeatherFx(this.renderer, this.scene, this.weather, this.track, this.vehicles, config.postfx ? this.weatherPost.lens : null);
     if (config.damage) {
       [this.player.damage.front, this.player.damage.rear] = config.damage;
       this.player.visual.setDamage?.(...config.damage);
@@ -301,6 +312,7 @@ export class Game {
 
     if (config.sound) {
       this.audio = new AudioSystem();
+      this.audio.onReady((ctx, master) => this.weatherFx?.attachAudio(ctx, master));
       this.audio.onReady((ctx, master, assets) => {
         this.carAudio = new CarAudio(ctx, master, car.engine, assets);
         if (assets.engineLoop) {
@@ -342,6 +354,12 @@ export class Game {
     return new Game(container, config, physics, car, layout, realTerrain, net);
   }
 
+  /** Forest positions, minus the ground landmarks stand on (Monza's old bankings). */
+  private forestSpots(): readonly [number, number][] {
+    const clear = landmarkClear(this.track.name.toLowerCase());
+    return clear ? this.track.forestSpots.filter(([x, z]) => clear(x, z)) : this.track.forestSpots;
+  }
+
   /** Freeze the simulation and its sound (pause menu, app in background). */
   setPaused(paused: boolean): void {
     if (paused) {
@@ -371,7 +389,7 @@ export class Game {
     }
     if (this.config.forest && this.track.forestSpots.length) {
       import('../world/TreeImpostors')
-        .then(({ buildImpostorForest }) => buildImpostorForest(this.renderer, this.track.forestSpots, (x, z) => this.ground?.height(x, z) ?? 0))
+        .then(({ buildImpostorForest }) => buildImpostorForest(this.renderer, this.forestSpots(), (x, z) => this.ground?.height(x, z) ?? 0))
         .then((forest) => {
           this.scene.add(forest.mesh);
           this.disposeForest = forest.dispose;
@@ -542,6 +560,8 @@ export class Game {
     this.audio?.dispose();
     this.tyreSmoke.dispose();
     this.drivingFx?.dispose();
+    this.weatherFx?.dispose();
+    this.landmarks?.dispose();
     this.input.dispose();
     for (const v of this.vehicles) v.dispose();
     this.track.dispose();
@@ -638,6 +658,7 @@ export class Game {
     this.followCamera.update(this.player.object3D, speedRatio, frameDt);
     this.tyreSmoke.update(frameDt, this.vehicles, this.followCamera.camera);
     this.drivingFx.update(frameDt, this.vehicles, this.player, this.followCamera, this.lapTimer, this.race);
+    this.weatherFx?.update(frameDt, this.followCamera.camera, ['tcam', 'cockpit', 'driver', 'nose'].includes(this.followCamera.mode));
     this.environment.update(this.player.object3D.position);
     this.track.update(performance.now() / 1000, this.followCamera.camera.position);
     this.minimap.update(this.minimapCars);

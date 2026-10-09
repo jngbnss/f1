@@ -32,6 +32,12 @@ export const COMPOUNDS: Record<Compound, CompoundSpec> = {
 export const COMPOUND_LABELS: Record<Compound, string> = { soft: 'S', medium: 'M', hard: 'H' };
 export const COMPOUND_NAMES: Record<Compound, string> = { soft: '소프트', medium: '미디엄', hard: '하드' };
 
+/**
+ * Track condition multiplier on every tyre (1 = dry; wet ≈ 0.78, set by the weather).
+ * Physics and the AI both read tyre grip, so the AI slows down in the wet on its own.
+ */
+export const TRACK_GRIP = { value: 1 };
+
 /** Game wear rate vs real life (the F1 games' "tyre wear" setting). */
 export const WEAR_MULTIPLIER = 4;
 const AMBIENT = 25;
@@ -69,7 +75,7 @@ export class TyreSet {
     const thermal = 1 - 0.1 * Math.min(out, 1.2) ** 1.5;
     const w = this.wear[axle];
     const worn = 1 - 0.07 * w - 0.25 * Math.max(0, w - 0.7) ** 1.5 * 4;
-    return spec.grip * thermal * Math.max(worn, 0.55);
+    return spec.grip * thermal * Math.max(worn, 0.55) * TRACK_GRIP.value;
   }
 
   /** After a physics step: heat, cool and wear from what the wheels did. */

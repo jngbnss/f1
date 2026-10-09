@@ -324,15 +324,19 @@ float fbox(vec2 p, vec2 a, vec2 b, float e) {
 }
 `;
 
+/** Night (0..1): a share of the windows glow warm from the rooms behind them (set by world/Weather.ts). */
+export const BUILDING_NIGHT = { value: 0 };
+
 /** One material for every building tile. */
 export function buildingMaterial(): THREE.MeshStandardMaterial {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide });
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.uBuildNight = BUILDING_NIGHT;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec3 aFac;\nattribute vec2 aFuv;\nvarying vec3 vFac;\nvarying vec2 vFuv;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFac = aFac;\nvFuv = aFuv;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${FACADE_GLSL}`)
+      .replace('#include <common>', `#include <common>\nuniform float uBuildNight;\n${FACADE_GLSL}`)
       .replace(
         '#include <color_fragment>',
         /* glsl */ `
@@ -452,8 +456,17 @@ export function buildingMaterial(): THREE.MeshStandardMaterial {
       .replace(
         '#include <metalnessmap_fragment>',
         '#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, 0.55, glass);',
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        /* glsl */ `#include <emissivemap_fragment>
+        if (uBuildNight > 0.0) {
+          float on = step(fh(id * 1.31 + seed * 2.7 + 5.0), 0.42);
+          vec3 room = mix(vec3(1.0, 0.72, 0.42), vec3(0.85, 0.9, 1.0), step(0.8, fh(id + seed)));
+          totalEmissiveRadiance += room * glass * on * uBuildNight * 1.4;
+        }`,
       );
   };
-  material.customProgramCacheKey = () => 'osm-buildings-v1';
+  material.customProgramCacheKey = () => 'osm-buildings-v2';
   return material;
 }
