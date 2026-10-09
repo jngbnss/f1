@@ -146,6 +146,7 @@ npx tsx scripts/fetch-osm.ts [circuit]   # OpenStreetMap 주변 환경 데이터
 | 건물, 숲, 물, 주차장, 도로 | [OpenStreetMap](https://www.openstreetmap.org/copyright) (Overpass API) | © OpenStreetMap contributors, **ODbL** |
 | 아스팔트, 잔디, 그래블 텍스처 | [Poly Haven](https://polyhaven.com) `asphalt_02`, `leafy_grass`, `gravelly_sand` | CC0 |
 | 하늘 HDRI | Poly Haven `kloofendal_48d_partly_cloudy_puresky`, `qwantani_late_afternoon_puresky`, `kloofendal_overcast_puresky`, `kloofendal_28d_misty_puresky` | CC0 |
+| F1 2026 차체 (팀 색은 게임에서 칠함) | ["F1 2026 concept (polygon model)"](https://sketchfab.com/3d-models/f1-2026-concept-polygon-model-ea3bde709b1e4dc9b0ec8557d106ed42) by [Qvist_designs](https://sketchfab.com/Qvist_Designs) — `scripts/build-f1-model.ts`로 단순화·부위 분리 | [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) |
 | 엔진 녹음 루프 | [OpenGameArt "Racing car engine sound loops"](https://opengameart.org/node/5633) by domasx2 | CC0 |
 
 - OSM 데이터는 `scripts/fetch-osm.ts`가 받습니다.
@@ -270,6 +271,8 @@ Monza 실측(`scene-stats`): 이전에는 매 프레임 약 78만 삼각형을 2
 5. **Web Worker 물리**, **WebGPU 렌더러** 비교 실험.
 
 ## GLB 차량 넣기
+
+실제 예: 2026 F1 차체(`src/vehicle/cars/GltfF1Visual.ts`). 원본(Sketchfab glTF, 약 100만 삼각형)을 `assets-src/`에 받아 두고 `npm run model:f1`을 실행하면 `public/models/f1-2026.glb`(차체 6만/7천 삼각형 2단계 LOD, 바퀴 분리, 팀 색 칠할 부위 분리)가 만들어집니다. 원본 파일은 용량 때문에 저장소에 넣지 않습니다.
 
 `VehicleVisual` 인터페이스(`root`, `updateWheels`, `dispose`)를 구현하면 물리 코드를 고치지 않고 비주얼만 바꿀 수 있습니다.
 

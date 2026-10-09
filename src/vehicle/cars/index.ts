@@ -7,6 +7,7 @@ import type { GearboxConfig } from '../Gearbox';
 import type { VehicleConfig } from '../VehicleConfig';
 import type { VehicleVisual } from '../VehicleVisual';
 import { FormulaCarVisual } from './CarVisuals';
+import { f1ModelReady, GltfF1Visual } from './GltfF1Visual';
 
 /** Everything that makes one selectable car. Swap any part independently. */
 export interface CarDefinition extends CarInfo {
@@ -18,6 +19,7 @@ export interface CarDefinition extends CarInfo {
 }
 
 function visualFor(spec: CarSpec, physics: VehicleConfig, color?: number): VehicleVisual {
+  if (spec.body === 'f1' && f1ModelReady()) return new GltfF1Visual(physics, color ?? spec.color, spec.accent ?? 0xf2f2f2);
   if (spec.cls === 'formula') {
     const [, width, , wheelbase] = spec.dims;
     // The modelled body is an F1 car (wheelbase 3.5 m, wheels at ±0.81 m): scale it to this car.

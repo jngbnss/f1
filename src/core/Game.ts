@@ -28,6 +28,7 @@ import { applyTrackTextures } from '../world/TrackTextures';
 import { ProceduralTrack, type Surface, type Track } from '../world/Track';
 import type { TrackLayout } from '../world/TrackLayout';
 import { GameLoop } from './GameLoop';
+import { F1_MODEL_CREDIT, f1ModelReady, GltfF1Visual, loadF1Model } from '../vehicle/cars/GltfF1Visual';
 
 /** Opponent paint colors (no real team liveries). */
 const PALETTE = [
@@ -203,7 +204,8 @@ export class Game {
     });
     this.player.render(1);
     this.followCamera.snap(this.player.object3D);
-    this.hud = new HUD(layout.name, layout.attribution);
+    const credits = [layout.attribution, f1ModelReady() && this.vehicles.some((v) => v.visual instanceof GltfF1Visual) ? F1_MODEL_CREDIT : ''];
+    this.hud = new HUD(layout.name, credits.filter(Boolean).join(' · '));
     this.minimap = new Minimap(this.track.getCenterline());
 
     if (config.sound) {
@@ -238,6 +240,8 @@ export class Game {
 
   static async create(container: HTMLElement, config: SimConfig, car: CarDefinition, layout: TrackLayout): Promise<Game> {
     const physics = await PhysicsWorld.create(1 / config.physicsHz);
+    // Real F1 bodies (formula races also field F1 cars); primitives if the model fails.
+    if (car.cls === 'formula') await loadF1Model(import.meta.env.BASE_URL).catch((e) => console.warn('F1 model failed', e));
     return new Game(container, config, physics, car, layout);
   }
 

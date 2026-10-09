@@ -8,3 +8,4 @@ dist
 *.log
 shots/
 .tmp/
+assets-src/
