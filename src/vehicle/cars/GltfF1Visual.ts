@@ -187,6 +187,7 @@ export class GltfF1Visual implements VehicleVisual {
   private discMaterial!: THREE.MeshStandardMaterial;
   /** Brake glow seen through the wheel covers (rim shader uniform). */
   private rimGlow: THREE.Color | null = null;
+  private readonly discs: THREE.Mesh[] = [];
   private brakeTemp = 0;
   private lastBrakeTime = 0;
   private lastSpin = 0;
@@ -286,12 +287,11 @@ export class GltfF1Visual implements VehicleVisual {
     }
     this.root.add(body);
 
-    // Brake discs + calipers on the inboard side of each wheel (they steer, they don't spin).
+    // Brake discs on the inboard side of each wheel (they steer, they don't spin). Near
+    // cars only: from further away the glow through the rims (rim shader) is what shows.
     this.discMaterial = this.own(new THREE.MeshStandardMaterial({ color: 0x2a2c30, metalness: 0.6, roughness: 0.45, emissive: 0x000000 }));
-    const caliperMat = this.own(new THREE.MeshStandardMaterial({ color: 0x1b1d21, metalness: 0.4, roughness: 0.5 }));
-    const discGeo = new THREE.CylinderGeometry(DISC_RADIUS, DISC_RADIUS, 0.034, 28).rotateZ(Math.PI / 2);
-    const caliperGeo = new THREE.BoxGeometry(0.05, 0.09, 0.07);
-    this.geometries.push(discGeo, caliperGeo);
+    const discGeo = new THREE.CylinderGeometry(DISC_RADIUS, DISC_RADIUS, 0.034, 20).rotateZ(Math.PI / 2);
+    this.geometries.push(discGeo);
 
     // Wheels: mount (model x/z, physics height) -> steer -> spin -> mesh.
     const names = ['Wheel_FL', 'Wheel_FR', 'Wheel_RL', 'Wheel_RR'];
@@ -312,9 +312,9 @@ export class GltfF1Visual implements VehicleVisual {
       const inboard = -Math.sign(src.position.x) * (wc.position.z > 0 ? 0.13 : 0.11);
       const disc = new THREE.Mesh(discGeo, this.discMaterial);
       disc.position.x = inboard;
-      const caliper = new THREE.Mesh(caliperGeo, caliperMat);
-      caliper.position.set(inboard, DISC_RADIUS - 0.02, wc.position.z > 0 ? -0.05 : 0.05);
-      steer.add(disc, caliper);
+      disc.visible = this.near;
+      steer.add(disc);
+      this.discs.push(disc);
       mount.add(steer);
       this.root.add(mount);
       this.steers.push(steer);
@@ -445,6 +445,7 @@ export class GltfF1Visual implements VehicleVisual {
       l.near.visible = near;
       l.far.visible = !near;
     }
+    for (const d of this.discs) d.visible = near;
   }
 
   /** Sidewall colour of the fitted compound. */
