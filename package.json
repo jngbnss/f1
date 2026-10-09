@@ -15,6 +15,7 @@
     "damage:test": "tsx scripts/damage-test.ts",
     "tyre:test": "tsx scripts/tyre-test.ts",
     "brake:test": "tsx scripts/brake-test.ts",
+    "mp:test": "tsx scripts/mp-test.ts",
     "bench": "tsx scripts/bench.ts",
     "raceline:bake": "tsx scripts/bake-raceline.ts",
     "model:f1": "tsx scripts/build-f1-model.ts"
@@ -23,6 +24,7 @@
     "@dgreenheck/ez-tree": "^1.1.0",
     "@dimforge/rapier3d-compat": "^0.21.0",
     "n8ao": "^2.0.1",
+    "peerjs": "^1.5.5",
     "postprocessing": "^6.39.5",
     "three": "^0.186.1"
   },

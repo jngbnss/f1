@@ -37,6 +37,7 @@ import { ProceduralTrack, type Surface, type Track } from '../world/Track';
 import type { TrackLayout } from '../world/TrackLayout';
 import { GameLoop } from './GameLoop';
 import { F1_MODEL_CREDIT, f1ModelReady, GltfF1Visual, loadF1Model } from '../vehicle/cars/GltfF1Visual';
+import type { NetRace } from '../net/NetRace';
 
 /** Timing-tower label: team abbreviation + race number (e.g. "FER 16"). */
 const TEAM_ABBR: Record<string, string> = {
@@ -134,6 +135,8 @@ export class Game {
     readonly car: CarDefinition,
     layout: TrackLayout,
     private readonly realTerrain: RealTerrain | null = null,
+    /** Multiplayer race (grid from the room, remote cars, host clock); null = single player. */
+    private readonly net: NetRace | null = null,
   ) {
     // --- renderer -----------------------------------------------------
     // With post-processing, SMAA in the chain replaces the canvas MSAA.
@@ -182,17 +185,20 @@ export class Game {
     this.lapTimer = new LapTimer(this.track.getCenterline().length, this.track.spawnIndex, `best:${car.id}:${layout.id}`);
 
     // --- player + opponents ----------------------------------------------
-    const opponents = Math.max(0, Math.min(19, Math.round(config.ai)));
+    const plan = net?.plan ?? null;
+    const opponents = plan ? plan.slots.length - 1 : Math.max(0, Math.min(19, Math.round(config.ai)));
     const total = opponents + 1;
     // Player starts mid-field; with no opponents it's a free practice session.
-    const playerSlot = Math.floor(total / 2);
-    const playerPose = opponents > 0 ? this.track.gridPose(playerSlot) : this.track.getSpawnPose();
-    this.player = new Vehicle(physics, car.physics, car.createVisual(), playerPose, car.gearbox);
+    const playerSlot = plan ? Math.max(0, plan.slots.findIndex((s) => s.id === net!.localId)) : Math.floor(total / 2);
+    const playerPose = opponents > 0 || plan ? this.track.gridPose(playerSlot) : this.track.getSpawnPose();
+    this.player = new Vehicle(physics, car.physics, car.createVisual(undefined, plan?.slots[playerSlot]?.driver ?? 0), playerPose, car.gearbox);
     this.scene.add(this.player.object3D);
     this.scene.add(this.tyreSmoke.mesh);
     this.vehicles.push(this.player);
 
-    if (opponents > 0) {
+    if (plan) {
+      this.race = new RaceManager(this.track, this.netGrid(plan, playerSlot), Math.max(1, plan.laps));
+    } else if (opponents > 0) {
       const racers: Racer[] = [];
       // Same-class rivals closest in performance; quicker cars start further up.
       const rivals = opponentsFor(car, opponents).sort((a, b) => b.stats.pi - a.stats.pi);
@@ -309,9 +315,10 @@ export class Game {
 
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);
+    if (net && this.race) net.attach({ race: this.race, physics, inPitLane: (v) => this.pitStops?.driving(v) ?? false });
   }
 
-  static async create(container: HTMLElement, config: SimConfig, car: CarDefinition, layout: TrackLayout): Promise<Game> {
+  static async create(container: HTMLElement, config: SimConfig, car: CarDefinition, layout: TrackLayout, net: NetRace | null = null): Promise<Game> {
     const base = import.meta.env.BASE_URL;
     const [physics, realTerrain] = await Promise.all([
       PhysicsWorld.create(1 / config.physicsHz),
@@ -320,7 +327,7 @@ export class Game {
       // Real F1 bodies; primitives if the model fails.
       car.cls === 'formula' ? loadF1Model(base).catch((e) => console.warn('F1 model failed', e)) : null,
     ]);
-    return new Game(container, config, physics, car, layout, realTerrain);
+    return new Game(container, config, physics, car, layout, realTerrain, net);
   }
 
   /** Freeze the simulation and its sound (pause menu, app in background). */
@@ -385,6 +392,34 @@ export class Game {
         : [{ position: this.player.position, color: PLAYER_DOT, isPlayer: true }];
     }
     return this._minimapCars;
+  }
+
+  /**
+   * Multiplayer grid, in slot order: the local player, AI cars (driven here
+   * only on the host) and the other players' cars (moved by the network).
+   */
+  private netGrid(plan: NonNullable<NetRace['plan']>, playerSlot: number): Racer[] {
+    const net = this.net!;
+    this.rivalLines.set(this.car.id, this.racingLine);
+    return plan.slots.map((slot, i) => {
+      const def = CARS.find((c) => c.id === slot.carId) ?? this.car;
+      const color = liveryFor(def.id, def.spec.color, def.spec.accent ?? 0xffffff).primary;
+      const name = slot.ai ? carLabel(def, slot.driver) : slot.name;
+      if (i === playerSlot) return this.racer(name, this.player, null, true, color);
+      const vehicle = new Vehicle(this.physics, def.physics, def.createVisual(undefined, slot.driver), this.track.gridPose(i), def.gearbox);
+      this.scene.add(vehicle.object3D);
+      this.vehicles.push(vehicle);
+      this.carOf.set(vehicle, def);
+      let ai: AIDriver | null = null;
+      if (slot.ai && net.ownsSlot(i)) {
+        let line = this.rivalLines.get(def.id);
+        if (!line) this.rivalLines.set(def.id, (line = new RacingLine(this.racingLine.path, def.physics)));
+        const r = Math.sin(i * 12.9898) * 43758.5453;
+        const rand = r - Math.floor(r);
+        ai = new AIDriver(vehicle, line, this.track, { pace: 0.96 + (rand - 0.5) * 0.04, lane: (rand - 0.5) * 2.4, aggression: rand });
+      }
+      return this.racer(name, vehicle, ai, false, color);
+    });
   }
 
   private racer(name: string, vehicle: Vehicle, ai: AIDriver | null, isPlayer: boolean, color: number): Racer {
@@ -487,6 +522,7 @@ export class Game {
 
   dispose(): void {
     this.loop.stop();
+    this.net?.dispose();
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('keydown', this.onKeyDown);
     this.carAudio?.dispose();
@@ -520,6 +556,7 @@ export class Game {
       this.lapTimer.invalidate();
     }
 
+    this.net?.beforeStep(dt);
     const frozen = this.race?.frozen ?? false;
     // The pit controller drives cars in the pit lane (player included).
     const pitPlayer = frozen ? null : (this.pitStops?.update(this.player, dt) ?? null);
@@ -535,6 +572,7 @@ export class Game {
     }
     this.physics.step();
     for (const v of this.vehicles) v.snapshot();
+    this.net?.afterStep(dt);
     if (!this.byCollider.size) for (const v of this.vehicles) this.byCollider.set(v.physics.collider.handle, v);
     applyImpacts(this.physics, this.byCollider, dt, (v) => {
       v.visual.setDamage?.(v.damage.front, v.damage.rear);
@@ -597,7 +635,7 @@ export class Game {
       this.hud.updateRace(this.race, (r) => ({
         tyre: COMPOUND_LABELS[r.vehicle.tyres.compound],
         tyreColor: hex(COMPOUND_COLORS[r.vehicle.tyres.compound]),
-        inPit: this.pitStops?.driving(r.vehicle) ?? false,
+        inPit: (this.pitStops?.driving(r.vehicle) ?? false) || (this.net?.inPit(r.vehicle) ?? false),
       }));
       this.updateCarPanel();
     }
