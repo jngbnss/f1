@@ -13,6 +13,8 @@ export interface AIProfile {
   aggression: number;
 }
 
+/** Race start: grid lane kept until the first, fully on the line from the second (m). */
+const START_MERGE = [150, 600];
 const _fwd = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _to = new THREE.Vector3();
@@ -35,6 +37,13 @@ export class AIDriver {
   private offset: number;
   private stuckTime = 0;
   private reverseTime = 0;
+  /**
+   * Race start: keep the grid slot's lane (offset from the line where the car
+   * stands) and merge onto the racing line between START_MERGE meters, like
+   * real starts, instead of all 20 cars swerving onto one line at once.
+   */
+  private startOffset: number | null = null;
+  private travelled = 0;
 
   constructor(
     readonly vehicle: Vehicle,
@@ -54,6 +63,11 @@ export class AIDriver {
     const speed = v.physics.forwardSpeed;
     const inp = this.input;
     this.index = line.nearestFrom(pos, this.index);
+    if (this.startOffset === null) {
+      this.startOffset = this.track.lateral(pos) - this.track.lateral(line.points[this.index]);
+      this.offset = this.startOffset;
+    }
+    this.travelled += Math.max(speed, 0) * dt;
 
     _fwd.set(0, 0, -1).applyQuaternion(v.quaternion).setY(0).normalize();
     _right.set(-_fwd.z, 0, _fwd.x);
@@ -69,7 +83,8 @@ export class AIDriver {
     }
 
     // --- traffic: anyone in our path? ----------------------------------
-    let desiredOffset = this.profile.lane;
+    const merge = Math.min(Math.max((this.travelled - START_MERGE[0]) / (START_MERGE[1] - START_MERGE[0]), 0), 1);
+    let desiredOffset = this.startOffset + (this.profile.lane - this.startOffset) * merge * merge * (3 - 2 * merge);
     let followSpeed = Infinity;
     // Racing line position across the track, to express other cars relative to it.
     const lineLateral = this.track.lateral(this.line.points[this.index]);

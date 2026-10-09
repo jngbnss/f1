@@ -46,9 +46,9 @@ const ROOF = 0x6b6e72;
 const HOUSE_ROOF = 0x9c4a32;
 const STAND_WALL = 0x9aa4ae;
 const STAND_ROOF = 0xdadde0;
-/** One tree per this many m² of forest (capped). */
-const FOREST_DENSITY = 140;
-const MAX_FOREST_TREES = 7000;
+/** One tree per this many m² of forest (capped): park woodland, impostor trees are cheap. */
+const FOREST_DENSITY = 45;
+const MAX_FOREST_TREES = 40000;
 
 function pairs(flat: number[], start = 0): [number, number][] {
   const out: [number, number][] = [];

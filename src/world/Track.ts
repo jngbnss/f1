@@ -38,6 +38,8 @@ export interface Track {
   lateral(p: THREE.Vector3, index?: number): number;
   /** True when `p` is clearly outside the barriers (escaped the circuit). */
   isOutOfBounds(p: THREE.Vector3): boolean;
+  /** Tree positions inside real (OSM) forests, for the impostor forest. */
+  readonly forestSpots: readonly [number, number][];
   /** Starting-grid slot pose (0 = pole position). */
   gridPose(slot: number): Pose;
   /** Ground type under a world position (grip / drag / sound). */
@@ -146,6 +148,8 @@ export class ProceduralTrack implements Track {
   readonly name: string;
   readonly root = new THREE.Group();
   readonly bounds = new THREE.Box3();
+  /** Tree positions inside real (OSM) forests, for the impostor forest. */
+  forestSpots: readonly [number, number][] = [];
   readonly materials: TrackMaterials;
   /** Centerline length in meters. */
   length = 0;
@@ -202,8 +206,10 @@ export class ProceduralTrack implements Track {
     let forestTrees: [number, number][] = [];
     if (options.scenery) forestTrees = this.buildScenery(options.scenery);
     else this.buildPitAndGrandstand();
+    this.forestSpots = forestTrees;
     // With OSM data, trees come from real forests (random ones could land in lakes or buildings).
-    // Trees are opt-in (treesPerKm > 0): the low-poly ones looked toy-like.
+    // These low-poly trees are opt-in (treesPerKm > 0, instancing experiments): the game
+    // itself plants impostor trees on forestSpots (see TreeImpostors).
     if (options.treesPerKm > 0) {
       const scatter = options.scenery ? 0 : Math.round((options.treesPerKm * this.length) / 1000);
       if (scatter + forestTrees.length > 0) this.buildTrees(scatter, forestTrees);

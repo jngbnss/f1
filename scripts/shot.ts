@@ -22,6 +22,8 @@ const opt = (name: string, fallback: string) => {
 const wait = Number(opt('wait', '12'));
 const out = opt('out', 'shots');
 const query = opt('query', '');
+/** JS expression evaluated in the page right after each screenshot (printed as JSON); needs window.sim (dev or ?bench). */
+const evalExpr = opt('eval', '');
 const tracks = argv.length ? argv : ['test', 'spielberg', 'monza', 'silverstone', 'spa'];
 const port = 4180;
 const cdpPort = 9333;
@@ -100,6 +102,10 @@ async function main(): Promise<void> {
       const file = join(out, `${entry.replace('@', '_')}.png`);
       writeFileSync(file, Buffer.from(String(shot.result?.data ?? ''), 'base64'));
       console.log(`saved ${file}`);
+      if (evalExpr) {
+        const r = await cdp.send('Runtime.evaluate', { expression: `JSON.stringify(${evalExpr})`, returnByValue: true });
+        console.log(JSON.stringify(r.result));
+      }
     }
     cdp.close();
   } finally {

@@ -8,6 +8,7 @@ import { InputManager } from '../input/InputManager';
 import { KeyboardInput } from '../input/KeyboardInput';
 import { Benchmark } from '../performance/Benchmark';
 import { DynamicResolution } from '../performance/DynamicResolution';
+import { PostFx } from '../render/PostFx';
 import { PerformanceMonitor } from '../performance/PerformanceMonitor';
 import { PhysicsDebugRenderer } from '../physics/PhysicsDebugRenderer';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
@@ -77,8 +78,10 @@ export class Game {
   private outTime = 0;
   /** Real ground around the track (null = procedural backdrop). */
   private ground: Ground | null = null;
+  private disposeForest: (() => void) | null = null;
   private readonly aiOutTime = new Map<Vehicle, number>();
   private readonly dynamicResolution: DynamicResolution | null;
+  private postFx: PostFx | null = null;
   /** Latched lap event from fixed steps, consumed by the next rendered frame. */
   private lapEvent: 'lap' | 'best' | null = null;
   readonly racingLine: RacingLine;
@@ -108,7 +111,8 @@ export class Game {
     private readonly realTerrain: RealTerrain | null = null,
   ) {
     // --- renderer -----------------------------------------------------
-    this.renderer = new THREE.WebGLRenderer({ antialias: config.antialias, powerPreference: 'high-performance' });
+    // With post-processing, SMAA in the chain replaces the canvas MSAA.
+    this.renderer = new THREE.WebGLRenderer({ antialias: config.antialias && !config.postfx, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, config.pixelRatio));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     this.renderer.shadowMap.enabled = config.shadows;
@@ -212,6 +216,7 @@ export class Game {
     });
     this.player.render(1);
     this.followCamera.snap(this.player.object3D);
+    if (config.postfx) this.postFx = new PostFx(this.renderer, this.scene, this.followCamera.camera);
     const credits = [
       layout.attribution,
       realTerrain ? REAL_TERRAIN_CREDIT : '',
@@ -277,6 +282,15 @@ export class Game {
       Promise.all([loadSatellite(base, real, 'near', this.renderer), textures])
         .then(([tex]) => applySatelliteTint(this.track.materials.grass, tex, trackMask(real, this.ground!), real))
         .catch((e) => console.warn('Ground imagery failed', e));
+    }
+    if (this.config.forest && this.track.forestSpots.length) {
+      import('../world/TreeImpostors')
+        .then(({ buildImpostorForest }) => buildImpostorForest(this.renderer, this.track.forestSpots, (x, z) => this.ground?.height(x, z) ?? 0))
+        .then((forest) => {
+          this.scene.add(forest.mesh);
+          this.disposeForest = forest.dispose;
+        })
+        .catch((e) => console.warn('Forest failed', e));
     }
     this.environment.loadSky(base, this.renderer).catch((e) => console.warn('HDRI sky failed', e));
   }
@@ -348,6 +362,8 @@ export class Game {
     this.terrain.geometry.dispose();
     (this.terrain.material as THREE.Material).dispose();
     this.minimap.dispose();
+    this.disposeForest?.();
+    this.postFx?.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -475,7 +491,8 @@ export class Game {
 
   private render(): void {
     this.perf.beginSection();
-    this.renderer.render(this.scene, this.followCamera.camera);
+    if (this.postFx) this.postFx.render(0);
+    else this.renderer.render(this.scene, this.followCamera.camera);
     this.perf.endRender(this.renderer.info);
     if (this.bench) {
       this.bench.frame(!(this.race?.frozen ?? false), this.perf.frame, this.renderer.info);
@@ -494,6 +511,7 @@ export class Game {
     const w = this.container.clientWidth;
     const h = this.container.clientHeight;
     this.renderer.setSize(w, h);
+    this.postFx?.setSize(w, h);
     this.followCamera.setAspect(w / h);
   };
 }

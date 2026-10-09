@@ -14,6 +14,10 @@ export interface SimConfig {
   shadowMapSize: number;
   /** Renderer MSAA. */
   antialias: boolean;
+  /** Impostor trees in real forests. */
+  forest: boolean;
+  /** Post-processing chain (AO, bloom, ACES tone mapping, SMAA). */
+  postfx: boolean;
   /** Max device pixel ratio. */
   pixelRatio: number;
   /** Lower the render resolution automatically when frames get slow. */
@@ -66,6 +70,8 @@ export function readConfig(search = window.location.search): SimConfig {
     shadows: bool(p, 'shadows', true),
     shadowMapSize: num(p, 'shadowmap', 2048),
     antialias: bool(p, 'aa', true),
+    postfx: bool(p, 'fx', true),
+    forest: bool(p, 'forest', true),
     pixelRatio: num(p, 'pr', 1.5),
     // Benchmarks measure the full-resolution cost, so dynamic resolution is off unless asked for.
     dynamicResolution: bool(p, 'dynres', !bench),

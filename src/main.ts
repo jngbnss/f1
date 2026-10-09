@@ -3,7 +3,7 @@ import { readConfig, urlWith } from './config';
 import { clearBenchResults } from './performance/Benchmark';
 import { showMenu } from './ui/Menu';
 import { CAR_LIST, resolveCarId } from './vehicle/catalog';
-import { findTrack, TRACKS } from './world/tracks';
+import { FEATURED_TRACKS, findTrack, TRACKS } from './world/tracks';
 
 async function main(): Promise<void> {
   const container = document.getElementById('app');
@@ -15,7 +15,7 @@ async function main(): Promise<void> {
     // The 3D engine, physics WASM and car models download while the menu is open.
     const engine = Promise.all([import('./core/Game'), import('./vehicle/cars')]);
     let carId = resolveCarId(config.car);
-    let trackId = findTrack(config.track).id;
+    let trackId = findTrack(config.track ?? FEATURED_TRACKS[0].id).id;
 
     if (config.bench > 0) {
       if (config.benchFirst) clearBenchResults();
@@ -25,7 +25,8 @@ async function main(): Promise<void> {
 
     if (config.showMenu) {
       loading?.classList.add('hidden');
-      const sel = await showMenu(CAR_LIST, TRACKS, { carId, trackId, ai: config.ai, laps: config.laps });
+      if (!FEATURED_TRACKS.some((t) => t.id === trackId)) trackId = FEATURED_TRACKS[0].id;
+      const sel = await showMenu(CAR_LIST, FEATURED_TRACKS, { carId, trackId, ai: config.ai, laps: config.laps });
       ({ carId, trackId } = sel);
       config.ai = sel.ai;
       config.laps = sel.laps;
@@ -45,7 +46,7 @@ async function main(): Promise<void> {
     game.start();
     loading?.remove();
 
-    if (import.meta.env.DEV) {
+    if (import.meta.env.DEV || config.bench > 0) {
       // Console handle for experiments: sim.perf.snapshot, sim.player, sim.resetPlayer() ...
       (window as unknown as { sim: typeof game }).sim = game;
     }
