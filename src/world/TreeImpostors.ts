@@ -32,6 +32,47 @@ interface Atlas {
   dispose(): void;
 }
 
+/**
+ * Leaf textures store white in their transparent texels; bilinear filtering
+ * at the cut-out edge mixes that in and outlines every crown in white. Paint
+ * transparent texels with the mean leaf colour instead (once per texture).
+ */
+const bled = new WeakSet<THREE.Texture>();
+function bleedLeafColor(tex: THREE.Texture): void {
+  const img = tex.image as CanvasImageSource & { width: number; height: number };
+  if (bled.has(tex) || !img?.width || typeof document === 'undefined') return;
+  const c = document.createElement('canvas');
+  c.width = img.width;
+  c.height = img.height;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  if (!g) return;
+  g.drawImage(img, 0, 0);
+  const data = g.getImageData(0, 0, c.width, c.height);
+  const d = data.data;
+  let r = 0;
+  let gr = 0;
+  let b = 0;
+  let n = 0;
+  for (let i = 0; i < d.length; i += 4)
+    if (d[i + 3] > 200) {
+      r += d[i];
+      gr += d[i + 1];
+      b += d[i + 2];
+      n++;
+    }
+  if (!n) return;
+  for (let i = 0; i < d.length; i += 4)
+    if (d[i + 3] < 128) {
+      d[i] = r / n;
+      d[i + 1] = gr / n;
+      d[i + 2] = b / n;
+    }
+  g.putImageData(data, 0, 0);
+  tex.image = c;
+  tex.needsUpdate = true;
+  bled.add(tex);
+}
+
 /** Waits until every texture used by `root` has its image (EZ-Tree decodes them asynchronously). */
 async function texturesReady(root: THREE.Object3D, timeoutMs = 5000): Promise<void> {
   const maps: THREE.Texture[] = [];
@@ -76,6 +117,10 @@ async function bakeAtlas(renderer: THREE.WebGLRenderer): Promise<Atlas> {
     tree.loadPreset(VARIANTS[v].preset);
     tree.generate();
     await texturesReady(tree);
+    tree.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+      if (m?.map && m.alphaTest > 0) bleedLeafColor(m.map);
+    });
     scene.add(tree);
     box.setFromObject(tree);
     box.getSize(size);
@@ -158,7 +203,15 @@ export async function buildImpostorForest(
       );
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\nvarying vec2 vAtlasUv;`)
-      .replace('#include <map_fragment>', 'diffuseColor *= texture2D(map, vAtlasUv);');
+      .replace(
+        '#include <map_fragment>',
+        // Gaps inside a crown would show the bright sky as white specks: fill them with
+        // shaded foliage taken from a blurrier mip (the crown's outline stays cut out).
+        `vec4 tex = texture2D(map, vAtlasUv);
+        vec4 blurred = texture2D(map, vAtlasUv, 2.5);
+        if (tex.a < 0.45 && blurred.a > 0.6) tex = vec4(blurred.rgb / blurred.a * 0.6, 1.0);
+        diffuseColor *= tex;`,
+      );
   };
   material.customProgramCacheKey = () => 'tree-impostor';
 

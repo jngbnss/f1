@@ -224,7 +224,7 @@ export class ProceduralTrack implements Track {
     this.buildBarriers();
     if (this.pit) {
       this.buildPitLane(options.pitBoxColors ?? [0xffd200]);
-      const building = buildPitBuilding(this.pit, this.rights, options.pitBoxColors ?? [0xffd200], `Autodromo ${layout.name}`);
+      const building = buildPitBuilding(this.pit, this.rights, options.pitBoxColors ?? [0xffd200], layout.name === 'Monza' ? 'Autodromo Nazionale Monza' : layout.name);
       this.disposables.push(...building.disposables);
       this.root.add(building.group);
     }
