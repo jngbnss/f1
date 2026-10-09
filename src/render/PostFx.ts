@@ -1,12 +1,12 @@
 import { N8AOPostPass } from 'n8ao';
-import { BloomEffect, EffectComposer, EffectPass, RenderPass, SMAAEffect, SMAAPreset, ToneMappingEffect, ToneMappingMode, VignetteEffect } from 'postprocessing';
+import { BloomEffect, BrightnessContrastEffect, EffectComposer, HueSaturationEffect, EffectPass, RenderPass, SMAAEffect, SMAAPreset, ToneMappingEffect, ToneMappingMode, VignetteEffect } from 'postprocessing';
 import * as THREE from 'three';
 
 /**
  * Post-processing chain (pmndrs/postprocessing, Zlib + N8AO, ISC):
  * scene -> ambient occlusion (contact shadows under cars, between rails,
  * around buildings: what makes boxes stop looking like floating boxes) ->
- * soft bloom on bright highlights -> ACES filmic tone mapping -> vignette ->
+ * soft bloom on bright highlights -> AgX tone mapping -> contrast/saturation -> vignette ->
  * SMAA anti-aliasing. The renderer's own tone mapping and MSAA are off
  * while this runs (they would apply twice).
  */
@@ -40,9 +40,13 @@ export class PostFx {
     this.composer.addPass(this.ao);
 
     const bloom = new BloomEffect({ intensity: 0.35, luminanceThreshold: 0.9, luminanceSmoothing: 0.2, mipmapBlur: true });
-    const tone = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
+    // AgX keeps saturated liveries and grass from washing out the way ACES does;
+    // a touch of contrast and colour afterwards gives the broadcast look.
+    const tone = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
+    const contrast = new BrightnessContrastEffect({ contrast: 0.12 });
+    const saturation = new HueSaturationEffect({ saturation: 0.15 });
     const vignette = new VignetteEffect({ offset: 0.3, darkness: 0.35 });
-    this.composer.addPass(new EffectPass(camera, bloom, tone, vignette));
+    this.composer.addPass(new EffectPass(camera, bloom, tone, contrast, saturation, vignette));
     this.composer.addPass(new EffectPass(camera, new SMAAEffect({ preset: SMAAPreset.MEDIUM })));
   }
 

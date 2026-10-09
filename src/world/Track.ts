@@ -4,9 +4,12 @@ import { BARRIER_GROUPS, type PhysicsWorld } from '../physics/PhysicsWorld';
 import type { Pose } from '../vehicle/VehiclePhysics';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildCrowd, buildTribune, CrowdMaterial, type CrowdSeat, type TribuneSpec } from './Crowd';
+import { shadeAsphalt, shadeGrass, shadeGravel } from './GroundShading';
 import { buildOsmScenery, type OsmData } from './OsmScenery';
 import { buildPitLaneData, buildPitLaneMeshes, PIT_LANE_WIDTH, type PitLaneData } from './PitLane';
 import { TiledInstances } from './TiledInstances';
+import { buildTrackside } from './Trackside';
+import { buildPitBuilding, PIT_BUILDING_DEPTH, PIT_BUILDING_FRONT } from './PitBuilding';
 import type { TrackLayout } from './TrackLayout';
 
 export type Surface = 'asphalt' | 'kerb' | 'grass' | 'gravel';
@@ -175,6 +178,8 @@ export class ProceduralTrack implements Track {
   private grid!: CenterlineGrid;
   private readonly half: number;
   private readonly barrierOffset: number;
+  /** Centreline samples along the pit building (its side has no rails/fence visuals there). */
+  private readonly pitBuildingAt = new Set<number>();
   private readonly crowdSeats: CrowdSeat[] = [];
   private readonly crowdMaterial = new CrowdMaterial();
   private readonly cullables: { object: THREE.Object3D; center: THREE.Vector3; radius: number }[] = [];
@@ -195,6 +200,10 @@ export class ProceduralTrack implements Track {
       gravel: this.own(new THREE.MeshStandardMaterial({ color: 0xc9b48a, roughness: 1 })),
     };
 
+    shadeGrass(this.materials.grass);
+    shadeAsphalt(this.materials.asphalt);
+    shadeGravel(this.materials.gravel);
+
     this.sampleCenterline();
     this.classifyCorners();
 
@@ -210,10 +219,31 @@ export class ProceduralTrack implements Track {
     if (layout.pitSide) {
       const colors = options.pitBoxColors ?? [0xffd200];
       this.pit = buildPitLaneData(this.points, this.rights, this.half, layout.pitSide, layout.sampleSpacing, Math.max(colors.length, 1));
+      for (let k = this.pit.limiterStart; k <= this.pit.limiterEnd; k++) this.pitBuildingAt.add(this.pit.pathIndex[k]);
     }
     this.buildBarriers();
-    if (this.pit) this.buildPitLane(options.pitBoxColors ?? [0xffd200]);
+    if (this.pit) {
+      this.buildPitLane(options.pitBoxColors ?? [0xffd200]);
+      const building = buildPitBuilding(this.pit, this.rights, options.pitBoxColors ?? [0xffd200], `Autodromo ${layout.name}`);
+      this.disposables.push(...building.disposables);
+      this.root.add(building.group);
+    }
     this.buildStartLine();
+    const trackside = buildTrackside({
+      points: this.points,
+      tangents: this.tangents,
+      rights: this.rights,
+      curvature: this.curvature,
+      gravelSide: this.gravelSide,
+      half: this.half,
+      sampleSpacing: layout.sampleSpacing,
+      barrierAt: (side, i) => this.barrierAt(side, i, this.barrierOffset),
+      clearance: (x, z) => this.clearance(x, z),
+      blocked: (side, i) => this.pitBuildingAt.has(i) && side === this.pit?.side,
+      startGantry: { halfSpan: this.barrierOffset + 0.6, y: 7, height: 1.4, depth: 0.7 },
+    });
+    this.disposables.push(...trackside.disposables);
+    this.root.add(trackside.group);
     // Real circuits get their real buildings from OSM; generic ones only otherwise.
     let forestTrees: [number, number][] = [];
     if (options.scenery) forestTrees = this.buildScenery(options.scenery);
@@ -576,7 +606,7 @@ export class ProceduralTrack implements Track {
     const railGeo = this.own(mergeGeometries(railParts)!);
     railParts.forEach((g) => g.dispose());
     const postGeo = this.own(new THREE.BoxGeometry(0.12, 1.06, 0.12).translate(0, 0.53, 0));
-    const railMat = this.own(new THREE.MeshStandardMaterial({ color: 0xb8bec6, metalness: 0.85, roughness: 0.35 }));
+    const railMat = this.own(new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: 0.7, roughness: 0.55 }));
     const postMat = this.own(new THREE.MeshStandardMaterial({ color: 0x7c838c, metalness: 0.6, roughness: 0.5 }));
 
     // Debris fence above the rails: a unit-length wire-mesh panel (alpha-tested,
@@ -623,10 +653,13 @@ export class ProceduralTrack implements Track {
         q.setFromAxisAngle(UP, Math.atan2(b.x - a.x, b.z - a.z));
         p.y = 0;
         const scaled = new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, len));
-        railMatrices.push(scaled);
-        fenceMatrices.push(scaled.clone());
-        if (i % 2 === 0) postMatrices.push(new THREE.Matrix4().compose(p, q, one));
-        if (i % 4 === 0) poleMatrices.push(new THREE.Matrix4().compose(p, q, one));
+        // Along the pit building its garages are the wall: collider only.
+        if (!(side === this.pit?.side && this.pitBuildingAt.has(i))) {
+          railMatrices.push(scaled);
+          fenceMatrices.push(scaled.clone());
+          if (i % 2 === 0) postMatrices.push(new THREE.Matrix4().compose(p, q, one));
+          if (i % 4 === 0) poleMatrices.push(new THREE.Matrix4().compose(p, q, one));
+        }
 
         c.addVectors(this.rights[i], this.rights[j])
           .setY(0)
@@ -709,11 +742,16 @@ export class ProceduralTrack implements Track {
     beam.position.set(0, 7, 0);
     beam.castShadow = true;
     gantry.add(beam);
-    for (let k = -2; k <= 2; k++) {
-      const l = new THREE.Mesh(lightGeo, lightMat);
-      l.position.set(k * 0.8, 7, 0.4);
-      gantry.add(l);
-    }
+    // Five pairs of start lights on a black pod, facing the grid (behind the line, -Z).
+    const pod = new THREE.Mesh(this.own(new THREE.BoxGeometry(4.6, 1.9, 0.5)), beamMat);
+    pod.position.set(0, 7, -0.55);
+    gantry.add(pod);
+    for (let k = -2; k <= 2; k++)
+      for (const y of [6.6, 7.4]) {
+        const l = new THREE.Mesh(lightGeo, lightMat);
+        l.position.set(k * 0.85, y, -0.85);
+        gantry.add(l);
+      }
     gantry.position.set(p.x, 0, p.z);
     gantry.rotation.y = yaw;
     gantry.name = 'StartGantry';
@@ -727,6 +765,17 @@ export class ProceduralTrack implements Track {
   }
 
   /** Buildings, water, car parks and roads from OSM; returns forest tree positions. */
+  /** True for points inside (or just behind) the pit building, where OSM's own pit box would clash. */
+  private behindPitBuilding(x: number, z: number): boolean {
+    const pit = this.pit;
+    if (!pit) return false;
+    const p = new THREE.Vector3(x, 0, z);
+    const i = this.nearestIndex(p);
+    if (!this.pitBuildingAt.has(i)) return false;
+    const lat = this.lateral(p, i) * pit.side;
+    return lat > 0 && lat < pit.lateralAt(i) + PIT_BUILDING_FRONT + PIT_BUILDING_DEPTH + 15;
+  }
+
   private buildScenery(data: OsmData): [number, number][] {
     const result = buildOsmScenery(data, {
       clearance: (x, z) => this.clearance(x, z),
@@ -735,6 +784,7 @@ export class ProceduralTrack implements Track {
         return { x: p.x, z: p.z };
       },
       minClearance: this.barrierOffset + 2,
+      exclude: (x, z) => this.behindPitBuilding(x, z),
       asphalt: this.materials.asphalt,
       rand: mulberry32(4242),
     });

@@ -23,6 +23,8 @@ export interface SceneryContext {
   clearance(x: number, z: number): number;
   /** Nothing may be placed closer to the centerline than this (barrier line + margin). */
   minClearance: number;
+  /** Footprints touching these points are left out (replaced by the game's own buildings). */
+  exclude?(x: number, z: number): boolean;
   /** Nearest point on the circuit centerline. */
   nearestPoint(x: number, z: number): { x: number; z: number };
   /** Shared (texturable) asphalt material for car parks and roads. */
@@ -147,6 +149,7 @@ export function buildOsmScenery(data: OsmData, ctx: SceneryContext): SceneryResu
     const kind = b[1];
     const pts = pairs(b, 2);
     if (pts.length < 3 || !clear(pts, 2)) continue;
+    if (ctx.exclude && pts.some(([x, z]) => ctx.exclude!(x, z))) continue;
     if (kind === 1) {
       const spec = tribuneFromFootprint(pts, h, ctx);
       if (spec) {
