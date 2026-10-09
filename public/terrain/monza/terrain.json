@@ -1,0 +1,47 @@
+{
+  "attribution": "Imagery: EOxCloudless 2016 by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2016 & 2017, CC BY 4.0) · Heights: Copernicus DEM GLO-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA",
+  "fetched": "2026-10-09",
+  "baseHeight": 187.9,
+  "trackHeightSpan": 23.4,
+  "near": {
+    "rect": [
+      -1006,
+      -2690,
+      2248,
+      1481
+    ],
+    "median": [
+      0.224,
+      0.298,
+      0.239
+    ]
+  },
+  "far": {
+    "rect": [
+      -14906,
+      -16590,
+      16148,
+      15381
+    ]
+  },
+  "dem": {
+    "rect": [
+      -14906,
+      -16590,
+      16148,
+      15381
+    ],
+    "size": 257,
+    "scale": 0.1
+  },
+  "demNear": {
+    "rect": [
+      -1006,
+      -2690,
+      2248,
+      1481
+    ],
+    "size": 257,
+    "scale": 0.1
+  }
+}

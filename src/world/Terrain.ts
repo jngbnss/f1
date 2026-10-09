@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { RealTerrain } from './RealTerrain';
 import type { TerrainStyle } from './themes';
 
 /** Flat land kept around the circuit (m beyond the track bounds): OSM buildings and the grass plane live here. */
@@ -8,6 +9,10 @@ const EXTENT = 14000;
 const GRID = 220;
 /** Flat part sits just under the grass plane so the plane wins near the track. */
 const FLAT_Y = -0.4;
+/** The track's grass plane reaches this far beyond the track bounds (see Track.buildGround). */
+const GRASS_MARGIN = 800;
+/** Under the grass plane the landscape sinks this much, so the plane always wins. */
+const UNDER_GRASS = 4;
 
 function hash(x: number, z: number, seed: number): number {
   let h = (x * 374761393 + z * 668265263 + seed * 2147483647) | 0;
@@ -56,8 +61,18 @@ const smooth = (e0: number, e1: number, x: number) => {
  * surroundings are, rising into hills or mountains towards the horizon.
  * One vertex-colored mesh (meadows, woods, rock), no textures, no shadows —
  * replaces the flat green plane that used to meet the sky at the horizon.
+ *
+ * With `real` data the heights come from `groundHeight` (Copernicus DEM
+ * relative to the nearby track, see groundField) and UVs map the satellite
+ * image (see applyTerrainImagery).
  */
-export function buildTerrain(bounds: THREE.Box3, style: TerrainStyle, seed = 7): THREE.Mesh {
+export function buildTerrain(
+  bounds: THREE.Box3,
+  style: TerrainStyle,
+  seed = 7,
+  real: RealTerrain | null = null,
+  groundHeight: ((x: number, z: number) => number) | null = null,
+): THREE.Mesh {
   const minX = bounds.min.x - FLAT_MARGIN;
   const maxX = bounds.max.x + FLAT_MARGIN;
   const minZ = bounds.min.z - FLAT_MARGIN;
@@ -86,9 +101,18 @@ export function buildTerrain(bounds: THREE.Box3, style: TerrainStyle, seed = 7):
     // Low base swell + detailed relief; far ranges a bit taller.
     const relief = fbm(x * s, z * s, seed, style.ridged);
     const swell = valueNoise(x * s * 0.25, z * s * 0.25, seed + 99);
-    const h = style.height * rise * (0.25 + 0.75 * relief) * (0.6 + 0.6 * swell);
+    let h = style.height * rise * (0.25 + 0.75 * relief) * (0.6 + 0.6 * swell);
+    if (groundHeight) {
+      // Inside the grass plane: same ground, a little lower (no z-fighting, no gaps at its edge).
+      const inside = Math.min(x - (bounds.min.x - GRASS_MARGIN), bounds.max.x + GRASS_MARGIN - x, z - (bounds.min.z - GRASS_MARGIN), bounds.max.z + GRASS_MARGIN - z);
+      h = groundHeight(x, z);
+      heights[i] = h;
+      pos.setY(i, FLAT_Y + h - UNDER_GRASS * smooth(0, 60, inside));
+      woods[i] = fbm(x / 420, z / 420, seed + 50, false);
+      continue;
+    }
     heights[i] = h;
-    pos.setY(i, rise > 0 ? FLAT_Y + h : FLAT_Y);
+    pos.setY(i, dist > 0 ? FLAT_Y + h : FLAT_Y);
     woods[i] = fbm(x / 420, z / 420, seed + 50, false);
   }
   geo.computeVertexNormals();
@@ -115,11 +139,26 @@ export function buildTerrain(bounds: THREE.Box3, style: TerrainStyle, seed = 7):
     colors[i * 3 + 2] = c.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  geo.deleteAttribute('uv');
+  if (real) {
+    // UV = position inside the satellite image's world rect (image not flipped).
+    const [rx0, rz0, rx1, rz1] = real.meta.far.rect;
+    const uv = geo.attributes.uv as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) uv.setXY(i, (pos.getX(i) - rx0) / (rx1 - rx0), (pos.getZ(i) - rz0) / (rz1 - rz0));
+  } else {
+    geo.deleteAttribute('uv');
+  }
 
   const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
   mesh.name = 'Terrain';
   mesh.matrixAutoUpdate = false;
   mesh.updateMatrix();
   return mesh;
+}
+
+/** Swaps the procedural vertex colors for the satellite image once it has loaded. */
+export function applyTerrainImagery(terrain: THREE.Mesh, image: THREE.Texture): void {
+  const m = terrain.material as THREE.MeshStandardMaterial;
+  m.map = image;
+  m.vertexColors = false;
+  m.needsUpdate = true;
 }

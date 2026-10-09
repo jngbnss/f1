@@ -22,7 +22,8 @@ import type { VehicleInput } from '../input/VehicleInput';
 import { Environment } from '../world/Environment';
 import { RacingLine } from '../world/RacingLine';
 import { racingLineFor } from '../world/RacingLineOptimizer';
-import { buildTerrain } from '../world/Terrain';
+import { applyTerrainImagery, buildTerrain } from '../world/Terrain';
+import { applySatelliteTint, drapeOnGround, groundField, loadRealTerrain, loadSatellite, REAL_TERRAIN_CREDIT, trackMask, type Ground, type RealTerrain } from '../world/RealTerrain';
 import { themeFor, type WorldTheme } from '../world/themes';
 import { applyTrackTextures } from '../world/TrackTextures';
 import { ProceduralTrack, type Surface, type Track } from '../world/Track';
@@ -74,6 +75,8 @@ export class Game {
   private readonly debugRenderer: PhysicsDebugRenderer | null = null;
   private flippedTime = 0;
   private outTime = 0;
+  /** Real ground around the track (null = procedural backdrop). */
+  private ground: Ground | null = null;
   private readonly aiOutTime = new Map<Vehicle, number>();
   private readonly dynamicResolution: DynamicResolution | null;
   /** Latched lap event from fixed steps, consumed by the next rendered frame. */
@@ -102,6 +105,7 @@ export class Game {
     readonly physics: PhysicsWorld,
     readonly car: CarDefinition,
     layout: TrackLayout,
+    private readonly realTerrain: RealTerrain | null = null,
   ) {
     // --- renderer -----------------------------------------------------
     this.renderer = new THREE.WebGLRenderer({ antialias: config.antialias, powerPreference: 'high-performance' });
@@ -110,7 +114,9 @@ export class Game {
     this.renderer.shadowMap.enabled = config.shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.theme = themeFor(layout.id, config.theme);
+    const theme = themeFor(layout.id, config.theme);
+    // Real hills on the horizon are worth seeing: clearer air than the procedural backdrop needs.
+    this.theme = realTerrain ? { ...theme, fogDensity: theme.fogDensity * 0.55 } : theme;
     this.renderer.toneMappingExposure = this.theme.exposure;
     container.appendChild(this.renderer.domElement);
     this.dynamicResolution = config.dynamicResolution
@@ -121,7 +127,17 @@ export class Game {
     this.environment = new Environment(this.scene, { shadows: config.shadows, shadowMapSize: config.shadowMapSize, theme: this.theme });
     this.track = new ProceduralTrack(physics, layout, { treesPerKm: config.treesPerKm, scenery: layout.scenery });
     this.scene.add(this.track.root);
-    this.terrain = buildTerrain(this.track.bounds, this.theme.terrain);
+    // Real relief: the landscape, the grass plane and the OSM scenery follow the
+    // DEM relative to the nearby track height (the track itself stays flat).
+    const ground = realTerrain ? groundField(realTerrain, this.track.getCenterline()) : null;
+    this.ground = ground;
+    if (ground) {
+      for (const name of ['Grass', 'OsmScenery']) {
+        const o = this.track.root.getObjectByName(name);
+        if (o) drapeOnGround(o, ground.height);
+      }
+    }
+    this.terrain = buildTerrain(this.track.bounds, this.theme.terrain, 7, realTerrain, ground ? ground.height : null);
     this.scene.add(this.terrain);
     // Racing line computed on the game's own (widened) road, not the real-width dataset line.
     this.racingLine = new RacingLine(racingLineFor(this.track), car.physics);
@@ -196,7 +212,11 @@ export class Game {
     });
     this.player.render(1);
     this.followCamera.snap(this.player.object3D);
-    const credits = [layout.attribution, f1ModelReady() && this.vehicles.some((v) => v.visual instanceof GltfF1Visual) ? F1_MODEL_CREDIT : ''];
+    const credits = [
+      layout.attribution,
+      realTerrain ? REAL_TERRAIN_CREDIT : '',
+      f1ModelReady() && this.vehicles.some((v) => v.visual instanceof GltfF1Visual) ? F1_MODEL_CREDIT : '',
+    ];
     this.hud = new HUD(layout.name, credits.filter(Boolean).join(' · '));
     this.minimap = new Minimap(this.track.getCenterline());
 
@@ -231,17 +251,33 @@ export class Game {
   }
 
   static async create(container: HTMLElement, config: SimConfig, car: CarDefinition, layout: TrackLayout): Promise<Game> {
-    const physics = await PhysicsWorld.create(1 / config.physicsHz);
-    // Real F1 bodies (formula races also field F1 cars); primitives if the model fails.
-    if (car.cls === 'formula') await loadF1Model(import.meta.env.BASE_URL).catch((e) => console.warn('F1 model failed', e));
-    return new Game(container, config, physics, car, layout);
+    const base = import.meta.env.BASE_URL;
+    const [physics, realTerrain] = await Promise.all([
+      PhysicsWorld.create(1 / config.physicsHz),
+      // Real heights for the landscape (imagery streams in after the start).
+      loadRealTerrain(base, layout.id),
+      // Real F1 bodies; primitives if the model fails.
+      car.cls === 'formula' ? loadF1Model(base).catch((e) => console.warn('F1 model failed', e)) : null,
+    ]);
+    return new Game(container, config, physics, car, layout, realTerrain);
   }
 
   start(): void {
     this.loop.start();
     // Stream heavy assets after the first frame: drive first, prettier a moment later.
     const base = import.meta.env.BASE_URL;
-    applyTrackTextures(this.track.materials, this.renderer, this.theme.grassTint).catch((e) => console.warn('Track textures failed', e));
+    const textures = applyTrackTextures(this.track.materials, this.renderer, this.theme.grassTint);
+    textures.catch((e) => console.warn('Track textures failed', e));
+    const real = this.realTerrain;
+    if (real) {
+      // Satellite colors: landscape texture + tint of the grass around the track.
+      loadSatellite(base, real, 'far', this.renderer)
+        .then((tex) => applyTerrainImagery(this.terrain, tex))
+        .catch((e) => console.warn('Terrain imagery failed', e));
+      Promise.all([loadSatellite(base, real, 'near', this.renderer), textures])
+        .then(([tex]) => applySatelliteTint(this.track.materials.grass, tex, trackMask(real, this.ground!), real))
+        .catch((e) => console.warn('Ground imagery failed', e));
+    }
     this.environment.loadSky(base, this.renderer).catch((e) => console.warn('HDRI sky failed', e));
   }
 

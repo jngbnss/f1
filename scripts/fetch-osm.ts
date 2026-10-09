@@ -14,15 +14,16 @@
  * OSM highway=raceway geometry: coarse grid search, then trimmed ICP.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
-interface Circuit {
+export interface Circuit {
   id: string;
   file: string;
   lat: number;
   lon: number;
 }
 
-const CIRCUITS: Circuit[] = [
+export const CIRCUITS: Circuit[] = [
   { id: 'spielberg', file: 'Spielberg', lat: 47.2197, lon: 14.7647 },
   { id: 'monza', file: 'Monza', lat: 45.6156, lon: 9.2811 },
   { id: 'silverstone', file: 'Silverstone', lat: 52.0786, lon: -1.0169 },
@@ -41,7 +42,7 @@ const CIRCUITS: Circuit[] = [
   { id: 'yasmarina', file: 'YasMarina', lat: 24.4672, lon: 54.6031 },
 ];
 
-const DATA_DIR = new URL('../src/world/tracks/data/', import.meta.url);
+export const DATA_DIR = new URL('../src/world/tracks/data/', import.meta.url);
 /** Public Overpass instances, tried in turn (the main one often answers 504 when busy). */
 const OVERPASS = [
   'https://overpass-api.de/api/interpreter',
@@ -53,9 +54,9 @@ const USER_AGENT = 'web-sim-lab/0.1 (https://github.com/jngbnss/web-sim-lab; off
 /** Extra margin around the circuit to include (m). */
 const MARGIN = 600;
 
-type V2 = [number, number];
+export type V2 = [number, number];
 
-async function overpass(query: string): Promise<{ elements: OsmElement[] }> {
+export async function overpass(query: string): Promise<{ elements: OsmElement[] }> {
   for (let attempt = 0; attempt < 8; attempt++) {
     const url = OVERPASS[attempt % OVERPASS.length];
     try {
@@ -89,7 +90,7 @@ interface OsmElement {
   members?: { type: string; role: string; geometry?: { lat: number; lon: number }[] }[];
 }
 
-function projector(lat0: number, lon0: number) {
+export function projector(lat0: number, lon0: number) {
   const kx = Math.cos((lat0 * Math.PI) / 180) * 111320;
   const ky = 110540;
   return (lat: number, lon: number): V2 => [(lon - lon0) * kx, (lat - lat0) * ky];
@@ -133,7 +134,7 @@ class Hash {
   }
 }
 
-function densify(line: V2[], step: number): V2[] {
+export function densify(line: V2[], step: number): V2[] {
   const out: V2[] = [];
   for (let i = 0; i < line.length - 1; i++) {
     const [ax, ay] = line[i];
@@ -146,7 +147,7 @@ function densify(line: V2[], step: number): V2[] {
 }
 
 /** Find R(θ), t with R·tum + t ≈ osm. */
-function align(tum: V2[], osm: V2[]): { theta: number; tx: number; ty: number; rms: number; inliers: number } {
+export function align(tum: V2[], osm: V2[]): { theta: number; tx: number; ty: number; rms: number; inliers: number } {
   const hash = new Hash(osm, 25);
   const sample = tum.filter((_, i) => i % 4 === 0);
   const score = (theta: number, tx: number, ty: number, tol: number) => {
@@ -303,11 +304,7 @@ const round = (v: number) => Math.round(v * 2) / 2; // 0.5 m precision keeps fil
 async function processCircuit(c: Circuit): Promise<void> {
   console.log(`\n${c.id}`);
   const proj = projector(c.lat, c.lon);
-  const tum: V2[] = readFileSync(new URL(`${c.file}.csv`, DATA_DIR), 'utf8')
-    .split(/\r?\n/)
-    .filter((l) => l && !l.startsWith('#'))
-    .map((l) => l.split(',').map(Number))
-    .map(([x, y]) => [x, y] as V2);
+  const tum = readCenterline(c);
   const ext = Math.max(...tum.map((p) => Math.hypot(p[0], p[1])));
   const radius = Math.round(Math.max(2500, ext + 400));
 
@@ -413,8 +410,20 @@ out geom;`;
   );
 }
 
-const only = process.argv[2];
-for (const c of CIRCUITS.filter((c) => !only || c.id === only)) {
-  await processCircuit(c);
-  await new Promise((r) => setTimeout(r, 5000)); // be polite to the public Overpass server
+/** TUM centerline of a circuit (local meters, y = north-ish; world z = -y). */
+export function readCenterline(c: Circuit): V2[] {
+  return readFileSync(new URL(`${c.file}.csv`, DATA_DIR), 'utf8')
+    .split(/\r?\n/)
+    .filter((l) => l && !l.startsWith('#'))
+    .map((l) => l.split(',').map(Number))
+    .map(([x, y]) => [x, y] as V2);
+}
+
+// Run only when executed directly (scripts/fetch-terrain.ts imports the helpers).
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const only = process.argv[2];
+  for (const c of CIRCUITS.filter((c) => !only || c.id === only)) {
+    await processCircuit(c);
+    await new Promise((r) => setTimeout(r, 5000)); // be polite to the public Overpass server
+  }
 }

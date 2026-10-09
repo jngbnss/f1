@@ -140,9 +140,12 @@ npx tsx scripts/fetch-osm.ts [circuit]   # OpenStreetMap 주변 환경 데이터
 | 아스팔트, 잔디, 그래블 텍스처 | [Poly Haven](https://polyhaven.com) `asphalt_02`, `leafy_grass`, `gravelly_sand` | CC0 |
 | 하늘 HDRI | Poly Haven `kloofendal_48d_partly_cloudy_puresky`, `qwantani_late_afternoon_puresky`, `kloofendal_overcast_puresky`, `kloofendal_28d_misty_puresky` | CC0 |
 | F1 2026 차체 (팀 색은 게임에서 칠함) | ["F1 2026 concept (polygon model)"](https://sketchfab.com/3d-models/f1-2026-concept-polygon-model-ea3bde709b1e4dc9b0ec8557d106ed42) by [Qvist_designs](https://sketchfab.com/Qvist_Designs) — `scripts/build-f1-model.ts`로 단순화·부위 분리 | [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/) |
+| 서킷 주변 위성사진 (땅 색) | [EOxCloudless 2016](https://cloudless.eox.at) by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2016 & 2017) | CC BY 4.0 |
+| 서킷 주변 지형 높이 | Copernicus DEM GLO-30 © DLR e.V. 2010-2014, © Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the EU and ESA | Copernicus DEM 라이선스 (무료, 출처 표기) |
 | 엔진 녹음 루프 | [OpenGameArt "Racing car engine sound loops"](https://opengameart.org/node/5633) by domasx2 | CC0 |
 
 - OSM 데이터는 `scripts/fetch-osm.ts`가 받습니다.
+- 실제 지형(높이 + 위성사진)은 `scripts/fetch-terrain.ts`가 받아 `public/terrain/<서킷>/`에 저장합니다. 트랙 자체는 평지 그대로이고, 트랙에서 130 m 밖부터 450 m까지 서서히 실제 높낮이(근처 트랙 높이 기준)로 바뀝니다. 트랙 바로 옆(60~200 m)은 위성사진이 아스팔트·주차장과 섞여 보여서 기존 잔디색을 유지합니다.
 - 받은 데이터는 TUM 좌표계에 강체 정합(그리드 탐색 + trimmed ICP)해서 `src/world/tracks/data/*_osm.json`으로 저장합니다(정합 오차 RMS 2~3 m).
 - 파생 데이터도 ODbL이 적용됩니다.
 - 위성사진은 상용 지도(Google, Esri 등) 라이선스가 게임 내 사용을 허용하지 않아 쓰지 않았습니다.
