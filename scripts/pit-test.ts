@@ -1,8 +1,8 @@
 /**
- * Pit stop check: an AI car requests a stop, laps Monza and must enter the
- * pit lane, stop in its box, change tyres and rejoin.
+ * Pit stop check: an AI car requests a stop, laps the circuit and must enter the
+ * pit lane, stop in its box, change tyres and rejoin (any circuit with a pit lane).
  *
- *   npx tsx scripts/pit-test.ts
+ *   npx tsx scripts/pit-test.ts [monza|spa|suzuka]
  */
 import { PhysicsWorld } from '../src/physics/PhysicsWorld';
 import { AIDriver } from '../src/race/AIDriver';
@@ -15,17 +15,20 @@ import { ProceduralTrack } from '../src/world/Track';
 import { loadLayout } from './tracks-node';
 
 const dt = 1 / 60;
-const layout = loadLayout('monza');
+const trackId = process.argv[2] ?? 'monza';
+const layout = loadLayout(trackId);
 const physics = await PhysicsWorld.create(dt);
 const track = new ProceduralTrack(physics, layout, { treesPerKm: 0, pitBoxColors: new Array(10).fill(0xffffff) });
 if (!track.pit) throw new Error('no pit lane');
 const car = findCar('f1-ferrari');
 const v = new Vehicle(physics, car.physics, car.createVisual(), track.getSpawnPose(), car.gearbox);
-v.physics.surfaceAt = (x, z) => {
-  const s = track.surfaceAt({ x, y: 0, z } as never);
+v.physics.aeroInAir = track.elevated;
+v.physics.surfaceAt = (x, z, y = 0) => {
+  const s = track.surfaceAt({ x, y, z } as never);
   return { grip: s === 'grass' ? 0.55 : s === 'gravel' ? 0.45 : 1, drag: s === 'grass' ? 1.2 : s === 'gravel' ? 6 : 0 };
 };
-const ai = new AIDriver(v, new RacingLine(racingLineFor(track), car.physics), track, { pace: 0.97, lane: 0, aggression: 0.5 });
+const linePath = racingLineFor(track);
+const ai = new AIDriver(v, new RacingLine(linePath, car.physics, { heights: track.heightsFor(linePath) }), track, { pace: 0.97, lane: 0, aggression: 0.5 });
 const events: string[] = [];
 let stopped = 0;
 const pits = new PitStops(track.pit, track, (veh, compound) => {

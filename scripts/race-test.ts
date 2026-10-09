@@ -24,12 +24,14 @@ const dt = 1 / 60;
 const physics = await PhysicsWorld.create(dt);
 const track = new ProceduralTrack(physics, layout, { treesPerKm: 0 });
 const car = findCar(carId);
-const line = new RacingLine(racingLineFor(track), car.physics);
+const linePath = racingLineFor(track);
+const line = new RacingLine(linePath, car.physics, { heights: track.heightsFor(linePath) });
 const total = Number(carsArg);
 const racers: Racer[] = [];
 const vehicles: Vehicle[] = [];
 for (let slot = 0; slot < total; slot++) {
   const v = new Vehicle(physics, car.physics, car.createVisual(), track.gridPose(slot), car.gearbox);
+  v.physics.aeroInAir = track.elevated;
   const r = Math.sin(slot * 12.9898) * 43758.5453;
   const rand = r - Math.floor(r);
   const ai = new AIDriver(v, line, track, { pace: 0.97 - (slot / total) * 0.07 + (rand - 0.5) * 0.04, lane: (rand - 0.5) * 2.4, aggression: rand });
@@ -58,7 +60,7 @@ while (t < limit && !racers.every((r) => r.finished)) {
   });
   for (const r of racers) {
     const v = r.vehicle;
-    if ((v.isFlipped() && v.physics.speed < 3) || v.position.y < -5 || r.ai!.unstuckCount >= 3) {
+    if ((v.isFlipped() && v.physics.speed < 3) || v.position.y < track.bounds.min.y - 5 || track.isOutOfBounds(v.position) || r.ai!.unstuckCount >= 3) {
       if (process.env.RESET_LOG) console.log(`  reset ${r.name} t=${t.toFixed(1)}s at sample ${track.nearestIndex(v.position)} lateral ${track.lateral(v.position).toFixed(1)} m, flipped=${v.isFlipped()} unstuck=${r.ai!.unstuckCount}`);
       v.teleport(track.getResetPose(v.position));
       r.ai!.resetState();

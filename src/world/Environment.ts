@@ -92,8 +92,10 @@ export class Environment {
     const snap = 2;
     const fx = Math.round(focus.x / snap) * snap;
     const fz = Math.round(focus.z / snap) * snap;
-    this.sun.target.position.set(fx, 0, fz);
-    this.sun.position.set(fx + this.sunOffset.x, this.sunOffset.y, fz + this.sunOffset.z);
+    // Follow the height too (Spa's road spans ~100 m): the shadow box stays around the car.
+    const fy = Math.round(focus.y / snap) * snap;
+    this.sun.target.position.set(fx, fy, fz);
+    this.sun.position.set(fx + this.sunOffset.x, fy + this.sunOffset.y, fz + this.sunOffset.z);
     this.sky.position.set(focus.x, 0, focus.z);
   }
 

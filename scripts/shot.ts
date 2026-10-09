@@ -7,7 +7,7 @@
  * Writes <out>/<track>.png (1600x900). Uses Chrome or Edge (BROWSER env var to override).
  */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -23,7 +23,12 @@ const wait = Number(opt('wait', '12'));
 const out = opt('out', 'shots');
 const query = opt('query', '');
 /** JS expression evaluated in the page right after each screenshot (printed as JSON); needs window.sim (dev or ?bench). */
-const evalExpr = opt('eval', '');
+const evalArg = opt('eval', '');
+const evalExpr = evalArg.startsWith('@') ? readFileSync(evalArg.slice(1), 'utf8').trim().replace(/;$/, '') : evalArg;
+/** JS run `--lead` seconds before the screenshot (needs window.sim: ?bench), e.g. to place the player. */
+const preArg = opt('pre', '');
+const preExpr = preArg.startsWith('@') ? readFileSync(preArg.slice(1), 'utf8') : preArg;
+const preLead = Number(opt('lead', '1.5'));
 const tracks = argv.length ? argv : ['test', 'spielberg', 'monza', 'silverstone', 'spa'];
 const port = Number(process.env.SHOT_PORT ?? 4180);
 const cdpPort = Number(process.env.CDP_PORT ?? 9333);
@@ -97,7 +102,13 @@ async function main(): Promise<void> {
     for (const entry of tracks) {
       const [track, car] = entry.split('@');
       await cdp.send('Page.navigate', { url: `http://localhost:${port}/?bench=999&track=${track}${car ? `&car=${car}` : ''}${query}` });
-      await sleep(wait * 1000);
+      if (preExpr) {
+        // e.g. teleport the player somewhere, then let it settle before the shot.
+        await sleep(Math.max(wait - preLead, 0) * 1000);
+        const r = await cdp.send('Runtime.evaluate', { expression: preExpr, returnByValue: true });
+        if (r.result && (r.result as { exceptionDetails?: unknown }).exceptionDetails) console.log(JSON.stringify(r.result));
+        await sleep(Math.min(preLead, wait) * 1000);
+      } else await sleep(wait * 1000);
       const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
       const file = join(out, `${entry.replace('@', '_')}.png`);
       writeFileSync(file, Buffer.from(String(shot.result?.data ?? ''), 'base64'));

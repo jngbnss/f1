@@ -14,6 +14,8 @@ export interface RacingLineOptions {
   width?: number;
   /** Sample spacing (m). */
   spacing?: number;
+  /** Road height per path point (elevated circuits, see Track.heightsFor). */
+  heights?: readonly number[];
 }
 
 const GREEN = new THREE.Color(0x2bd56f);
@@ -53,6 +55,9 @@ export class RacingLine {
   private carIndex = -1;
   private readonly tmp = new THREE.Color();
 
+  /** Road height per path point (undefined = flat circuit). */
+  readonly heights: readonly number[] | undefined;
+
   constructor(
     readonly path: readonly [number, number][],
     car: VehicleConfig,
@@ -60,8 +65,10 @@ export class RacingLine {
   ) {
     const width = options.width ?? 0.9;
     const spacing = options.spacing ?? 2;
+    this.heights = options.heights;
+    const heights = options.heights;
 
-    const ctrl = path.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    const ctrl = path.map(([x, z], k) => new THREE.Vector3(x, heights ? heights[k] : 0, z));
     const curve = new THREE.CatmullRomCurve3(ctrl, true, 'centripetal');
     curve.arcLengthDivisions = Math.max(200, ctrl.length * 10);
     const n = Math.max(16, Math.round(curve.getLength() / spacing));
@@ -104,22 +111,48 @@ export class RacingLine {
       const drive = Math.min(car.engineForce, car.enginePower / vv, traction);
       return Math.max((drive - car.dragCoefficient * vv * vv) / car.mass - car.rollingResistance * G, 0.05);
     };
+    // Elevation: gradient (gravity along the road) and vertical curvature (a crest
+    // unloads the tyres, a compression like Eau Rouge loads them). Zero when flat.
+    const grade = new Float32Array(count);
+    const vertical = new Float32Array(count);
+    if (heights) {
+      for (let i = 0; i < count; i++) {
+        const a = pts[i];
+        const b = pts[(i + 1) % count];
+        grade[i] = (b.y - a.y) / Math.max(Math.hypot(b.x - a.x, b.z - a.z), 0.1);
+      }
+      const k = 5;
+      const raw = new Float32Array(count);
+      for (let i = 0; i < count; i++) {
+        const a = pts[(i - k + count) % count];
+        const c = pts[(i + k) % count];
+        const h = (k * spacing) ** 2;
+        raw[i] = (a.y - 2 * pts[i].y + c.y) / h;
+      }
+      for (let i = 0; i < count; i++) {
+        let s = 0;
+        for (let j = -4; j <= 4; j++) s += raw[(i + j + count) % count];
+        vertical[i] = s / 9;
+      }
+    }
     const vMax = car.maxSpeed;
     const v = new Float32Array(count);
     for (let i = 0; i < count; i++) {
-      // v² = kμg / (κ − kμ·aero); if the aero term wins, the corner is flat out.
-      const denom = curvature[i] - km * mu * aero;
+      // v² = kμg / (κ − kμ·(aero + κ_vertical)); if the aero term wins, the corner is flat out.
+      const denom = curvature[i] - km * mu * (aero + vertical[i]);
       v[i] = denom > 1e-6 ? Math.min(vMax, Math.sqrt((km * mu * G) / denom)) : vMax;
     }
     // Two laps of each pass so the closed loop converges.
     for (let lap = 0; lap < 2; lap++) {
       for (let i = 0; i < count; i++) {
         const j = (i + 1) % count;
-        v[j] = Math.min(v[j], Math.sqrt(v[i] * v[i] + 2 * accelAt(v[i]) * this.segLen[i]));
+        const a = accelAt(v[i]) - G * grade[i];
+        v[j] = Math.min(v[j], Math.sqrt(Math.max(v[i] * v[i] + 2 * a * this.segLen[i], 1)));
       }
       for (let i = count - 1; i >= 0; i--) {
         const j = (i + 1) % count;
-        v[i] = Math.min(v[i], Math.sqrt(v[j] * v[j] + 2 * this.brakeAt(v[j]) * this.segLen[i]));
+        const b = Math.max(this.brakeAt(v[j]) + BRAKE_MARGIN * mu * vertical[j] * v[j] * v[j] + G * grade[i], 1);
+        v[i] = Math.min(v[i], Math.sqrt(v[j] * v[j] + 2 * b * this.segLen[i]));
       }
     }
     this.speeds = v;
@@ -135,7 +168,7 @@ export class RacingLine {
         const o = (i * 2 + s) * 3;
         const side = s === 0 ? -width / 2 : width / 2;
         positions[o] = p.x + right.x * side;
-        positions[o + 1] = 0.05;
+        positions[o + 1] = p.y + 0.05;
         positions[o + 2] = p.z + right.z * side;
       }
       this.setColor(i, GREEN, 0);

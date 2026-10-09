@@ -23,6 +23,7 @@ for (const [id] of REAL_CIRCUITS.filter(([cid]) => !process.argv[2] || cid === p
   const physics = await PhysicsWorld.create(dt);
   const track = new ProceduralTrack(physics, layout, { treesPerKm: 0, scenery: layout.scenery });
   const vehicle = new Vehicle(physics, car.physics, car.createVisual(), track.getSpawnPose(), car.gearbox);
+  vehicle.physics.aeroInAir = track.elevated;
   const n = track.getCenterline().length;
   let trackEscapes = 0;
   for (let k = 0; k < 6; k++) {

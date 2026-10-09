@@ -1,5 +1,5 @@
 import type { OsmData } from '../OsmScenery';
-import { DEMO_TRACK, parseTumCsv, PIT_SIDE, type TrackLayout } from '../TrackLayout';
+import { DEMO_TRACK, FAMOUS_STANDS, FERRIS_WHEELS, parseTumCsv, PIT_LANE, PIT_SIDE, type TrackLayout } from '../TrackLayout';
 
 export interface TrackEntry {
   id: string;
@@ -28,15 +28,20 @@ function realCircuit(id: string, name: string, location: string, lengthKm: numbe
     lengthKm,
     load: async () => {
       // The dataset's racing line is for the real road width; the game computes its own.
-      const [csv, osm, mintime, woods] = await Promise.all([
+      const [csv, osm, mintime, woods, elev] = await Promise.all([
         loadFile(`${file}.csv`),
         loadFile(`${file}_osm.json`),
         loadFile(`${file}_mintime.json`),
         loadFile(`${file}_woods.json`),
+        loadFile(`${file}_elev.json`),
       ]);
       if (!csv) throw new Error(`Missing track data: ${file}.csv`);
       const layout = parseTumCsv(id, name, csv);
       layout.pitSide = PIT_SIDE[id];
+      layout.pitLane = PIT_LANE[id];
+      layout.stands = FAMOUS_STANDS[id];
+      layout.ferrisWheel = FERRIS_WHEELS[id];
+      if (elev) layout.heights = (JSON.parse(elev) as { heights: number[] }).heights;
       if (mintime) layout.minTimeLine = (JSON.parse(mintime) as { path: [number, number][] }).path;
       if (osm) {
         layout.scenery = JSON.parse(osm) as OsmData;
@@ -75,7 +80,7 @@ export const TRACKS: TrackEntry[] = [
  * pass (scenery, trees, trackside detail); the others stay reachable by URL
  * (?track=spa) for tests and benchmarks.
  */
-export const FEATURED_TRACKS: TrackEntry[] = TRACKS.filter((t) => t.id === 'monza');
+export const FEATURED_TRACKS: TrackEntry[] = ['monza', 'spa', 'suzuka'].map((id) => TRACKS.find((t) => t.id === id)!);
 
 export function findTrack(id: string | null | undefined): TrackEntry {
   return TRACKS.find((t) => t.id === id) ?? TRACKS[0];
