@@ -25,8 +25,8 @@ const query = opt('query', '');
 /** JS expression evaluated in the page right after each screenshot (printed as JSON); needs window.sim (dev or ?bench). */
 const evalExpr = opt('eval', '');
 const tracks = argv.length ? argv : ['test', 'spielberg', 'monza', 'silverstone', 'spa'];
-const port = 4180;
-const cdpPort = 9333;
+const port = Number(process.env.SHOT_PORT ?? 4180);
+const cdpPort = Number(process.env.CDP_PORT ?? 9333);
 
 const browser = [
   process.env.BROWSER,
