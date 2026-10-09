@@ -10,12 +10,12 @@
 
 ## 바로 해보기
 
-배포 링크: **https://jngbnss.github.io/web-sim-lab/** (GitHub Pages, `main`에 push할 때마다 자동 배포)
+배포 링크: **https://jngbnss.github.io/f1/** (GitHub Pages, `main`에 push할 때마다 자동 배포)
 
 메뉴는 바로 뜨고(첫 다운로드 약 13 KB gzip), 3D 엔진과 물리는 메뉴를 보는 동안 뒤에서 받습니다.
 
 링크를 열고 → 차, 서킷, 레이스 규모(자유 주행 / 6, 12, 20대)를 고른 뒤 → **Enter**를 누르면 바로 출발합니다.
-URL로 바로 시작할 수도 있습니다: `.../web-sim-lab/?car=f1-ferrari&track=monza&ai=19&laps=3`
+URL로 바로 시작할 수도 있습니다: `.../f1/?car=f1-ferrari&track=monza&ai=19&laps=3`
 
 ## 로컬 실행
 

@@ -50,7 +50,7 @@ const OVERPASS = [
   'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
   'https://overpass.private.coffee/api/interpreter',
 ];
-const USER_AGENT = 'web-sim-lab/0.1 (https://github.com/jngbnss/web-sim-lab; offline scenery build script)';
+const USER_AGENT = 'web-sim-lab/0.1 (https://github.com/jngbnss/f1; offline scenery build script)';
 /** Extra margin around the circuit to include (m). */
 const MARGIN = 600;
 

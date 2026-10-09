@@ -35,7 +35,7 @@ const IMAGE_SIZE = 2048;
 const DEM_SIZE = 257;
 const NEAR_ZOOM = 14;
 const FAR_ZOOM = 13;
-const USER_AGENT = 'web-sim-lab/0.1 (https://github.com/jngbnss/web-sim-lab; offline terrain build script)';
+const USER_AGENT = 'web-sim-lab/0.1 (https://github.com/jngbnss/f1; offline terrain build script)';
 const ATTRIBUTION =
   'Imagery: EOxCloudless 2016 by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2016 & 2017, CC BY 4.0) · Heights: Copernicus DEM GLO-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA';
 
