@@ -173,7 +173,8 @@ export class Game {
     this.terrain = buildTerrain(this.track.bounds, this.theme.terrain, 7, realTerrain, ground ? ground.height : null);
     this.scene.add(this.terrain);
     // Racing line computed on the game's own (widened) road, not the real-width dataset line.
-    this.racingLine = new RacingLine(racingLineFor(this.track), car.physics);
+    // Baked minimum-lap-time line when the circuit has one, else minimum curvature.
+    this.racingLine = new RacingLine(layout.minTimeLine ?? racingLineFor(this.track), car.physics);
     this.scene.add(this.racingLine.mesh);
     this.lapTimer = new LapTimer(this.track.getCenterline().length, this.track.spawnIndex, `best:${car.id}:${layout.id}`);
 

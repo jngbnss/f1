@@ -15,6 +15,7 @@
     "damage:test": "tsx scripts/damage-test.ts",
     "tyre:test": "tsx scripts/tyre-test.ts",
     "bench": "tsx scripts/bench.ts",
+    "raceline:bake": "tsx scripts/bake-raceline.ts",
     "model:f1": "tsx scripts/build-f1-model.ts"
   },
   "dependencies": {

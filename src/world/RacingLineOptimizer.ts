@@ -26,6 +26,14 @@ export interface RacingLineInput {
  * Returns closed [x, z] points in driving order.
  */
 export function optimizeRacingLine(input: RacingLineInput): [number, number][] {
+  const shifted = minCurvatureOffsets(input);
+  const out: [number, number][] = [];
+  for (let i = 0; i < input.points.length; i++) out.push([input.points[i].x + shifted[i] * input.rights[i].x, input.points[i].z + shifted[i] * input.rights[i].z]);
+  return out;
+}
+
+/** Lateral offsets (m, + = right) of the minimum-curvature + late-apex line, one per sample. */
+export function minCurvatureOffsets(input: RacingLineInput): Float64Array {
   const { points, rights } = input;
   const n = points.length;
   const limit = Math.max(input.halfWidth - (input.margin ?? 1.6), 0);
@@ -75,10 +83,7 @@ export function optimizeRacingLine(input: RacingLineInput): [number, number][] {
   }
 
   const lateApex = input.lateApex ?? 6;
-  const shifted = lateApex > 0 ? shiftApexes(alpha, cx, cz, rx, rz, lateApex) : alpha;
-  const out: [number, number][] = [];
-  for (let i = 0; i < n; i++) out.push([cx[i] + shifted[i] * rx[i], cz[i] + shifted[i] * rz[i]]);
-  return out;
+  return lateApex > 0 ? shiftApexes(alpha, cx, cz, rx, rz, lateApex) : alpha;
 }
 
 /** Curvature (1/m) of the line through the given offsets, lightly smoothed. */

@@ -19,6 +19,8 @@ export interface TrackLayout {
   scenery?: import('./OsmScenery').OsmData;
   /** Data source credit shown in the UI. */
   attribution?: string;
+  /** Baked minimum-lap-time racing line for the F1 car (scripts/bake-raceline.ts). */
+  minTimeLine?: [number, number][];
   /** Pit lane along the start/finish straight: +1 right, -1 left of the driving direction. */
   pitSide?: number;
 }
