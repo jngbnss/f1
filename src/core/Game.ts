@@ -10,6 +10,7 @@ import { Benchmark } from '../performance/Benchmark';
 import { DynamicResolution } from '../performance/DynamicResolution';
 import { PostFx } from '../render/PostFx';
 import { TyreSmoke } from '../render/TyreSmoke';
+import { DrivingFx } from '../render/DrivingFx';
 import { PerformanceMonitor } from '../performance/PerformanceMonitor';
 import { PhysicsDebugRenderer } from '../physics/PhysicsDebugRenderer';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
@@ -108,6 +109,8 @@ export class Game {
   private postFx: PostFx | null = null;
   /** Smoke from locked / sliding tyres. */
   private readonly tyreSmoke = new TyreSmoke();
+  /** Tyre marks, live steering-wheel display, camera shake input. */
+  private drivingFx!: DrivingFx;
   /** Latched lap event from fixed steps, consumed by the next rendered frame. */
   private lapEvent: 'lap' | 'best' | null = null;
   readonly racingLine: RacingLine;
@@ -273,6 +276,7 @@ export class Game {
     } catch {
       /* storage blocked: default view */
     }
+    this.drivingFx = new DrivingFx(this.scene, this.track, this.followCamera);
     this.followCamera.snap(this.player.object3D);
     if (config.postfx) this.postFx = new PostFx(this.renderer, this.scene, this.followCamera.camera);
     if (config.damage) {
@@ -529,6 +533,7 @@ export class Game {
     for (const voice of this.voices.values()) voice.dispose();
     this.audio?.dispose();
     this.tyreSmoke.dispose();
+    this.drivingFx?.dispose();
     this.input.dispose();
     for (const v of this.vehicles) v.dispose();
     this.track.dispose();
@@ -624,6 +629,7 @@ export class Game {
     const speedRatio = this.player.physics.forwardSpeed / this.player.config.maxSpeed;
     this.followCamera.update(this.player.object3D, speedRatio, frameDt);
     this.tyreSmoke.update(frameDt, this.vehicles, this.followCamera.camera);
+    this.drivingFx.update(frameDt, this.vehicles, this.player, this.followCamera, this.lapTimer, this.race);
     this.environment.update(this.player.object3D.position);
     this.track.update(performance.now() / 1000, this.followCamera.camera.position);
     this.minimap.update(this.minimapCars);
@@ -703,6 +709,7 @@ export class Game {
     if (e.code === 'Escape') window.location.href = urlWith({ menu: '' });
     if (e.code === 'KeyL' && !e.repeat) this.racingLine.mesh.visible = !this.racingLine.mesh.visible;
     if ((e.code === 'KeyP' || e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') && !e.repeat) this.pitKey(e.code);
+    if (e.code === 'KeyK' && !e.repeat) this.hud.toast(`카메라 흔들림: ${this.followCamera.cycleShake()}`);
     if (e.code === 'KeyC' && !e.repeat) {
       const mode = this.followCamera.cycleMode();
       this.hud.toast(`시점: ${CAMERA_LABELS[mode]}`);

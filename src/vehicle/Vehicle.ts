@@ -89,6 +89,7 @@ export class Vehicle {
     root.position.lerpVectors(this.prevPos, this.currPos, alpha);
     root.quaternion.slerpQuaternions(this.prevQuat, this.currQuat, alpha);
     this.visual.updateWheels(this.physics.wheels);
+    this.visual.setBrake?.(this.controller.commands.brake, this.physics.speed);
   }
 
   teleport(pose: Pose): void {
