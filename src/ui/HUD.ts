@@ -1,6 +1,27 @@
 import type { PerfSnapshot } from '../performance/PerformanceMonitor';
 import { formatLapTime, type LapTimer } from '../race/LapTimer';
-import type { RaceManager } from '../race/RaceManager';
+import type { Racer, RaceManager } from '../race/RaceManager';
+
+/** Per-car extras for the timing tower. */
+export interface TowerInfo {
+  /** Compound letter (S/M/H) and its colour. */
+  tyre: string;
+  tyreColor: string;
+  inPit: boolean;
+}
+
+/** Player's car panel: tyres, pit status, intervals. */
+export interface CarPanelState {
+  compound: string;
+  compoundColor: string;
+  wear: [number, number];
+  /** -1 cold, 0 in window, +1 hot, per axle. */
+  temp: [number, number];
+  tempC: [number, number];
+  pit: string | null;
+  ahead: number | null;
+  behind: number | null;
+}
 
 export interface VehicleHudState {
   speedKmh: number;
@@ -157,7 +178,7 @@ export class HUD {
   private resultsShown = false;
 
   /** Position, lap, start lights, live standings and final results. */
-  updateRace(race: RaceManager, now = performance.now()): void {
+  updateRace(race: RaceManager, towerInfo?: (r: Racer) => TowerInfo, now = performance.now()): void {
     if (!this.raceEls) {
       const pos = document.createElement('div');
       pos.className = 'race-pos';
@@ -192,15 +213,32 @@ export class HUD {
     const position = standings.indexOf(me) + 1;
     els.pos.innerHTML = `<span>POS</span><b>${position}<small>/${standings.length}</small></b><span>LAP</span><b>${race.lapOf(me)}<small>/${race.laps}</small></b>`;
 
-    // Top 6 + the player (if outside), gap to leader in samples is meaningless, so show names only.
-    const rows = standings.map((r, i) => ({ r, i })).filter(({ r, i }) => i < 6 || r === me);
+    // Timing tower, F1 TV style: position, team colour, car, gap to the leader, tyre, pit.
     els.board.replaceChildren(
-      ...rows.map(({ r, i }) => {
+      ...standings.map((r, i) => {
         const li = document.createElement('li');
         if (r === me) li.className = 'me';
-        const dot = document.createElement('i');
-        dot.style.background = `#${r.color.toString(16).padStart(6, '0')}`;
-        li.append(`${i + 1}. `, dot, r.name);
+        const info = towerInfo?.(r);
+        const pos = document.createElement('b');
+        pos.textContent = String(i + 1);
+        const bar = document.createElement('i');
+        bar.style.background = `#${r.color.toString(16).padStart(6, '0')}`;
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = r.name;
+        const gap = document.createElement('span');
+        gap.className = 'gap';
+        const g = i > 0 ? race.gap(standings[0], r) : null;
+        gap.textContent = info?.inPit ? 'PIT' : i === 0 ? 'Leader' : r.finished ? 'FIN' : g !== null ? `+${g.toFixed(1)}` : '';
+        if (info?.inPit) gap.classList.add('pit');
+        li.append(pos, bar, name, gap);
+        if (info) {
+          const tyre = document.createElement('em');
+          tyre.textContent = info.tyre;
+          tyre.style.borderColor = info.tyreColor;
+          tyre.style.color = info.tyreColor;
+          li.append(tyre);
+        }
         return li;
       }),
     );
@@ -213,6 +251,28 @@ export class HUD {
       els.results.innerHTML = `<h2>🏁 ${position}위로 완주!</h2><ol>${lines}</ol><p>Esc: 메뉴 · 새로고침: 다시 레이스</p>`;
       els.results.classList.add('show');
     }
+  }
+
+  private carEl: HTMLDivElement | null = null;
+  private lastCarUpdate = 0;
+
+  /** Tyre / pit / interval panel above the speedometer. */
+  updateCar(s: CarPanelState, now = performance.now()): void {
+    if (!this.carEl) {
+      this.carEl = document.createElement('div');
+      this.carEl.className = 'car-panel';
+      document.body.append(this.carEl);
+    }
+    if (now - this.lastCarUpdate < 200) return;
+    this.lastCarUpdate = now;
+    const tempClass = (t: number) => (t < 0 ? 'cold' : t > 0 ? 'hot' : 'ok');
+    const axle = (label: string, k: 0 | 1) =>
+      `<div class="axle"><span>${label}</span><div class="wear"><i style="width:${Math.round((1 - s.wear[k]) * 100)}%"></i></div><b>${Math.round(s.wear[k] * 100)}%</b><em class="${tempClass(s.temp[k])}">${Math.round(s.tempC[k])}°</em></div>`;
+    const gap = (v: number | null, sign: string) => (v === null ? '–' : `${sign}${v.toFixed(1)}`);
+    this.carEl.innerHTML =
+      `<div class="tyre"><b style="color:${s.compoundColor};border-color:${s.compoundColor}">${s.compound}</b><div>${axle('앞', 0)}${axle('뒤', 1)}</div></div>` +
+      `<div class="intervals"><span>앞차 <b>${gap(s.ahead, '-')}</b></span><span>뒤차 <b>${gap(s.behind, '+')}</b></span></div>` +
+      (s.pit ? `<div class="pit">${s.pit}</div>` : '<div class="pit hint">P 피트 · 1/2/3 타이어</div>');
   }
 
   toast(text: string, now = performance.now()): void {

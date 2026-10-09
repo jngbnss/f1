@@ -18,7 +18,7 @@ import { Vehicle } from '../vehicle/Vehicle';
 import { CARS, opponentsFor, type CarDefinition } from '../vehicle/cars';
 import { liveryFor } from '../vehicle/cars/F1Livery';
 import { COMPOUND_COLORS } from '../vehicle/cars/GltfF1Visual';
-import { COMPOUND_NAMES, type Compound } from '../vehicle/Tyres';
+import { COMPOUND_LABELS, COMPOUND_NAMES, COMPOUNDS, type Compound } from '../vehicle/Tyres';
 import { PitStops } from '../race/PitStops';
 import { AIDriver } from '../race/AIDriver';
 import { LapTimer } from '../race/LapTimer';
@@ -35,6 +35,16 @@ import { ProceduralTrack, type Surface, type Track } from '../world/Track';
 import type { TrackLayout } from '../world/TrackLayout';
 import { GameLoop } from './GameLoop';
 import { F1_MODEL_CREDIT, f1ModelReady, GltfF1Visual, loadF1Model } from '../vehicle/cars/GltfF1Visual';
+
+/** Timing-tower label: team abbreviation + race number (e.g. "FER 16"). */
+const TEAM_ABBR: Record<string, string> = {
+  'f1-ferrari': 'FER', 'f1-mercedes': 'MER', 'f1-redbull': 'RBR', 'f1-mclaren': 'MCL', 'f1-aston': 'AMR',
+  'f1-alpine': 'ALP', 'f1-williams': 'WIL', 'f1-racingbulls': 'RB', 'f1-haas': 'HAA', 'f1-audi': 'AUD',
+};
+function carLabel(def: CarDefinition, driver: number): string {
+  const livery = liveryFor(def.id, def.spec.color, def.spec.accent ?? 0xffffff);
+  return `${TEAM_ABBR[def.id] ?? def.spec.brand.slice(0, 3).toUpperCase()} ${livery.numbers[driver % 2]}`;
+}
 
 /** Player's dot on the minimap. */
 const PLAYER_DOT = 0xffd23f;
@@ -184,7 +194,7 @@ export class Game {
       let rivalIndex = 0;
       for (let slot = 0; slot < total; slot++) {
         if (slot === playerSlot) {
-          racers.push(this.racer('YOU', this.player, null, true, 0xffffff));
+          racers.push(this.racer(carLabel(car, 0), this.player, null, true, liveryFor(car.id, car.spec.color, car.spec.accent ?? 0xffffff).primary));
           continue;
         }
         const def = rivals[rivalIndex++];
@@ -205,7 +215,7 @@ export class Game {
           lane: (rand - 0.5) * 2.4,
           aggression: rand,
         });
-        racers.push(this.racer(def.spec.brand, vehicle, ai, false, def.spec.color));
+        racers.push(this.racer(carLabel(def, driver), vehicle, ai, false, liveryFor(def.id, def.spec.color, def.spec.accent ?? 0xffffff).primary));
       }
       this.race = new RaceManager(this.track, racers, Math.max(1, Math.round(config.laps)));
     }
@@ -356,6 +366,36 @@ export class Game {
 
   private racer(name: string, vehicle: Vehicle, ai: AIDriver | null, isPlayer: boolean, color: number): Racer {
     return { name, vehicle, ai, isPlayer, progress: 0, lastIndex: 0, finished: false, finishTime: 0, color };
+  }
+
+  /** Tyres, pit status and intervals for the player's panel. */
+  private updateCarPanel(): void {
+    const race = this.race!;
+    const me = race.player;
+    if (!me) return;
+    const t = this.player.tyres;
+    const [lo, hi] = COMPOUNDS[t.compound].window;
+    const band = (c: number) => (c < lo - 5 ? -1 : c > hi + 5 ? 1 : 0);
+    const standings = race.standings();
+    const i = standings.indexOf(me);
+    const interval = (a?: Racer, b?: Racer) => (a && b ? race.gap(a, b) : null);
+    const phase = this.pitStops?.phase(this.player) ?? null;
+    const pitText: Record<string, string> = {
+      requested: `피트 요청됨 · ${COMPOUND_NAMES[this.nextCompound]} (P 취소)`,
+      in: '피트 레인 · 리미터 80 km/h',
+      stopped: '타이어 교체 중…',
+      out: '피트 아웃 · 리미터 80 km/h',
+    };
+    this.hud.updateCar({
+      compound: COMPOUND_LABELS[t.compound],
+      compoundColor: `#${COMPOUND_COLORS[t.compound].toString(16).padStart(6, '0')}`,
+      wear: [t.wear.front, t.wear.rear],
+      temp: [band(t.temp.front), band(t.temp.rear)],
+      tempC: [t.temp.front, t.temp.rear],
+      pit: phase ? pitText[phase] : null,
+      ahead: i > 0 ? interval(standings[i - 1], me) : null,
+      behind: i < standings.length - 1 ? interval(me, standings[i + 1]) : null,
+    });
   }
 
   /** Fits tyres at a stop and returns the stationary time (s). */
@@ -514,7 +554,15 @@ export class Game {
     this.racingLine.update(this.player.object3D.position, this.player.physics.forwardSpeed);
     this.debugRenderer?.update();
     this.hud.updateLaps(this.lapTimer, this.lapEvent);
-    if (this.race) this.hud.updateRace(this.race);
+    if (this.race) {
+      const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
+      this.hud.updateRace(this.race, (r) => ({
+        tyre: COMPOUND_LABELS[r.vehicle.tyres.compound],
+        tyreColor: hex(COMPOUND_COLORS[r.vehicle.tyres.compound]),
+        inPit: this.pitStops?.driving(r.vehicle) ?? false,
+      }));
+      this.updateCarPanel();
+    }
     this.lapEvent = null;
     const gearbox = this.player.gearbox;
     this.hud.update(this.perf.snapshot, {

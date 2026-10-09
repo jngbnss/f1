@@ -95,12 +95,38 @@ html, body {
 .race-pos b { font-size: 26px; margin-right: 10px; }
 .race-pos small { font-size: 13px; opacity: 0.8; }
 .board {
-  position: fixed; top: 64px; right: 16px; margin: 0; padding: 8px 10px; list-style: none; min-width: 120px;
-  background: rgba(10, 14, 20, 0.55); color: #e6edf3; border-radius: 8px; font-size: 12px; pointer-events: none;
+  position: fixed; top: 96px; right: 16px; margin: 0; padding: 6px 0; list-style: none; width: 196px;
+  background: rgba(10, 14, 20, 0.72); color: #e6edf3; border-radius: 8px; font: 12px/1.45 system-ui, sans-serif;
+  font-variant-numeric: tabular-nums; pointer-events: none;
 }
-.board li { padding: 1px 0; }
-.board li.me { color: #ffd23f; font-weight: 700; }
-.board i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+.board li { display: grid; grid-template-columns: 22px 4px 1fr 52px 18px; align-items: center; gap: 6px; padding: 0 8px; }
+.board li:nth-child(odd) { background: rgba(255, 255, 255, 0.03); }
+.board li.me { background: rgba(255, 210, 63, 0.18); color: #ffd23f; font-weight: 700; }
+.board li b { text-align: right; opacity: 0.85; }
+.board i { display: block; width: 4px; height: 13px; border-radius: 1px; }
+.board .gap { text-align: right; opacity: 0.85; }
+.board .gap.pit { color: #2bd56f; font-weight: 700; opacity: 1; }
+.board em { font-style: normal; font-weight: 800; font-size: 10px; text-align: center; border: 1.5px solid; border-radius: 50%; line-height: 13px; height: 13px; }
+.car-panel {
+  position: fixed; right: 16px; bottom: 118px; width: 196px; padding: 8px 10px; border-radius: 8px;
+  background: rgba(10, 14, 20, 0.72); color: #e6edf3; font: 12px/1.4 system-ui, sans-serif; pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.car-panel .tyre { display: flex; gap: 8px; align-items: center; }
+.car-panel .tyre > b { width: 30px; height: 30px; border: 3px solid; border-radius: 50%; display: grid; place-items: center; font-size: 14px; }
+.car-panel .tyre > div { flex: 1; }
+.car-panel .axle { display: grid; grid-template-columns: 16px 1fr 34px 32px; gap: 5px; align-items: center; }
+.car-panel .wear { height: 5px; background: rgba(255, 255, 255, 0.15); border-radius: 3px; overflow: hidden; }
+.car-panel .wear i { display: block; height: 100%; background: #2bd56f; }
+.car-panel .axle b { text-align: right; font-weight: 600; }
+.car-panel em { font-style: normal; text-align: right; }
+.car-panel em.cold { color: #5ab0ff; }
+.car-panel em.ok { color: #2bd56f; }
+.car-panel em.hot { color: #ff6b4a; }
+.car-panel .intervals { display: flex; justify-content: space-between; margin-top: 6px; opacity: 0.9; }
+.car-panel .pit { margin-top: 6px; color: #2bd56f; font-weight: 700; }
+.car-panel .pit.hint { color: #8b97a5; font-weight: 400; }
+@media (max-width: 720px) { .board, .car-panel { display: none; } }
 .countdown {
   position: fixed; top: 34%; left: 50%; transform: translate(-50%, -50%) scale(0.8); font-size: 120px; font-weight: 800;
   opacity: 0; pointer-events: none; transition: opacity 0.15s, transform 0.15s; text-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);

@@ -14,6 +14,10 @@ export interface Racer {
   finishTime: number;
   /** Paint color, for the standings list. */
   color: number;
+  /** Race time at each timing point passed (point -> s), for gaps. */
+  splits?: Map<number, number>;
+  /** Last timing point passed. */
+  lastPoint?: number;
 }
 
 export type RaceState = 'countdown' | 'racing' | 'finished';
@@ -25,6 +29,9 @@ export const COUNTDOWN = 4;
  * Race rules: countdown, progress / laps / positions for every car (player
  * and AI) from centerline progress, finish order.
  */
+/** Timing points every 40 samples (100 m): gaps update ~3x per second at racing speed. */
+const TIMING_STEP = 40;
+
 export class RaceManager {
   state: RaceState = 'countdown';
   /** Remaining countdown (s). */
@@ -71,7 +78,14 @@ export class RaceManager {
       if (delta > n / 2) delta -= n;
       r.lastIndex = i;
       if (r.finished) continue;
+      const before = Math.floor(r.progress / TIMING_STEP);
       r.progress += delta;
+      // Timing points: remember when this car passed each one.
+      const point = Math.floor(r.progress / TIMING_STEP);
+      if (point > before && r.progress > 0) {
+        (r.splits ??= new Map()).set(point, this.time);
+        r.lastPoint = point;
+      }
       if (r.progress >= this.laps * n) {
         r.finished = true;
         r.finishTime = this.time;
@@ -79,6 +93,17 @@ export class RaceManager {
         if (r.isPlayer) this.state = 'finished';
       }
     }
+  }
+
+  /**
+   * Time gap (s) from `ahead` to `behind` at the last timing point `behind`
+   * passed (both must have passed it); null before the first point.
+   */
+  gap(ahead: Racer, behind: Racer): number | null {
+    if (behind.lastPoint === undefined) return null;
+    const tb = behind.splits?.get(behind.lastPoint);
+    const ta = ahead.splits?.get(behind.lastPoint);
+    return tb !== undefined && ta !== undefined ? Math.max(0, tb - ta) : null;
   }
 
   /** Current lap (1-based, clamped to the race distance). */
