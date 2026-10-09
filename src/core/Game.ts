@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FollowCamera } from '../camera/FollowCamera';
+import { CAMERA_LABELS, CAMERA_MODES, FollowCamera, type CameraMode } from '../camera/FollowCamera';
 import { CarAudio, EngineVoice } from '../audio/EngineSound';
 import { AudioSystem } from '../audio/AudioSystem';
 import { urlWith, type SimConfig } from '../config';
@@ -215,6 +215,12 @@ export class Game {
       distance: car.physics.halfExtents.z * 2 + 2.6,
     });
     this.player.render(1);
+    try {
+      const saved = (config.camera ?? localStorage.getItem('camera')) as CameraMode | null;
+      if (saved && CAMERA_MODES.includes(saved)) this.followCamera.setMode(saved);
+    } catch {
+      /* storage blocked: default view */
+    }
     this.followCamera.snap(this.player.object3D);
     if (config.postfx) this.postFx = new PostFx(this.renderer, this.scene, this.followCamera.camera);
     const credits = [
@@ -505,6 +511,15 @@ export class Game {
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.code === 'Escape') window.location.href = urlWith({ menu: '' });
     if (e.code === 'KeyL' && !e.repeat) this.racingLine.mesh.visible = !this.racingLine.mesh.visible;
+    if (e.code === 'KeyC' && !e.repeat) {
+      const mode = this.followCamera.cycleMode();
+      this.hud.toast(`시점: ${CAMERA_LABELS[mode]}`);
+      try {
+        localStorage.setItem('camera', mode);
+      } catch {
+        /* storage blocked: the view just isn't remembered */
+      }
+    }
   };
 
   private onResize = (): void => {

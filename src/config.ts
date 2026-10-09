@@ -14,6 +14,8 @@ export interface SimConfig {
   shadowMapSize: number;
   /** Renderer MSAA. */
   antialias: boolean;
+  /** Starting camera view (chase, far, tcam, cockpit, nose); otherwise the last one used. */
+  camera: string | null;
   /** Impostor trees in real forests. */
   forest: boolean;
   /** Post-processing chain (AO, bloom, ACES tone mapping, SMAA). */
@@ -72,6 +74,7 @@ export function readConfig(search = window.location.search): SimConfig {
     antialias: bool(p, 'aa', true),
     postfx: bool(p, 'fx', true),
     forest: bool(p, 'forest', true),
+    camera: p.get('cam'),
     pixelRatio: num(p, 'pr', 1.5),
     // Benchmarks measure the full-resolution cost, so dynamic resolution is off unless asked for.
     dynamicResolution: bool(p, 'dynres', !bench),
