@@ -51,15 +51,16 @@ export class GltfF1Visual implements VehicleVisual {
   constructor(config: VehicleConfig, color: number, accent: number) {
     if (!template) throw new Error('F1 model not loaded');
     const slots: Record<string, THREE.Material> = {
-      paint: this.own(new THREE.MeshPhysicalMaterial({ color, metalness: 0.45, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.05 })),
-      accent: this.own(new THREE.MeshPhysicalMaterial({ color: accent, metalness: 0.35, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.08 })),
+      paint: this.own(new THREE.MeshPhysicalMaterial({ color, metalness: 0.1, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.08 })),
+      accent: this.own(new THREE.MeshPhysicalMaterial({ color: accent, metalness: 0.1, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.1 })),
       carbon: this.own(new THREE.MeshPhysicalMaterial({ color: 0x141619, metalness: 0.3, roughness: 0.45, clearcoat: 0.7, clearcoatRoughness: 0.25 })),
       tyre: this.own(new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 })),
       rim: this.own(new THREE.MeshStandardMaterial({ color: 0x2b2e33, metalness: 0.85, roughness: 0.3 })),
     };
+    // Keep each LOD node's own transform: KHR_mesh_quantization stores the
+    // dequantization offset/scale there (dropping it shifts the mesh).
     const instance = (src: THREE.Object3D): THREE.Object3D => {
       const copy = src.clone();
-      copy.position.set(0, 0, 0);
       copy.traverse((o) => {
         if (o instanceof THREE.Mesh) {
           o.material = slots[(o.material as THREE.Material).name] ?? slots.paint;
