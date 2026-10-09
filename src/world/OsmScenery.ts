@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { addBuilding, BuildingSoup, buildingMaterial } from './Buildings';
 import type { TribuneSpec } from './Crowd';
+import { buildProps, OccupancyGrid, woodsLookup, type WoodsMask } from './Props';
 
 /**
  * Real-world surroundings from OpenStreetMap, pre-aligned to the track frame
@@ -16,11 +18,15 @@ export interface OsmData {
   parking: number[][];
   /** [width, x0, z0, x1, z1, ...] polyline */
   roads: number[][];
+  /** Satellite canopy mask (optional, see scripts/bake-woods.ts). */
+  woods?: WoodsMask;
 }
 
 export interface SceneryContext {
   /** Distance (m) from (x, z) to the nearest point of the circuit centerline. */
   clearance(x: number, z: number): number;
+  /** Distance (m) to the circuit anywhere (coarse); falls back to `clearance`. */
+  distance?(x: number, z: number): number;
   /** Nothing may be placed closer to the centerline than this (barrier line + margin). */
   minClearance: number;
   /** Footprints touching these points are left out (replaced by the game's own buildings). */
@@ -42,12 +48,6 @@ export interface SceneryResult {
   stats: { buildings: number; forests: number; roads: number };
 }
 
-const WALLS = [0xe3d9c3, 0xcfc4ae, 0xf0ebe0, 0xbfc7cf, 0xd9c2a3, 0xc8b8a6, 0xe6d3b8];
-const HOUSE_WALLS = [0xe8dcc8, 0xd9c6a5, 0xf0e6d6];
-const ROOF = 0x6b6e72;
-const HOUSE_ROOF = 0x9c4a32;
-const STAND_WALL = 0x9aa4ae;
-const STAND_ROOF = 0xdadde0;
 /** One tree per this many m² of forest (capped): park woodland, impostor trees are cheap. */
 const FOREST_DENSITY = 45;
 const MAX_FOREST_TREES = 40000;
@@ -83,67 +83,19 @@ function inside(pts: [number, number][], x: number, z: number): boolean {
   return c;
 }
 
-/**
- * Window-grid facade texture (one floor x one bay per tile), drawn on a
- * canvas — no download. Corner texel is plain wall, used for roofs.
- */
-function facadeTexture(): THREE.Texture | null {
-  if (typeof document === 'undefined') return null; // headless tests
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d');
-  if (!g) return null;
-  g.fillStyle = '#ffffff';
-  g.fillRect(0, 0, 64, 64);
-  g.fillStyle = '#2b3442';
-  g.fillRect(12, 14, 40, 30); // window
-  g.fillStyle = '#56657a';
-  g.fillRect(14, 16, 18, 12); // sky reflection
-  g.fillStyle = '#d6d6d6';
-  g.fillRect(10, 44, 44, 3); // sill
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1 / 3.6, 1 / 3.2); // one bay = 3.6 m, one floor = 3.2 m (UVs are meters)
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
-}
-
-function colorize(geo: THREE.BufferGeometry, wall: THREE.Color, roof: THREE.Color): void {
-  const count = geo.attributes.position.count;
-  const colors = new Float32Array(count * 3);
-  // ExtrudeGeometry groups: 0 = caps (roof/floor), 1 = side walls.
-  const groups = geo.groups.length ? geo.groups : [{ start: 0, count, materialIndex: 1 }];
-  const uv = geo.attributes.uv as THREE.BufferAttribute | undefined;
-  for (const g of groups) {
-    const isRoof = g.materialIndex === 0;
-    const c = isRoof ? roof : wall;
-    for (let i = g.start; i < g.start + g.count; i++) {
-      colors[i * 3] = c.r;
-      colors[i * 3 + 1] = c.g;
-      colors[i * 3 + 2] = c.b;
-      // Roofs sample the plain-wall corner of the facade texture (no windows on top).
-      if (isRoof && uv) uv.setXY(i, 0.05, 0.05);
-    }
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  geo.clearGroups();
-}
-
 export function buildOsmScenery(data: OsmData, ctx: SceneryContext): SceneryResult {
   const group = new THREE.Group();
   group.name = 'OsmScenery';
   const disposables: { dispose(): void }[] = [];
   const clear = (pts: [number, number][], margin = 0) => pts.every(([x, z]) => ctx.clearance(x, z) > ctx.minClearance + margin);
 
-  // --- buildings: extruded footprints merged per 300 m tile ---------------
+  // --- buildings: real architecture (Buildings.ts) merged per 300 m tile ------
   // (one mesh per tile so the camera and shadow camera can cull them)
   const TILE = 300;
-  const tiles = new Map<string, THREE.BufferGeometry[]>();
+  const tiles = new Map<string, BuildingSoup>();
   let buildingCount = 0;
   const grandstands: TribuneSpec[] = [];
-  const wall = new THREE.Color();
-  const roof = new THREE.Color();
+  const footprints: [number, number][][] = [];
   for (const b of data.buildings) {
     const h = b[0];
     const kind = b[1];
@@ -157,41 +109,26 @@ export function buildOsmScenery(data: OsmData, ctx: SceneryContext): SceneryResu
         continue;
       }
     }
-    const geo = new THREE.ExtrudeGeometry(shapeOf(pts), { depth: h, bevelEnabled: false, curveSegments: 1 });
-    geo.rotateX(-Math.PI / 2);
-    const r = ctx.rand();
-    if (kind === 1) {
-      wall.set(STAND_WALL);
-      roof.set(STAND_ROOF);
-    } else if (kind === 2) {
-      wall.set(HOUSE_WALLS[Math.floor(r * HOUSE_WALLS.length)]);
-      roof.set(HOUSE_ROOF);
-    } else {
-      wall.set(WALLS[Math.floor(r * WALLS.length)]);
-      roof.set(ROOF);
-    }
-    colorize(geo, wall, roof);
     const key = `${Math.floor(pts[0][0] / TILE)},${Math.floor(pts[0][1] / TILE)}`;
-    let list = tiles.get(key);
-    if (!list) tiles.set(key, (list = []));
-    list.push(geo);
-    buildingCount++;
+    let soup = tiles.get(key);
+    if (!soup) tiles.set(key, (soup = new BuildingSoup()));
+    if (addBuilding(soup, pts, h, kind, ctx.rand)) {
+      footprints.push(pts);
+      buildingCount++;
+    }
   }
   if (tiles.size) {
-    const facade = facadeTexture();
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, map: facade });
+    const mat = buildingMaterial();
     disposables.push(mat);
-    if (facade) disposables.push(facade);
-    for (const [key, geos] of tiles) {
-      const merged = mergeGeometries(geos, false);
-      for (const g of geos) g.dispose();
-      if (!merged) continue;
-      const mesh = new THREE.Mesh(merged, mat);
+    for (const [key, soup] of tiles) {
+      if (soup.empty) continue;
+      const geo = soup.build();
+      const mesh = new THREE.Mesh(geo, mat);
       mesh.name = `OsmBuildings[${key}]`;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       group.add(mesh);
-      disposables.push(merged);
+      disposables.push(geo);
     }
   }
 
@@ -303,10 +240,52 @@ export function buildOsmScenery(data: OsmData, ctx: SceneryContext): SceneryResu
     for (let k = 0, placed = 0; k < n * 4 && placed < n; k++) {
       const x = x0 + ctx.rand() * (x1 - x0);
       const z = z0 + ctx.rand() * (z1 - z0);
-      if (!inside(pts, x, z) || ctx.clearance(x, z) < ctx.minClearance + 4) continue;
+      if (!inside(pts, x, z) || ctx.clearance(x, z) < ctx.minClearance + 4 || ctx.exclude?.(x, z)) continue;
       trees.push([x, z]);
       placed++;
     }
+  }
+
+  // --- the rest of the land: satellite woods, street trees, cars, lamps, bushes ---
+  let gx0 = Infinity;
+  let gz0 = Infinity;
+  let gx1 = -Infinity;
+  let gz1 = -Infinity;
+  const grow = (x: number, z: number) => {
+    gx0 = Math.min(gx0, x);
+    gx1 = Math.max(gx1, x);
+    gz0 = Math.min(gz0, z);
+    gz1 = Math.max(gz1, z);
+  };
+  for (const r of data.roads) for (const [x, z] of pairs(r, 1)) grow(x, z);
+  for (const b of footprints) for (const [x, z] of b) grow(x, z);
+  if (data.woods) {
+    grow(data.woods.rect[0], data.woods.rect[1]);
+    grow(data.woods.rect[2], data.woods.rect[3]);
+  }
+  if (Number.isFinite(gx0)) {
+    const grid = new OccupancyGrid(gx0 - 10, gz0 - 10, gx1 + 10, gz1 + 10);
+    for (const b of footprints) grid.polygon(b, 3);
+    for (const ring of [...data.parking, ...data.water]) grid.polygon(pairs(ring), 2);
+    for (const r of data.roads) {
+      const pts = pairs(r, 1);
+      for (let i = 0; i + 1 < pts.length; i++) grid.segment(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], r[0] / 2 + 1.5);
+    }
+    // OSM forests already have their trees.
+    for (const f of data.forests) grid.polygon(pairs(f), 0);
+    const props = buildProps(
+      {
+        parking: data.parking.map((r) => pairs(r)),
+        roads: data.roads.map((r) => ({ width: r[0], pts: pairs(r, 1) })),
+        woods: data.woods ? woodsLookup(data.woods) : null,
+        bounds: data.woods ? data.woods.rect : [gx0, gz0, gx1, gz1],
+        grid,
+      },
+      { clearance: ctx.clearance, distance: ctx.distance ?? ctx.clearance, minClearance: ctx.minClearance, exclude: ctx.exclude, rand: ctx.rand },
+    );
+    group.add(props.group);
+    disposables.push(...props.disposables);
+    trees.push(...props.trees);
   }
 
   return { group, trees, grandstands, disposables, stats: { buildings: buildingCount, forests: data.forests.length, roads: roadCount } };

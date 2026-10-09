@@ -50,10 +50,11 @@ export class CrowdMaterial extends THREE.MeshStandardMaterial {
         )
         .replace(
           '#include <color_vertex>',
-          `vColor = vec3(1.0);
-          vColor *= color;
+          // vColor is a vec4 since three r16x.
+          `vColor = vec4(1.0);
+          vColor.rgb *= color.rgb;
           #ifdef USE_INSTANCING_COLOR
-            vColor *= mix(vec3(1.0), instanceColor.xyz, shirt);
+            vColor.rgb *= mix(vec3(1.0), instanceColor.xyz, shirt);
           #endif`,
         )
         .replace(

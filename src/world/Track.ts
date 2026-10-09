@@ -9,6 +9,7 @@ import { buildOsmScenery, type OsmData } from './OsmScenery';
 import { buildPitLaneData, buildPitLaneMeshes, PIT_LANE_WIDTH, type PitLaneData } from './PitLane';
 import { TiledInstances } from './TiledInstances';
 import { buildTrackside } from './Trackside';
+import { buildPaddock, PADDOCK_DEPTH } from './Paddock';
 import { buildPitBuilding, PIT_BUILDING_DEPTH, PIT_BUILDING_FRONT } from './PitBuilding';
 import type { TrackLayout } from './TrackLayout';
 
@@ -182,7 +183,8 @@ export class ProceduralTrack implements Track {
   private readonly pitBuildingAt = new Set<number>();
   private readonly crowdSeats: CrowdSeat[] = [];
   private readonly crowdMaterial = new CrowdMaterial();
-  private readonly cullables: { object: THREE.Object3D; center: THREE.Vector3; radius: number }[] = [];
+  /** `distance`: per-object cull distance (`userData.cullDistance`, small props) or the scenery default. */
+  private readonly cullables: { object: THREE.Object3D; center: THREE.Vector3; radius: number; distance: number }[] = [];
   private standMaterials: { concrete: THREE.Material; seats: THREE.Material; roof: THREE.Material } | null = null;
 
   constructor(
@@ -227,6 +229,11 @@ export class ProceduralTrack implements Track {
       const building = buildPitBuilding(this.pit, this.rights, options.pitBoxColors ?? [0xffd200], layout.name === 'Monza' ? 'Autodromo Nazionale Monza' : layout.name);
       this.disposables.push(...building.disposables);
       this.root.add(building.group);
+      if (options.scenery) {
+        const paddock = buildPaddock(this.pit, this.rights, options.pitBoxColors ?? [0xffd200], (x, z) => this.clearance(x, z) > this.barrierOffset + 4);
+        this.disposables.push(...paddock.disposables);
+        this.root.add(paddock.group);
+      }
     }
     this.buildStartLine();
     const trackside = buildTrackside({
@@ -372,7 +379,7 @@ export class ProceduralTrack implements Track {
   update(time: number, camera?: THREE.Vector3): void {
     this.crowdMaterial.setTime(time);
     if (camera) {
-      for (const c of this.cullables) c.object.visible = c.center.distanceTo(camera) - c.radius < SCENERY_CULL_DISTANCE;
+      for (const c of this.cullables) c.object.visible = c.center.distanceTo(camera) - c.radius < c.distance;
     }
   }
 
@@ -401,7 +408,8 @@ export class ProceduralTrack implements Track {
       const leaf = o instanceof THREE.Mesh || o instanceof THREE.LOD;
       if (leaf) {
         box.setFromObject(o).getBoundingSphere(sphere);
-        if (!box.isEmpty() && sphere.radius < 900) this.cullables.push({ object: o, center: sphere.center.clone(), radius: sphere.radius });
+        if (!box.isEmpty() && sphere.radius < 900)
+          this.cullables.push({ object: o, center: sphere.center.clone(), radius: sphere.radius, distance: (o.userData.cullDistance as number | undefined) ?? SCENERY_CULL_DISTANCE });
         return; // LOD levels / mesh children follow their parent
       }
       for (const child of o.children) visit(child);
@@ -769,16 +777,48 @@ export class ProceduralTrack implements Track {
   private behindPitBuilding(x: number, z: number): boolean {
     const pit = this.pit;
     if (!pit) return false;
+    // Cheap reject far from the circuit (nearestIndex brute-forces there).
+    if (this.clearance(x, z, 130) === Infinity) return false;
     const p = new THREE.Vector3(x, 0, z);
     const i = this.nearestIndex(p);
     if (!this.pitBuildingAt.has(i)) return false;
     const lat = this.lateral(p, i) * pit.side;
-    return lat > 0 && lat < pit.lateralAt(i) + PIT_BUILDING_FRONT + PIT_BUILDING_DEPTH + 15;
+    return lat > 0 && lat < pit.lateralAt(i) + PIT_BUILDING_FRONT + PIT_BUILDING_DEPTH + PADDOCK_DEPTH;
+  }
+
+  /**
+   * Approximate distance (m) to the circuit anywhere around it (unlike
+   * `clearance`, which only searches nearby): a 20 m raster, brute force over
+   * every 4th centerline sample, built once.
+   */
+  private distanceField(margin: number): (x: number, z: number) => number {
+    const cell = 20;
+    const x0 = this.bounds.min.x - margin;
+    const z0 = this.bounds.min.z - margin;
+    const w = Math.ceil((this.bounds.max.x - this.bounds.min.x + 2 * margin) / cell);
+    const h = Math.ceil((this.bounds.max.z - this.bounds.min.z + 2 * margin) / cell);
+    const field = new Float32Array(w * h);
+    const pts = this.points.filter((_, i) => i % 4 === 0);
+    for (let j = 0; j < h; j++)
+      for (let i = 0; i < w; i++) {
+        const x = x0 + (i + 0.5) * cell;
+        const z = z0 + (j + 0.5) * cell;
+        let best = Infinity;
+        for (const p of pts) best = Math.min(best, (p.x - x) ** 2 + (p.z - z) ** 2);
+        field[j * w + i] = Math.sqrt(best);
+      }
+    return (x, z) => {
+      const i = Math.floor((x - x0) / cell);
+      const j = Math.floor((z - z0) / cell);
+      if (i < 0 || j < 0 || i >= w || j >= h) return margin;
+      return field[j * w + i];
+    };
   }
 
   private buildScenery(data: OsmData): [number, number][] {
     const result = buildOsmScenery(data, {
       clearance: (x, z) => this.clearance(x, z),
+      distance: this.distanceField(2000),
       nearestPoint: (x, z) => {
         const p = this.points[this.nearestIndex(new THREE.Vector3(x, 0, z))];
         return { x: p.x, z: p.z };

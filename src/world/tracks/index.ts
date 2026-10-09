@@ -28,13 +28,19 @@ function realCircuit(id: string, name: string, location: string, lengthKm: numbe
     lengthKm,
     load: async () => {
       // The dataset's racing line is for the real road width; the game computes its own.
-      const [csv, osm, mintime] = await Promise.all([loadFile(`${file}.csv`), loadFile(`${file}_osm.json`), loadFile(`${file}_mintime.json`)]);
+      const [csv, osm, mintime, woods] = await Promise.all([
+        loadFile(`${file}.csv`),
+        loadFile(`${file}_osm.json`),
+        loadFile(`${file}_mintime.json`),
+        loadFile(`${file}_woods.json`),
+      ]);
       if (!csv) throw new Error(`Missing track data: ${file}.csv`);
       const layout = parseTumCsv(id, name, csv);
       layout.pitSide = PIT_SIDE[id];
       if (mintime) layout.minTimeLine = (JSON.parse(mintime) as { path: [number, number][] }).path;
       if (osm) {
         layout.scenery = JSON.parse(osm) as OsmData;
+        if (woods) layout.scenery.woods = JSON.parse(woods) as OsmData['woods'];
         layout.attribution += ' · Scenery © OpenStreetMap contributors (ODbL)';
       }
       return layout;

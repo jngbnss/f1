@@ -217,7 +217,11 @@ export function trackMask(t: RealTerrain, ground: Ground, near = 60, far = 200, 
 export function applySatelliteTint(material: THREE.MeshStandardMaterial, satellite: THREE.Texture, mask: THREE.Texture, t: RealTerrain): void {
   const [x0, z0, x1, z1] = t.meta.near.rect;
   const median = new THREE.Vector3(...t.meta.near.median.map((c) => Math.max(Math.pow(c, 2.2), 1e-3)));
-  material.onBeforeCompile = (shader) => {
+  // Chain onto any existing patch (GroundShading's mowing stripes / patches) instead of replacing it.
+  const previous = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    previous.call(material, shader, renderer);
     shader.uniforms.satMap = { value: satellite };
     shader.uniforms.satMask = { value: mask };
     shader.uniforms.satRect = { value: new THREE.Vector4(x0, z0, x1 - x0, z1 - z0) };
@@ -232,7 +236,7 @@ export function applySatelliteTint(material: THREE.MeshStandardMaterial, satelli
         '#include <map_fragment>\nvec3 satRatio = clamp(texture2D(satMap, vSatUv).rgb / satMedian, 0.45, 1.7);\ndiffuseColor.rgb *= mix(vec3(1.0), satRatio, texture2D(satMask, vSatUv).r * 0.85);',
       );
   };
-  material.customProgramCacheKey = () => 'satellite-tint';
+  material.customProgramCacheKey = () => `${previousKey}+satellite-tint`;
   material.needsUpdate = true;
 }
 
