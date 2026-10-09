@@ -12,11 +12,8 @@ import { duckGameAudio } from '../audio/AudioSystem';
  * time (a disabled track sends silence/comfort-noise frames only). Beyond
  * ~10 simultaneous talkers an SFU (LiveKit) would be the next step.
  *
- * Incoming voices sound like F1 team radio: band-limited (300-3400 Hz),
- * slightly overdriven, a faint hiss while the channel is open, and a
- * synthesized squelch beep at the start and end of each transmission. The
- * voice itself is delayed ~0.12 s so the opening beep comes before the words.
- * Game sound (engines) is ducked while someone talks.
+ * Incoming voices play as they are (no radio effect or beeps). Game sound
+ * (engines) is ducked while someone talks.
  *
  * Pairing: each pair has exactly one call. A player who turns their mic on
  * calls everyone; the callee answers with its own mic if it has one (else
@@ -35,7 +32,6 @@ const HANG_MS = 350;
 /** Open-mic voice detection threshold and hang. */
 const VAD_LEVEL = 0.02;
 const VAD_HANG_MS = 600;
-const VOICE_DELAY = 0.12;
 /** A call this young (ms) that we started wins a simultaneous call from a higher id. */
 const CALL_RACE_MS = 5000;
 
@@ -48,7 +44,6 @@ interface Remote {
   nodes: AudioNode[];
   analyser: AnalyserNode | null;
   out: GainNode | null;
-  noise: GainNode | null;
   speaking: boolean;
   lastLoud: number;
 }
@@ -75,7 +70,6 @@ export class Voice {
 
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
-  private noiseBuffer: AudioBuffer | null = null;
   private mic: MediaStream | null = null;
   private sendStream: MediaStream | null = null;
   private micAnalyser: AnalyserNode | null = null;
@@ -249,7 +243,7 @@ export class Voice {
       this.detach(old);
       old.call.close();
     }
-    this.bind({ id, call, outgoing: true, since: performance.now(), el: null, nodes: [], analyser: null, out: null, noise: null, speaking: false, lastLoud: 0 });
+    this.bind({ id, call, outgoing: true, since: performance.now(), el: null, nodes: [], analyser: null, out: null, speaking: false, lastLoud: 0 });
   }
 
   private onIncoming = (call: MediaConnection): void => {
@@ -267,7 +261,7 @@ export class Voice {
       old.call.close();
     }
     call.answer(this.sendStream ?? undefined);
-    this.bind({ id, call, outgoing: false, since: performance.now(), el: null, nodes: [], analyser: null, out: null, noise: null, speaking: false, lastLoud: 0 });
+    this.bind({ id, call, outgoing: false, since: performance.now(), el: null, nodes: [], analyser: null, out: null, speaking: false, lastLoud: 0 });
     capBitrate(call);
   };
 
@@ -306,24 +300,12 @@ export class Voice {
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
     src.connect(analyser);
-    const hp = new BiquadFilterNode(ctx, { type: 'highpass', frequency: 300, Q: 0.7 });
-    const lp = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 3400, Q: 0.7 });
-    const peak = new BiquadFilterNode(ctx, { type: 'peaking', frequency: 1800, gain: 5, Q: 1 });
-    const shaper = new WaveShaperNode(ctx, { curve: driveCurve(2.2), oversample: '2x' });
-    const delay = new DelayNode(ctx, { delayTime: VOICE_DELAY, maxDelayTime: 0.5 });
+    // Plain voice (no radio filter, hiss or squelch beeps: players found the beeps tiring).
     const out = ctx.createGain();
-    // Faint hiss while the channel is open.
-    const noiseSrc = new AudioBufferSourceNode(ctx, { buffer: this.noise(ctx), loop: true });
-    const noiseBand = new BiquadFilterNode(ctx, { type: 'bandpass', frequency: 2200, Q: 0.6 });
-    const noise = ctx.createGain();
-    noise.gain.value = 0;
-    noiseSrc.connect(noiseBand).connect(noise).connect(out);
-    noiseSrc.start();
-    src.connect(hp).connect(lp).connect(peak).connect(shaper).connect(delay).connect(out).connect(this.master!);
-    r.nodes = [src, analyser, hp, lp, peak, shaper, delay, out, noiseSrc, noiseBand, noise];
+    src.connect(out).connect(this.master!);
+    r.nodes = [src, analyser, out];
     r.analyser = analyser;
     r.out = out;
-    r.noise = noise;
     this.applyPrefs(r.id);
   }
 
@@ -339,7 +321,6 @@ export class Voice {
     r.nodes = [];
     r.analyser = null;
     r.out = null;
-    r.noise = null;
     if (r.el) {
       r.el.srcObject = null;
       r.el = null;
@@ -364,7 +345,7 @@ export class Voice {
     }
   }
 
-  /** 20 Hz: who is talking, open-mic detection, squelch beeps, ducking. */
+  /** 20 Hz: who is talking, open-mic detection, ducking. */
   private tick(): void {
     const now = performance.now();
     let changed = false;
@@ -385,10 +366,6 @@ export class Voice {
       if (speaking !== r.speaking) {
         r.speaking = speaking;
         changed = true;
-        if (audible && this.ctx && r.out) {
-          squelch(this.ctx, r.out, speaking);
-          r.noise?.gain.setTargetAtTime(speaking ? 0.012 : 0, this.ctx.currentTime + (speaking ? 0 : VOICE_DELAY), 0.02);
-        }
       }
       if (speaking && audible) anyone = true;
     }
@@ -408,16 +385,6 @@ export class Voice {
       this.master.connect(this.ctx.destination);
     }
     return this.ctx;
-  }
-
-  private noise(ctx: AudioContext): AudioBuffer {
-    if (!this.noiseBuffer) {
-      const b = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-      const d = b.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-      this.noiseBuffer = b;
-    }
-    return this.noiseBuffer;
   }
 
   private onKey = (e: KeyboardEvent): void => {
@@ -459,44 +426,6 @@ function rms(a: AnalyserNode, buf: Float32Array<ArrayBuffer>): number {
   let s = 0;
   for (let i = 0; i < n; i++) s += view[i] * view[i];
   return Math.sqrt(s / n);
-}
-
-function driveCurve(k: number): Float32Array<ArrayBuffer> {
-  const n = 1024;
-  const c = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const x = (i / (n - 1)) * 2 - 1;
-    c[i] = Math.tanh(k * x) / Math.tanh(k);
-  }
-  return c;
-}
-
-/** "삐리릭" at the start of a transmission, a short "kssh" + low blip at the end. */
-function squelch(ctx: AudioContext, out: AudioNode, start: boolean): void {
-  const t0 = ctx.currentTime + 0.005;
-  const g = ctx.createGain();
-  g.gain.value = 0;
-  g.connect(out);
-  if (start) {
-    const notes = [1750, 2350, 1950];
-    notes.forEach((f, i) => {
-      const o = new OscillatorNode(ctx, { type: 'square', frequency: f });
-      const t = t0 + i * 0.035;
-      o.connect(g);
-      o.start(t);
-      o.stop(t + 0.03);
-    });
-    g.gain.setValueAtTime(0.05, t0);
-    g.gain.setValueAtTime(0, t0 + notes.length * 0.035);
-  } else {
-    const o = new OscillatorNode(ctx, { type: 'square', frequency: 1300 });
-    o.connect(g);
-    o.start(t0);
-    o.stop(t0 + 0.05);
-    g.gain.setValueAtTime(0.04, t0);
-    g.gain.setValueAtTime(0, t0 + 0.05);
-  }
-  setTimeout(() => g.disconnect(), 400);
 }
 
 function stored(key: string): string | null {
