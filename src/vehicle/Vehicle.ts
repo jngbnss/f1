@@ -6,6 +6,7 @@ import { Gearbox, type GearboxConfig } from './Gearbox';
 import { VehicleController } from './VehicleController';
 import { VehiclePhysics, type Pose } from './VehiclePhysics';
 import type { VehicleVisual } from './VehicleVisual';
+import { TyreSet } from './Tyres';
 
 /**
  * One car = controller (intent -> commands) + physics (rigid body) + visual (meshes).
@@ -18,6 +19,8 @@ export class Vehicle {
   readonly gearbox: Gearbox | null;
   /** Throttle applied in the last fixed step (0..1), for audio. */
   throttle = 0;
+  /** Fitted tyres (compound, wear, temperature). */
+  readonly tyres = new TyreSet('medium');
 
   private readonly prevPos = new THREE.Vector3();
   private readonly prevQuat = new THREE.Quaternion();
@@ -60,6 +63,9 @@ export class Vehicle {
   fixedUpdate(input: Readonly<VehicleInput>, dt: number): void {
     const cmd = this.controller.update(input, this.physics.forwardSpeed, dt);
     this.physics.step(cmd, dt);
+    this.tyres.update(this.physics, dt);
+    this.physics.tyreGrip.front = this.tyres.grip('front');
+    this.physics.tyreGrip.rear = this.tyres.grip('rear');
     this.throttle = Math.abs(cmd.drive);
     this.gearbox?.update(this.physics.forwardSpeed, this.throttle, this.physics.groundedWheels > 0, dt);
   }

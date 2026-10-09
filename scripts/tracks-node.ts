@@ -1,7 +1,7 @@
 /** Circuit data for Node scripts (the game itself loads it through Vite). */
 import { existsSync, readFileSync } from 'node:fs';
 import type { OsmData } from '../src/world/OsmScenery';
-import { DEMO_TRACK, parseTumCsv, type TrackLayout } from '../src/world/TrackLayout';
+import { DEMO_TRACK, parseTumCsv, PIT_SIDE, type TrackLayout } from '../src/world/TrackLayout';
 
 /** [id, name, data file] in 2026 calendar order — keep in sync with src/world/tracks/index.ts. */
 export const REAL_CIRCUITS: [string, string, string][] = [
@@ -31,6 +31,7 @@ export function loadLayout(id: string): TrackLayout {
   if (!entry) return DEMO_TRACK;
   const [, name, file] = entry;
   const layout = parseTumCsv(id, name, readFileSync(dataUrl(`${file}.csv`), 'utf8'));
+  layout.pitSide = PIT_SIDE[id];
   if (existsSync(dataUrl(`${file}_osm.json`))) layout.scenery = JSON.parse(readFileSync(dataUrl(`${file}_osm.json`), 'utf8')) as OsmData;
   return layout;
 }

@@ -69,10 +69,14 @@ export class VehiclePhysics {
   surfaceAt: ((x: number, z: number) => SurfaceSample) | null = null;
   /** Average surface grip under the grounded wheels in the last step (1 = asphalt). */
   surfaceGrip = 1;
+  /** Tyre state (compound, wear, temperature) per axle, multiplies tyre friction. */
+  readonly tyreGrip = { front: 1, rear: 1 };
+  /** Aero efficiency per axle (1 = intact; damaged wings lose downforce on their end). */
+  readonly aero = { front: 1, rear: 1 };
 
   constructor(
     private readonly physics: PhysicsWorld,
-    private readonly config: VehicleConfig,
+    readonly config: VehicleConfig,
     spawn: Pose,
   ) {
     const { rapier, world } = physics;
@@ -239,8 +243,9 @@ export class VehiclePhysics {
 
       // --- tyre forces inside the friction circle -----------------------
       const isFront = wc.steerable;
-      let grip = (isFront ? c.frontGrip : c.rearGrip) * Math.min(1, 0.35 + 0.65 * surfGrip);
-      let mu = (isFront ? c.frontFriction : c.rearFriction) * surfGrip;
+      const tyre = isFront ? this.tyreGrip.front : this.tyreGrip.rear;
+      let grip = (isFront ? c.frontGrip : c.rearGrip) * Math.min(1, 0.35 + 0.65 * surfGrip) * Math.min(1, tyre);
+      let mu = (isFront ? c.frontFriction : c.rearFriction) * surfGrip * tyre;
       if (wc.handbrake && cmd.handbrake > 0) {
         const f = 1 - (1 - c.handbrakeGripFactor) * cmd.handbrake;
         grip *= f;
@@ -290,8 +295,19 @@ export class VehiclePhysics {
       body.applyImpulse(_impulse, true);
     }
     if (grounded > 0) {
-      _impulse.copy(_up).multiplyScalar(-c.downforce * speed * speed * dt);
+      const down = c.downforce * speed * speed * dt;
+      _impulse.copy(_up).multiplyScalar(-down);
       body.applyImpulse(_impulse, true);
+      // Wing damage: half of the downforce works on each axle; give back the lost share there.
+      for (const [axle, z] of [['front', -1], ['rear', 1]] as const) {
+        const lost = 1 - this.aero[axle];
+        if (lost <= 0) continue;
+        const mount = c.wheels[z < 0 ? 0 : c.wheels.length - 1].position;
+        _origin.set(0, mount.y, mount.z);
+        _origin.applyQuaternion(_quat).add(_pos);
+        _impulse.copy(_up).multiplyScalar(down * 0.5 * lost);
+        body.applyImpulseAtPoint(_impulse, _origin, true);
+      }
     }
 
     // Hard speed cap (safety net; the limiter normally keeps us under).

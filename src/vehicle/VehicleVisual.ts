@@ -16,6 +16,8 @@ export interface VehicleVisual {
   updateWheels(wheels: readonly WheelState[]): void;
   /** Level of detail: false = far away (small parts hidden to save draw calls). */
   setDetail?(near: boolean): void;
+  /** Tyre sidewall colour of the fitted compound. */
+  setCompound?(color: number): void;
   dispose(): void;
 }
 

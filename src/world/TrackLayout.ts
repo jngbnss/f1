@@ -19,7 +19,12 @@ export interface TrackLayout {
   scenery?: import('./OsmScenery').OsmData;
   /** Data source credit shown in the UI. */
   attribution?: string;
+  /** Pit lane along the start/finish straight: +1 right, -1 left of the driving direction. */
+  pitSide?: number;
 }
+
+/** Side of the pit lane on the start/finish straight (+1 right), where the real one is. */
+export const PIT_SIDE: Record<string, number> = { monza: 1 };
 
 /** ~1.2 km hand-made test circuit: long straight, hairpin, chicane, fast sweepers. */
 export const DEMO_TRACK: TrackLayout = {

@@ -1,5 +1,5 @@
 import type { OsmData } from '../OsmScenery';
-import { DEMO_TRACK, parseTumCsv, type TrackLayout } from '../TrackLayout';
+import { DEMO_TRACK, parseTumCsv, PIT_SIDE, type TrackLayout } from '../TrackLayout';
 
 export interface TrackEntry {
   id: string;
@@ -31,6 +31,7 @@ function realCircuit(id: string, name: string, location: string, lengthKm: numbe
       const [csv, osm] = await Promise.all([loadFile(`${file}.csv`), loadFile(`${file}_osm.json`)]);
       if (!csv) throw new Error(`Missing track data: ${file}.csv`);
       const layout = parseTumCsv(id, name, csv);
+      layout.pitSide = PIT_SIDE[id];
       if (osm) {
         layout.scenery = JSON.parse(osm) as OsmData;
         layout.attribution += ' · Scenery © OpenStreetMap contributors (ODbL)';

@@ -5,6 +5,7 @@ import type { Pose } from '../vehicle/VehiclePhysics';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildCrowd, buildTribune, CrowdMaterial, type CrowdSeat, type TribuneSpec } from './Crowd';
 import { buildOsmScenery, type OsmData } from './OsmScenery';
+import { buildPitLaneData, buildPitLaneMeshes, PIT_LANE_WIDTH, type PitLaneData } from './PitLane';
 import { TiledInstances } from './TiledInstances';
 import type { TrackLayout } from './TrackLayout';
 
@@ -40,6 +41,8 @@ export interface Track {
   isOutOfBounds(p: THREE.Vector3): boolean;
   /** Tree positions inside real (OSM) forests, for the impostor forest. */
   readonly forestSpots: readonly [number, number][];
+  /** Pit lane along the start/finish straight, if the circuit has one. */
+  readonly pit: PitLaneData | null;
   /** Starting-grid slot pose (0 = pole position). */
   gridPose(slot: number): Pose;
   /** Ground type under a world position (grip / drag / sound). */
@@ -130,6 +133,8 @@ export interface ProceduralTrackOptions {
   treesPerKm: number;
   /** Real-world surroundings (OpenStreetMap), already in track coordinates. */
   scenery?: OsmData;
+  /** Box marking colours, one per team (pit lane). */
+  pitBoxColors?: number[];
 }
 
 interface RibbonOptions {
@@ -150,6 +155,8 @@ export class ProceduralTrack implements Track {
   readonly bounds = new THREE.Box3();
   /** Tree positions inside real (OSM) forests, for the impostor forest. */
   forestSpots: readonly [number, number][] = [];
+  /** Pit lane (when the layout has one). */
+  readonly pit: PitLaneData | null = null;
   readonly materials: TrackMaterials;
   /** Centerline length in meters. */
   length = 0;
@@ -200,7 +207,12 @@ export class ProceduralTrack implements Track {
     this.buildGround();
     this.buildRoad();
     this.buildKerbsAndGravel();
+    if (layout.pitSide) {
+      const colors = options.pitBoxColors ?? [0xffd200];
+      this.pit = buildPitLaneData(this.points, this.rights, this.half, layout.pitSide, layout.sampleSpacing, Math.max(colors.length, 1));
+    }
     this.buildBarriers();
+    if (this.pit) this.buildPitLane(options.pitBoxColors ?? [0xffd200]);
     this.buildStartLine();
     // Real circuits get their real buildings from OSM; generic ones only otherwise.
     let forestTrees: [number, number][] = [];
@@ -264,7 +276,31 @@ export class ProceduralTrack implements Track {
     if (a <= this.half) return 'asphalt';
     if (this.kerb[i] && a <= this.half + KERB_WIDTH) return 'kerb';
     if (this.gravelSide[i] === Math.sign(lateral) && a <= this.barrierOffset) return 'gravel';
+    if (this.pit && this.pit.inRange(i) && Math.sign(lateral) === this.pit.side && Math.abs(a - this.pit.lateralAt(i)) <= PIT_LANE_WIDTH / 2 + 0.5) return 'asphalt';
     return 'grass';
+  }
+
+  /** Pit lane surface, markings and the pit wall (with colliders). */
+  private buildPitLane(colors: number[]): void {
+    const pit = this.pit!;
+    const built = buildPitLaneMeshes(pit, this.rights, this.materials, colors);
+    this.disposables.push(...built.disposables);
+    this.root.add(built.group);
+    const { rapier, world } = this.physics;
+    const body = this.fixedBody();
+    const q = new THREE.Quaternion();
+    for (const { a, b } of built.wall) {
+      q.setFromAxisAngle(UP, Math.atan2(b.x - a.x, b.z - a.z));
+      world.createCollider(
+        rapier.ColliderDesc.cuboid(0.25, 0.8, a.distanceTo(b) / 2 + 0.05)
+          .setTranslation((a.x + b.x) / 2, 0.5, (a.z + b.z) / 2)
+          .setRotation(q)
+          .setFriction(0.05)
+          .setRestitution(0.1)
+          .setCollisionGroups(BARRIER_GROUPS),
+        body,
+      );
+    }
   }
 
   getCenterline(): readonly THREE.Vector3[] {
@@ -574,12 +610,15 @@ export class ProceduralTrack implements Track {
     for (const side of [-1, 1]) {
       for (let i = 0; i < n; i++) {
         const j = (i + 1) % n;
-        a.copy(this.points[i]).addScaledVector(this.rights[i], side * offset);
-        b.copy(this.points[j]).addScaledVector(this.rights[j], side * offset);
+        // Along the pit lane the pit-side barrier stands behind the lane.
+        const offI = this.barrierAt(side, i, offset);
+        const offJ = this.barrierAt(side, j, offset);
+        a.copy(this.points[i]).addScaledVector(this.rights[i], side * offI);
+        b.copy(this.points[j]).addScaledVector(this.rights[j], side * offJ);
         p.addVectors(a, b).multiplyScalar(0.5);
         // Skip pieces that would land on tarmac: inside of hairpins tighter than
         // the barrier offset, or where two parts of the circuit run close together.
-        if (this.grid.nearest(p.x, p.z, offset).distSq < (offset - 1.5) ** 2) continue;
+        if (this.grid.nearest(p.x, p.z, offI).distSq < (Math.min(offI, offJ) - 1.5) ** 2) continue;
         const len = a.distanceTo(b) + 0.3; // small overlap closes gaps on curves
         q.setFromAxisAngle(UP, Math.atan2(b.x - a.x, b.z - a.z));
         p.y = 0;
@@ -612,6 +651,12 @@ export class ProceduralTrack implements Track {
       instances('DebrisFence', fenceGeo, fenceMat, fenceMatrices, false),
       instances('DebrisFencePoles', poleGeo, postMat, poleMatrices, true),
     );
+  }
+
+  private barrierAt(side: number, i: number, offset: number): number {
+    const pit = this.pit;
+    if (!pit || side !== pit.side || !pit.inRange(i)) return offset;
+    return Math.max(offset, pit.lateralAt(i) + PIT_LANE_WIDTH / 2 + 1.5);
   }
 
   /** True when `p` is clearly outside the barriers (escaped the circuit). */

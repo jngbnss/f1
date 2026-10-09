@@ -15,7 +15,11 @@ import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { HUD } from '../ui/HUD';
 import { Minimap } from '../ui/Minimap';
 import { Vehicle } from '../vehicle/Vehicle';
-import { opponentsFor, type CarDefinition } from '../vehicle/cars';
+import { CARS, opponentsFor, type CarDefinition } from '../vehicle/cars';
+import { liveryFor } from '../vehicle/cars/F1Livery';
+import { COMPOUND_COLORS } from '../vehicle/cars/GltfF1Visual';
+import { COMPOUND_NAMES, type Compound } from '../vehicle/Tyres';
+import { PitStops } from '../race/PitStops';
 import { AIDriver } from '../race/AIDriver';
 import { LapTimer } from '../race/LapTimer';
 import { RaceManager, type Racer } from '../race/RaceManager';
@@ -79,6 +83,11 @@ export class Game {
   /** Real ground around the track (null = procedural backdrop). */
   private ground: Ground | null = null;
   private disposeForest: (() => void) | null = null;
+  /** Automatic pit stops (circuits with a pit lane). */
+  private pitStops: PitStops | null = null;
+  private readonly teamBox: Map<string, number>;
+  /** Compound the player will get at the next stop. */
+  private nextCompound: Compound = 'hard';
   private readonly aiOutTime = new Map<Vehicle, number>();
   private readonly dynamicResolution: DynamicResolution | null;
   private postFx: PostFx | null = null;
@@ -129,7 +138,14 @@ export class Game {
 
     // --- world --------------------------------------------------------
     this.environment = new Environment(this.scene, { shadows: config.shadows, shadowMapSize: config.shadowMapSize, theme: this.theme });
-    this.track = new ProceduralTrack(physics, layout, { treesPerKm: config.treesPerKm, scenery: layout.scenery });
+    // Pit boxes in team order, marked in each team's colour.
+    const teams = CARS.filter((c) => c.cls === car.cls);
+    this.track = new ProceduralTrack(physics, layout, {
+      treesPerKm: config.treesPerKm,
+      scenery: layout.scenery,
+      pitBoxColors: teams.map((c) => liveryFor(c.id, c.spec.color, c.spec.accent ?? 0xffffff).primary),
+    });
+    this.teamBox = new Map(teams.map((c, i) => [c.id, i]));
     this.scene.add(this.track.root);
     // Real relief: the landscape, the grass plane and the OSM scenery follow the
     // DEM relative to the nearby track height (the track itself stays flat).
@@ -192,6 +208,16 @@ export class Game {
         racers.push(this.racer(def.spec.brand, vehicle, ai, false, def.spec.color));
       }
       this.race = new RaceManager(this.track, racers, Math.max(1, Math.round(config.laps)));
+    }
+    if (this.track.pit) {
+      this.pitStops = new PitStops(this.track.pit, this.track, this.servicePit);
+      // Starting tyres: the front of the grid on softs, the rest split soft / medium.
+      this.race?.racers.forEach((r, slot) => {
+        if (r.isPlayer) return;
+        const compound: Compound = slot < 6 || slot % 3 === 0 ? 'soft' : 'medium';
+        r.vehicle.tyres.fit(compound);
+        r.vehicle.visual.setCompound?.(COMPOUND_COLORS[compound]);
+      });
     }
 
     // Surface is sampled under each wheel (two wheels on the grass pull the car around).
@@ -332,6 +358,41 @@ export class Game {
     return { name, vehicle, ai, isPlayer, progress: 0, lastIndex: 0, finished: false, finishTime: 0, color };
   }
 
+  /** Fits tyres at a stop and returns the stationary time (s). */
+  private servicePit = (v: Vehicle, compound: Compound): number => {
+    v.tyres.fit(compound);
+    v.visual.setCompound?.(COMPOUND_COLORS[compound]);
+    if (v === this.player) this.hud.toast(`타이어 교체: ${COMPOUND_NAMES[compound]}`);
+    return 2.1 + Math.random() * 0.8;
+  };
+
+  /** AI pit strategy: stop near the tyre cliff unless the race is about to end. */
+  private aiStrategy(r: Racer): void {
+    if (!this.pitStops || r.finished || this.pitStops.phase(r.vehicle)) return;
+    const t = r.vehicle.tyres;
+    const lapsLeft = this.race!.laps - this.race!.lapOf(r);
+    if (Math.max(t.wear.front, t.wear.rear) < 0.68 || lapsLeft < 1) return;
+    const compound: Compound = lapsLeft > 4 ? 'hard' : lapsLeft > 2 ? 'medium' : 'soft';
+    this.pitStops.request(r.vehicle, compound, this.teamBox.get(this.carOf.get(r.vehicle)?.id ?? '') ?? 0);
+  }
+
+  /** P: request / cancel a stop; 1-3: compound for it. */
+  private pitKey(code: string): void {
+    if (!this.pitStops) return;
+    const pick: Record<string, Compound> = { Digit1: 'soft', Digit2: 'medium', Digit3: 'hard' };
+    if (pick[code]) {
+      this.nextCompound = pick[code];
+      this.pitStops.setCompound(this.player, this.nextCompound);
+      this.hud.toast(`다음 타이어: ${COMPOUND_NAMES[this.nextCompound]}`);
+      return;
+    }
+    const was = this.pitStops.phase(this.player);
+    this.pitStops.request(this.player, this.nextCompound, this.teamBox.get(this.car.id) ?? 0);
+    const now = this.pitStops.phase(this.player);
+    if (now === 'requested') this.hud.toast(`피트 요청: ${COMPOUND_NAMES[this.nextCompound]} (1/2/3으로 변경)`);
+    else if (was === 'requested') this.hud.toast('피트 요청 취소');
+  }
+
   /** AI cars that are flipped, off the world or hopelessly stuck go back on track. */
   private recoverAI(dt: number): void {
     for (const r of this.race!.racers) {
@@ -388,12 +449,16 @@ export class Game {
     }
 
     const frozen = this.race?.frozen ?? false;
-    const playerInput = this.autopilot ? this.autopilot.update(dt, this.vehicles) : input;
+    // The pit controller drives cars in the pit lane (player included).
+    const pitPlayer = frozen ? null : (this.pitStops?.update(this.player, dt) ?? null);
+    const playerInput = pitPlayer ?? (this.autopilot ? this.autopilot.update(dt, this.vehicles) : input);
     this.player.fixedUpdate(frozen ? HOLD : playerInput, dt);
     if (this.race) {
       for (const r of this.race.racers) {
         if (!r.ai) continue;
-        r.vehicle.fixedUpdate(frozen ? HOLD : r.ai.update(dt, this.vehicles), dt);
+        const pitAi = frozen ? null : (this.pitStops?.update(r.vehicle, dt) ?? null);
+        r.vehicle.fixedUpdate(frozen ? HOLD : (pitAi ?? r.ai.update(dt, this.vehicles)), dt);
+        if (!frozen) this.aiStrategy(r);
       }
     }
     this.physics.step();
@@ -513,6 +578,7 @@ export class Game {
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.code === 'Escape') window.location.href = urlWith({ menu: '' });
     if (e.code === 'KeyL' && !e.repeat) this.racingLine.mesh.visible = !this.racingLine.mesh.visible;
+    if ((e.code === 'KeyP' || e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') && !e.repeat) this.pitKey(e.code);
     if (e.code === 'KeyC' && !e.repeat) {
       const mode = this.followCamera.cycleMode();
       this.hud.toast(`시점: ${CAMERA_LABELS[mode]}`);
