@@ -88,6 +88,7 @@ export function loadF1Model(baseUrl: string): Promise<void> {
         for (let i = 0; i < src.count; i++) pos.setXYZ(i, src.getX(i), src.getY(i), src.getZ(i));
         o.geometry.setAttribute('position', pos);
         o.geometry.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+        repairNormals(o.geometry);
       });
       lod.traverse((o) => {
         o.position.set(0, 0, 0);
@@ -98,6 +99,55 @@ export function loadF1Model(baseUrl: string): Promise<void> {
     template = gltf.scene;
   });
   return loading;
+}
+
+/**
+ * The source model has ~1000 vertices with zero-length normals (degenerate
+ * triangles after simplification). Lit with clearcoat they turn NaN or glint
+ * at full sun and post-processing smears them into white blotches. Give each
+ * one the area-weighted normal of the triangles around it.
+ */
+function repairNormals(geo: THREE.BufferGeometry): void {
+  const src = geo.attributes.normal as THREE.BufferAttribute | undefined;
+  if (!src) return;
+  const count = src.count;
+  const bad: number[] = [];
+  for (let i = 0; i < count; i++) if (!(Math.hypot(src.getX(i), src.getY(i), src.getZ(i)) > 0.5)) bad.push(i);
+  if (!bad.length) return;
+  const nor = new THREE.Float32BufferAttribute(count * 3, 3);
+  for (let i = 0; i < count; i++) {
+    const v = new THREE.Vector3(src.getX(i), src.getY(i), src.getZ(i));
+    if (v.lengthSq() > 0) v.normalize();
+    nor.setXYZ(i, v.x, v.y, v.z);
+  }
+  const acc = new Float32Array(count * 3);
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const index = geo.index;
+  const tri = index ? index.count : count;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  for (let t = 0; t < tri; t += 3) {
+    const i0 = index ? index.getX(t) : t;
+    const i1 = index ? index.getX(t + 1) : t + 1;
+    const i2 = index ? index.getX(t + 2) : t + 2;
+    a.fromBufferAttribute(pos, i0);
+    b.fromBufferAttribute(pos, i1);
+    c.fromBufferAttribute(pos, i2);
+    const n = b.sub(a).cross(c.sub(a)); // length = 2 x area
+    for (const i of [i0, i1, i2]) {
+      acc[i * 3] += n.x;
+      acc[i * 3 + 1] += n.y;
+      acc[i * 3 + 2] += n.z;
+    }
+  }
+  for (const i of bad) {
+    const v = new THREE.Vector3(acc[i * 3], acc[i * 3 + 1], acc[i * 3 + 2]);
+    if (v.lengthSq() < 1e-20) v.set(0, 1, 0);
+    v.normalize();
+    nor.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.setAttribute('normal', nor);
 }
 
 export function f1ModelReady(): boolean {
@@ -133,7 +183,7 @@ export class GltfF1Visual implements VehicleVisual {
   constructor(config: VehicleConfig, livery: Livery, driver = 0) {
     if (!template) throw new Error('F1 model not loaded');
     const raceNumber = livery.numbers[driver % 2];
-    const number = numberTexture(raceNumber);
+    const number = numberTexture(raceNumber, livery.primary);
     this.textures.push(number);
     // Bodywork and wings share one livery material (regions, carbon and decals are placed in the shader).
     const paint = this.own(liveryMaterial(livery, { slot: 0, number }));
@@ -183,12 +233,12 @@ export class GltfF1Visual implements VehicleVisual {
       if (name === 'FrontWing') this.frontWing = group;
       else this.rearWing = group;
     }
-    // Driver: painted helmet (stripes, crown, number) with a tinted, iridescent visor.
+    // Driver: painted helmet (stripes, crown, number) with a tinted, glossy visor.
     const helmetTex = helmetTexture(livery, raceNumber);
     this.textures.push(helmetTex);
     const parts = sharedParts();
     const helmetMat = this.own(new THREE.MeshPhysicalMaterial({ map: helmetTex, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.04 }));
-    const visorMat = this.own(new THREE.MeshPhysicalMaterial({ color: 0x07080b, roughness: 0.04, metalness: 0.5, clearcoat: 1, iridescence: 0.8, iridescenceIOR: 1.6 }));
+    const visorMat = this.own(new THREE.MeshPhysicalMaterial({ color: 0x07080b, roughness: 0.04, metalness: 0.5, clearcoat: 1 }));
     const helmet = new THREE.Mesh(parts.helmet, helmetMat);
     const visor = new THREE.Mesh(parts.visor, visorMat);
     for (const m of [helmet, visor]) {

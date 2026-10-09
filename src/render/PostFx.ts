@@ -1,5 +1,5 @@
 import { N8AOPostPass } from 'n8ao';
-import { BloomEffect, BrightnessContrastEffect, EffectComposer, HueSaturationEffect, EffectPass, RenderPass, SMAAEffect, SMAAPreset, ToneMappingEffect, ToneMappingMode, VignetteEffect } from 'postprocessing';
+import { BloomEffect, Effect, EffectComposer, EffectPass, RenderPass, SMAAEffect, SMAAPreset, ToneMappingEffect, ToneMappingMode, VignetteEffect } from 'postprocessing';
 import * as THREE from 'three';
 
 /**
@@ -39,14 +39,33 @@ export class PostFx {
     this.ao.configuration.gammaCorrection = false;
     this.composer.addPass(this.ao);
 
+    // One NaN/Inf pixel (some PBR paths hit them at grazing angles) would be blown up by
+    // the bloom mip chain into big white blocks: scrub them before anything blurs.
+    const sanitize = new Effect(
+      'Sanitize',
+      /* glsl */ `void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+        bool bad = any(isnan(inputColor)) || any(isinf(inputColor));
+        outputColor = bad ? vec4(0.0, 0.0, 0.0, 1.0) : vec4(clamp(inputColor.rgb, 0.0, 64.0), inputColor.a);
+      }`,
+    );
+    this.composer.addPass(new EffectPass(camera, sanitize));
+
     const bloom = new BloomEffect({ intensity: 0.35, luminanceThreshold: 0.9, luminanceSmoothing: 0.2, mipmapBlur: true });
     // AgX keeps saturated liveries and grass from washing out the way ACES does;
-    // a touch of contrast and colour afterwards gives the broadcast look.
+    // a touch of contrast and colour afterwards gives the broadcast look. (The stock
+    // BrightnessContrast/HueSaturation effects turned near-black pixels white.)
     const tone = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
-    const contrast = new BrightnessContrastEffect({ contrast: 0.12 });
-    const saturation = new HueSaturationEffect({ saturation: 0.15 });
+    const grade = new Effect(
+      'Grade',
+      /* glsl */ `void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+        vec3 c = clamp(inputColor.rgb, 0.0, 1.0);
+        c = clamp((c - 0.5) * 1.12 + 0.5, 0.0, 1.0);
+        float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        outputColor = vec4(clamp(mix(vec3(l), c, 1.15), 0.0, 1.0), inputColor.a);
+      }`,
+    );
     const vignette = new VignetteEffect({ offset: 0.3, darkness: 0.35 });
-    this.composer.addPass(new EffectPass(camera, bloom, tone, contrast, saturation, vignette));
+    this.composer.addPass(new EffectPass(camera, bloom, tone, grade, vignette));
     this.composer.addPass(new EffectPass(camera, new SMAAEffect({ preset: SMAAPreset.MEDIUM })));
   }
 

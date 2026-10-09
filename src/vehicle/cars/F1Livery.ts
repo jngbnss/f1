@@ -298,24 +298,52 @@ function decalsFor(l: Livery): Decals {
 }
 
 /** Race number in the team's number style: white with a dark outline, transparent background. */
-export function numberTexture(n: number, fill = 0xffffff, outline = 0x000000): THREE.Texture {
+/**
+ * Race number decal: solid digits in a colour that contrasts with the paint
+ * under them (dark on light cars, white on dark ones) with a thin keyline,
+ * drawn large so it stays crisp on the sloped nose seen from the cockpit.
+ */
+export function numberTexture(n: number, paint = 0x000000): THREE.Texture {
+  const c = new THREE.Color(paint);
+  const light = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b > 0.45;
+  const fill = light ? '#111111' : '#ffffff';
+  const keyline = light ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.85)';
   const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 128;
+  canvas.width = 512;
+  canvas.height = 256;
   const g = canvas.getContext('2d')!;
-  g.font = `italic 900 108px ${FONT}`;
+  g.font = `italic 900 220px ${FONT}`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.lineJoin = 'round';
-  g.lineWidth = 14;
-  g.strokeStyle = css(outline);
-  g.strokeText(String(n), 128, 68);
-  g.fillStyle = css(fill);
-  g.fillText(String(n), 128, 68);
-  return canvasTexture(canvas, 4);
+  g.lineWidth = 10;
+  g.strokeStyle = keyline;
+  g.strokeText(String(n), 256, 136);
+  g.fillStyle = fill;
+  g.fillText(String(n), 256, 136);
+  return canvasTexture(canvas, 16);
 }
 
 // ---- Shaders -------------------------------------------------------------------------------
+
+/**
+ * Wraps a material's onBeforeCompile so its final colour can never be NaN or
+ * absurdly bright: post-processing (half-float buffers + bloom) would smear a
+ * single bad pixel into a white blotch on the car.
+ */
+function guardOutput(material: THREE.Material): void {
+  const inner = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    inner.call(material, shader, renderer);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <dithering_fragment>',
+      `#include <dithering_fragment>
+      if (any(isnan(gl_FragColor)) || any(isinf(gl_FragColor))) gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor.rgb = clamp(gl_FragColor.rgb, vec3(0.0), vec3(32.0));
+`,
+    );
+  };
+}
 
 /** 2x2 twill carbon weave in model space; returns 0..1 (0.5 where it would alias). */
 export const WEAVE_GLSL = /* glsl */ `
@@ -401,7 +429,8 @@ export function liveryMaterial(livery: Livery, opts: LiveryMaterialOptions): THR
         '#include <color_fragment>',
         `#include <color_fragment>
         vec3 p = vLivPos;
-        vec3 n = normalize(vLivNormal);
+        // Degenerate triangles in the source model carry zero normals: keep them finite.
+        vec3 n = normalize(vLivNormal + vec3(0.0, 1e-4, 0.0));
         float ax = abs(p.x);
         vec3 col = lvP;
         float carbon = 0.0;
@@ -496,12 +525,16 @@ export function liveryMaterial(livery: Livery, opts: LiveryMaterialOptions): THR
         float lvAO = mix(1.0, 0.1, smoothstep(0.3, -0.4, n.y)) * mix(0.25, 1.0, smoothstep(0.1, 0.5, p.y));
         reflectedLight.indirectDiffuse *= mix(0.4, 1.0, lvAO);
         reflectedLight.indirectSpecular *= lvAO;
+        // Same for the sun: a mirror-smooth floor glinting it turns into white blotches.
+        reflectedLight.directSpecular *= lvAO;
         #ifdef USE_CLEARCOAT
         clearcoatSpecularIndirect *= lvAO;
+        clearcoatSpecularDirect *= lvAO;
         #endif`,
       );
   };
-  material.customProgramCacheKey = () => 'f1-livery-v2';
+  guardOutput(material);
+  material.customProgramCacheKey = () => 'f1-livery-v3';
   return material;
 }
 
@@ -540,7 +573,8 @@ export function tyreMaterial(band: { value: THREE.Color }): THREE.MeshStandardMa
         roughnessFactor = mix(0.62, 0.92, tread);`,
       );
   };
-  material.customProgramCacheKey = () => 'f1-tyre-v2';
+  guardOutput(material);
+  material.customProgramCacheKey = () => 'f1-tyre-v3';
   return material;
 }
 
@@ -609,7 +643,8 @@ export function rimMaterial(ringColor: number): THREE.MeshStandardMaterial {
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = rimRough;')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = mix(0.1, 0.95, rimMetal);');
   };
-  material.customProgramCacheKey = () => 'f1-rim-v2';
+  guardOutput(material);
+  material.customProgramCacheKey = () => 'f1-rim-v3';
   return material;
 }
 
