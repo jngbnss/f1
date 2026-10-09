@@ -102,7 +102,7 @@ export const THEMES: Record<string, WorldTheme> = {
     fogDensity: 0.00024,
     skyTop: 0x5a86b8,
     skyHorizon: 0xe6d4b8,
-    grassTint: 0x98bf62,
+    grassTint: 0x84b25c,
     terrain: {
       height: 26,
       scale: 900,

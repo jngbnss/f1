@@ -35,19 +35,26 @@ function patch(material: THREE.Material, key: string, fragment: string): void {
 export function shadeGrass(material: THREE.Material): void {
   patch(
     material,
-    'grass-v1',
+    'grass-v2',
     /* glsl */ `{
       vec2 gp = vGroundPos.xz;
       float macro = gFbm(gp / 55.0);
       float fine = gNoise(gp / 6.0);
       // Lush (dark, blue-green) to dry (light, yellow) patches.
-      vec3 dry = vec3(1.18, 1.1, 0.78);
-      vec3 lush = vec3(0.78, 0.92, 0.8);
+      vec3 dry = vec3(1.12, 1.06, 0.8);
+      vec3 lush = vec3(0.74, 0.9, 0.8);
       diffuseColor.rgb *= mix(lush, dry, smoothstep(0.3, 0.75, macro));
       diffuseColor.rgb *= 0.92 + 0.16 * fine;
-      // Mowing stripes 7 m wide: light/dark from the direction the mower ran.
+      // Field-sized patches (hay meadow, rough grass, darker damp ground).
+      float field = gFbm(gp / 260.0 + 17.0);
+      diffuseColor.rgb *= mix(vec3(0.8, 0.88, 0.82), vec3(1.08, 1.0, 0.82), smoothstep(0.35, 0.7, field));
+      // Mowing stripes 7 m wide: light/dark from the direction the mower ran; they
+      // fade with distance like on TV (and stop reading as a striped carpet from afar).
+      float dist = length(vGroundPos - cameraPosition);
       float stripe = step(0.5, fract((gp.x * 0.8 + gp.y * 0.6) / 14.0));
-      diffuseColor.rgb *= mix(0.9, 1.08, stripe);
+      diffuseColor.rgb *= mix(1.0, mix(0.92, 1.06, stripe), 1.0 - smoothstep(120.0, 600.0, dist));
+      // Distant meadows: deeper, less saturated green (aerial perspective does the rest).
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.8, 0.86, 0.84), smoothstep(150.0, 900.0, dist));
     }`,
   );
 }

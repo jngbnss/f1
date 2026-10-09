@@ -381,6 +381,39 @@ export function buildTrackside(ctx: TracksideContext): { group: THREE.Group; dis
     huts.box(c, x, t, 2.6, 0.12, 2.6, 2.65, new THREE.Color(0x4a4f55));
   }
 
+  // --- TV camera towers: scaffold towers on the outside of every big corner ---
+  const scaffold = new THREE.Color(0x9aa1a8);
+  const dark = new THREE.Color(0x1e2124);
+  let lastTower = -1e9;
+  for (let i = 0; i < n; i++) {
+    if (absCurv(i) < 1 / 140 || absCurv(i - 1) >= 1 / 140 || i - lastTower < Math.round(250 / ds)) continue;
+    // Outside of the corner, a little before turn-in (looks into the braking zone and the apex).
+    const side = curvature[at(i)] > 0 ? 1 : -1;
+    const k = at(i - Math.round(25 / ds));
+    if (ctx.blocked(side, k)) continue;
+    const off = ctx.barrierAt(side, k) + 6;
+    const c = points[k].clone().addScaledVector(rights[k], side * off);
+    if (ctx.clearance(c.x, c.z) < off - 1) continue;
+    lastTower = i;
+    const t = tangents[k];
+    const x = rights[k];
+    const h = 8;
+    for (const [sx, sz] of [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1],
+    ])
+      steel.box(c.clone().addScaledVector(x, sx * 1.1).addScaledVector(t, sz * 1.1), x, t, 0.12, h, 0.12, 0, scaffold);
+    // Cross braces every 2 m (thin slabs), platform, railing, roof and the camera.
+    for (let y = 2; y < h; y += 2) steel.box(c, x, t, 2.35, 0.08, 2.35, y, scaffold);
+    huts.box(c, x, t, 2.6, 0.15, 2.6, h, new THREE.Color(0x6e747a));
+    huts.box(c, x, t, 2.6, 1.0, 0.06, h + 0.15, scaffold);
+    huts.box(c, x, t, 2.8, 0.12, 2.8, h + 2.4, new THREE.Color(0x2b2f34));
+    huts.box(c.clone().addScaledVector(x, -side * 0.6), x, t, 0.5, 0.45, 0.9, h + 1.2, dark);
+    huts.box(c.clone().addScaledVector(x, -side * 0.6), x, t, 0.1, 1.05, 0.1, h + 0.15, dark);
+  }
+
   // --- meshes ---------------------------------------------------------------
   const add = (soup: Soup, material: THREE.Material, name: string, castShadow: boolean) => {
     const geo = soup.build();
