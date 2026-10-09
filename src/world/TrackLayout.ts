@@ -23,10 +23,66 @@ export interface TrackLayout {
   minTimeLine?: [number, number][];
   /** Pit lane along the start/finish straight: +1 right, -1 left of the driving direction. */
   pitSide?: number;
+  /** Where the pit lane leaves / rejoins the track (m before / after the start line) and the box row centre (m after the line). */
+  pitLane?: { entry: number; exit: number; boxes: number };
+  /**
+   * Real road height (m) per centerline point (scripts/bake-elevation.ts).
+   * Without it the circuit is flat (y = 0) and only the landscape around it
+   * follows the real relief.
+   */
+  heights?: number[];
+  /** Grandstands at the circuit's famous corners (m along the lap, preferred side), where OSM has none. */
+  stands?: StandSpec[];
+  /** Landmark visible from the track (Suzuka's Ferris wheel): m along the lap, side, distance from the centerline. */
+  ferrisWheel?: { at: number; side: number; distance: number };
 }
 
+export interface StandSpec {
+  at: number;
+  length: number;
+  depth: number;
+  height: number;
+  /** +1 right of the driving direction, -1 left; the other side is tried when it doesn't fit. */
+  side: number;
+}
+
+/** Famous grandstands (Spa: Raidillon, Pouhon, Blanchimont, Bus Stop; Suzuka: main straight, S curves, hairpin, Spoon, 130R, chicane). */
+export const FAMOUS_STANDS: Record<string, StandSpec[]> = {
+  spa: [
+    { at: 1180, length: 110, depth: 20, height: 12, side: -1 },
+    { at: 2510, length: 90, depth: 16, height: 9, side: 1 },
+    { at: 3950, length: 110, depth: 16, height: 9, side: 1 },
+    { at: 6200, length: 90, depth: 14, height: 8, side: 1 },
+    { at: 6800, length: 130, depth: 22, height: 12, side: -1 },
+  ],
+  suzuka: [
+    { at: 120, length: 260, depth: 28, height: 16, side: -1 },
+    { at: 720, length: 140, depth: 22, height: 12, side: -1 },
+    { at: 1250, length: 150, depth: 20, height: 10, side: 1 },
+    { at: 1560, length: 130, depth: 18, height: 10, side: -1 },
+    { at: 2930, length: 100, depth: 16, height: 8, side: 1 },
+    { at: 3930, length: 130, depth: 18, height: 9, side: 1 },
+    { at: 4970, length: 120, depth: 18, height: 10, side: 1 },
+    { at: 5440, length: 150, depth: 20, height: 12, side: -1 },
+  ],
+};
+
+export const FERRIS_WHEELS: Record<string, { at: number; side: number; distance: number }> = {
+  suzuka: { at: 700, side: -1, distance: 300 },
+};
+
 /** Side of the pit lane on the start/finish straight (+1 right), where the real one is. */
-export const PIT_SIDE: Record<string, number> = { monza: 1 };
+export const PIT_SIDE: Record<string, number> = { monza: 1, spa: 1, suzuka: 1 };
+
+/**
+ * Pit lanes that don't fit the default (330 m before the line to 230 m after,
+ * boxes centred on the line): Spa's runs from the Bus Stop exit to just
+ * before La Source, Suzuka's along the long main straight.
+ */
+export const PIT_LANE: Record<string, { entry: number; exit: number; boxes: number }> = {
+  spa: { entry: 145, exit: 330, boxes: 95 },
+  suzuka: { entry: 140, exit: 420, boxes: 140 },
+};
 
 /** ~1.2 km hand-made test circuit: long straight, hairpin, chicane, fast sweepers. */
 export const DEMO_TRACK: TrackLayout = {

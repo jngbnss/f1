@@ -24,6 +24,8 @@ export interface TracksideContext {
   clearance(x: number, z: number): number;
   /** Nothing goes on this side at sample i (e.g. the pit building stands there). */
   blocked(side: number, i: number): boolean;
+  /** Ground height for things standing away from the road (elevated circuits; default: the road's height). */
+  groundAt?(x: number, z: number): number;
   /** Start gantry beam over sample 0 (half span, centre height, beam height and depth). */
   startGantry?: { halfSpan: number; y: number; height: number; depth: number };
 }
@@ -217,7 +219,7 @@ export function buildTrackside(ctx: TracksideContext): { group: THREE.Group; dis
         const u1 = (k + 1) / bannerSamples;
         const y0 = 1.12;
         const y1 = 2.2;
-        const lo = [pa.clone().setY(y0), pb.clone().setY(y0), pb.clone().setY(y1), pa.clone().setY(y1)];
+        const lo = [pa.clone().setY(pa.y + y0), pb.clone().setY(pb.y + y0), pb.clone().setY(pb.y + y1), pa.clone().setY(pa.y + y1)];
         // Text must read left to right from the track: along +t on the left side, along -t on the right.
         if (side === -1) banners.quad(lo[0], lo[1], lo[2], lo[3], [u0, v0, u1, v0, u1, v1, u0, v1]);
         else banners.quad(lo[1], lo[0], lo[3], lo[2], [1 - u1, v0, 1 - u0, v0, 1 - u0, v1, 1 - u1, v1]);
@@ -241,6 +243,7 @@ export function buildTrackside(ctx: TracksideContext): { group: THREE.Group; dis
     const r = rights[i].clone().multiplyScalar(side);
     const c = points[i].clone().addScaledVector(r, off);
     if (ctx.clearance(c.x, c.z) < off - 1) continue;
+    if (ctx.groundAt) c.y = ctx.groundAt(c.x, c.z);
     const t = tangents[i];
     const w = 14;
     const h = 3.5;
@@ -250,7 +253,7 @@ export function buildTrackside(ctx: TracksideContext): { group: THREE.Group; dis
     const along = new THREE.Vector3().crossVectors(up, face).normalize(); // left -> right seen from the front
     const brand = Math.floor(rand() * BRANDS.length);
     const [v0, v1] = rowsV(brand, BRANDS.length);
-    const p = (s: number, y: number) => c.clone().addScaledVector(along, s * w * 0.5).setY(y);
+    const p = (s: number, y: number) => c.clone().addScaledVector(along, s * w * 0.5).setY(c.y + y);
     billboards.quad(p(-1, y0), p(1, y0), p(1, y0 + h), p(-1, y0 + h), [0, v0, 1, v0, 1, v1, 0, v1]);
     // Back panel and two legs.
     const back = c.clone().addScaledVector(face, -0.12);
@@ -292,8 +295,9 @@ export function buildTrackside(ctx: TracksideContext): { group: THREE.Group; dis
         const y0 = deckY + 0.15;
         const y1 = deckY + deckH - 0.15;
         // face = -1 looks at oncoming cars (normal = -t): left->right is +r.
-        if (face < 0) billboards.quad(a.clone().setY(y0), b.clone().setY(y0), b.clone().setY(y1), a.clone().setY(y1), [0, v0, 1, v0, 1, v1, 0, v1]);
-        else billboards.quad(b.clone().setY(y0), a.clone().setY(y0), a.clone().setY(y1), b.clone().setY(y1), [0, v0, 1, v0, 1, v1, 0, v1]);
+        const base = c.y;
+        if (face < 0) billboards.quad(a.clone().setY(base + y0), b.clone().setY(base + y0), b.clone().setY(base + y1), a.clone().setY(base + y1), [0, v0, 1, v0, 1, v1, 0, v1]);
+        else billboards.quad(b.clone().setY(base + y0), a.clone().setY(base + y0), a.clone().setY(base + y1), b.clone().setY(base + y1), [0, v0, 1, v0, 1, v1, 0, v1]);
       }
     }
   }
@@ -311,8 +315,8 @@ export function buildTrackside(ctx: TracksideContext): { group: THREE.Group; dis
       const [v0, v1] = rowsV(brand, BRANDS.length);
       const a = fc.clone().addScaledVector(r, s0);
       const b = fc.clone().addScaledVector(r, s1);
-      const y0 = y - height / 2 + 0.1;
-      const y1 = y + height / 2 - 0.1;
+      const y0 = points[0].y + y - height / 2 + 0.1;
+      const y1 = points[0].y + y + height / 2 - 0.1;
       billboards.quad(a.clone().setY(y0), b.clone().setY(y0), b.clone().setY(y1), a.clone().setY(y1), [0, v0, 1, v0, 1, v1, 0, v1]);
     }
   }
@@ -358,7 +362,7 @@ export function buildTrackside(ctx: TracksideContext): { group: THREE.Group; dis
       const along = new THREE.Vector3().crossVectors(up, face).normalize();
       const sz = 1.1;
       const y0 = 0.6;
-      const p = (s: number, y: number) => c.clone().addScaledVector(along, s * sz * 0.5).setY(y);
+      const p = (s: number, y: number) => c.clone().addScaledVector(along, s * sz * 0.5).setY(c.y + y);
       boards.quad(p(-1, y0), p(1, y0), p(1, y0 + sz), p(-1, y0 + sz), [k / 3, 0, (k + 1) / 3, 0, (k + 1) / 3, 1, k / 3, 1]);
       steel.box(c.clone().addScaledVector(face, -0.06), along, face, 0.1, y0, 0.1, 0, steelColor);
     });
@@ -374,6 +378,7 @@ export function buildTrackside(ctx: TracksideContext): { group: THREE.Group; dis
     const off = ctx.barrierAt(side, i) + 3.2;
     const c = points[i].clone().addScaledVector(rights[i], side * off);
     if (ctx.clearance(c.x, c.z) < off - 1) continue;
+    if (ctx.groundAt) c.y = ctx.groundAt(c.x, c.z);
     const t = tangents[i];
     const x = rights[i];
     huts.box(c, x, t, 2.2, 2.3, 2.2, 0, white);
@@ -394,6 +399,7 @@ export function buildTrackside(ctx: TracksideContext): { group: THREE.Group; dis
     const off = ctx.barrierAt(side, k) + 6;
     const c = points[k].clone().addScaledVector(rights[k], side * off);
     if (ctx.clearance(c.x, c.z) < off - 1) continue;
+    if (ctx.groundAt) c.y = ctx.groundAt(c.x, c.z);
     lastTower = i;
     const t = tangents[k];
     const x = rights[k];

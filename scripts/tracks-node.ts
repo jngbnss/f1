@@ -1,7 +1,7 @@
 /** Circuit data for Node scripts (the game itself loads it through Vite). */
 import { existsSync, readFileSync } from 'node:fs';
 import type { OsmData } from '../src/world/OsmScenery';
-import { DEMO_TRACK, parseTumCsv, PIT_SIDE, type TrackLayout } from '../src/world/TrackLayout';
+import { DEMO_TRACK, FAMOUS_STANDS, FERRIS_WHEELS, parseTumCsv, PIT_LANE, PIT_SIDE, type TrackLayout } from '../src/world/TrackLayout';
 
 /** [id, name, data file] in 2026 calendar order — keep in sync with src/world/tracks/index.ts. */
 export const REAL_CIRCUITS: [string, string, string][] = [
@@ -32,6 +32,10 @@ export function loadLayout(id: string): TrackLayout {
   const [, name, file] = entry;
   const layout = parseTumCsv(id, name, readFileSync(dataUrl(`${file}.csv`), 'utf8'));
   layout.pitSide = PIT_SIDE[id];
+  layout.pitLane = PIT_LANE[id];
+  layout.stands = FAMOUS_STANDS[id];
+  layout.ferrisWheel = FERRIS_WHEELS[id];
+  if (existsSync(dataUrl(`${file}_elev.json`))) layout.heights = (JSON.parse(readFileSync(dataUrl(`${file}_elev.json`), 'utf8')) as { heights: number[] }).heights;
   if (existsSync(dataUrl(`${file}_osm.json`))) layout.scenery = JSON.parse(readFileSync(dataUrl(`${file}_osm.json`), 'utf8')) as OsmData;
   if (layout.scenery && existsSync(dataUrl(`${file}_woods.json`))) layout.scenery.woods = JSON.parse(readFileSync(dataUrl(`${file}_woods.json`), 'utf8')) as OsmData['woods'];
   return layout;

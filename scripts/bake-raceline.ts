@@ -26,7 +26,7 @@ const start = minCurvatureOffsets(input);
 const t0 = performance.now();
 // Objective = the game's own speed model (RacingLine), so what is optimized is what the AI drives.
 const gameLapTime = (path: [number, number][]) => {
-  const line = new RacingLine(path, car);
+  const line = new RacingLine(path, car, { heights: track.heightsFor(path) });
   const t = line.idealLapTime;
   line.dispose();
   return t;

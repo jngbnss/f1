@@ -41,6 +41,7 @@ async function setup(car: CarDefinition, layout: TrackLayout) {
   const physics = await PhysicsWorld.create(dt);
   const track = new ProceduralTrack(physics, layout, { treesPerKm: 0, scenery: layout.scenery });
   const vehicle = new Vehicle(physics, car.physics, car.createVisual(), track.getSpawnPose(), car.gearbox);
+  vehicle.physics.aeroInAir = track.elevated;
   const tick = (input: VehicleInput) => {
     vehicle.fixedUpdate(input, dt);
     physics.step();
@@ -122,7 +123,7 @@ async function botLap(car: CarDefinition, layout: TrackLayout): Promise<void> {
     });
     maxSpeed = Math.max(maxSpeed, vehicle.speedKmh);
     stuckTime = Math.abs(vehicle.physics.forwardSpeed) < 1 ? stuckTime + dt : 0;
-    if (vehicle.position.y < -5 || vehicle.isFlipped() || stuckTime > 3) {
+    if (vehicle.position.y < track.bounds.min.y - 5 || track.isOutOfBounds(vehicle.position) || vehicle.isFlipped() || stuckTime > 3) {
       // Same recovery a player gets (R key / auto reset), but count it.
       if (process.env.SIM_DEBUG) console.log(`    reset @ sample ${idx}/${n} (${((idx / n) * 100).toFixed(0)}%) pos=(${vehicle.position.x.toFixed(0)},${vehicle.position.z.toFixed(0)}) y=${vehicle.position.y.toFixed(1)} flipped=${vehicle.isFlipped()} stuck=${stuckTime.toFixed(1)} speed=${speed.toFixed(1)}`);
       resets++;

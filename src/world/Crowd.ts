@@ -23,6 +23,8 @@ export interface TribuneSpec {
   depth: number;
   /** Height of the top row (m). */
   height: number;
+  /** Ground height under the stand (elevated circuits; default 0). */
+  y?: number;
 }
 
 export interface CrowdSeat {
@@ -188,7 +190,7 @@ export function buildTribune(
   (endMesh.material as THREE.Material).side = THREE.DoubleSide;
   group.add(steelMesh, endMesh);
 
-  group.position.set(spec.x, 0, spec.z);
+  group.position.set(spec.x, spec.y ?? 0, spec.z);
   group.rotation.y = spec.yaw;
   group.updateMatrixWorld(true);
 

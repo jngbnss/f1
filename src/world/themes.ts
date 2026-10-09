@@ -147,10 +147,11 @@ export const THEMES: Record<string, WorldTheme> = {
     id: 'ardennes',
     hdri: 'kloofendal_28d_misty_puresky_2k.hdr',
     exposure: 1.05,
-    sunIntensity: 1.6,
+    // Soft, cool Ardennes light, but enough sun to model the hills.
+    sunIntensity: 2.3,
     sunColor: 0xfff0dc,
     hemiIntensity: 0.4,
-    fogDensity: 0.00022,
+    fogDensity: 0.00017,
     skyTop: 0x9fb2c4,
     skyHorizon: 0xd2d9df,
     grassTint: 0x7fb45a,
@@ -195,7 +196,10 @@ export const THEMES: Record<string, WorldTheme> = {
   japan: {
     ...BASE,
     id: 'japan',
-    hdri: 'kloofendal_38d_partly_cloudy_puresky_2k.hdr',
+    // Warm late-season afternoon (the Japanese GP).
+    hdri: 'qwantani_late_afternoon_puresky_2k.hdr',
+    sunColor: 0xffe2b8,
+    sunIntensity: 3.0,
     fogDensity: 0.00016,
     grassTint: 0x82bd5e,
     terrain: { height: 900, scale: 3200, ramp: 4000, ridged: true, forest: 0.8, meadow: 0x3e5c2a, woods: 0x1a2e17, rock: 0x6a665c, rockLine: 0.85 },

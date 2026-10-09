@@ -42,10 +42,12 @@ export function buildPitLaneData(
   side: number,
   spacing: number,
   teams: number,
+  /** Per-circuit lane: m before / after the line, box row centre (m after the line). */
+  lane?: { entry: number; exit: number; boxes: number },
 ): PitLaneData {
   const n = points.length;
-  const before = Math.round(ENTRY_BEFORE_LINE / spacing);
-  const after = Math.round(EXIT_AFTER_LINE / spacing);
+  const before = Math.round((lane?.entry ?? ENTRY_BEFORE_LINE) / spacing);
+  const after = Math.round((lane?.exit ?? EXIT_AFTER_LINE) / spacing);
   const entryIndex = (n - before) % n;
   const exitIndex = after % n;
   const laneOffset = half + 2.2 + PIT_LANE_WIDTH / 2;
@@ -64,12 +66,13 @@ export function buildPitLaneData(
   for (let k = 0; k <= total; k++) {
     const i = (entryIndex + k) % n;
     const off = offsetAtStep(k);
-    path.push(points[i].clone().addScaledVector(rights[i], side * off).setY(0));
+    // Level with the road beside it (y = 0 on flat circuits).
+    path.push(points[i].clone().addScaledVector(rights[i], side * off));
     pathIndex.push(i);
     lateral.set(i, off);
   }
-  // Boxes centred on the start line, one per team.
-  const lineStep = before;
+  // Boxes centred on the start line (or where the circuit's garages are), one per team.
+  const lineStep = before + Math.round((lane?.boxes ?? 0) / spacing);
   const boxes = Array.from({ length: teams }, (_, t) => lineStep + Math.round(((t - (teams - 1) / 2) * BOX_SPACING) / spacing));
   return {
     side,
@@ -106,7 +109,7 @@ export function buildPitLaneMeshes(
       });
       // Winding facing up for either side.
       const [a, b, c, d] = pit.side > 0 ? quad : [quad[1], quad[0], quad[3], quad[2]];
-      for (const v of [a, b, c, b, d, c]) pos.push(v.x, y, v.z);
+      for (const v of [a, b, c, b, d, c]) pos.push(v.x, v.y + y, v.z);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -146,6 +149,8 @@ export function buildPitLaneMeshes(
     const b = pit.path[k + 1].clone().addScaledVector(r1, -pit.side * (w + 1.1));
     wall.push({ a, b });
     q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(b.x - a.x, b.z - a.z));
+    // Follow the gradient (pitch about the segment's X axis; none on flat circuits).
+    if (a.y !== b.y) q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.atan2(b.y - a.y, Math.hypot(b.x - a.x, b.z - a.z))));
     m.compose(a.clone().add(b).multiplyScalar(0.5), q, new THREE.Vector3(1, 1, a.distanceTo(b) + 0.05));
     wallMesh.setMatrixAt(c, m);
   }

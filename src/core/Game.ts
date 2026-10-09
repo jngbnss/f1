@@ -166,24 +166,27 @@ export class Game {
       treesPerKm: config.treesPerKm,
       scenery: layout.scenery,
       pitBoxColors: teams.map((c) => liveryFor(c.id, c.spec.color, c.spec.accent ?? 0xffffff).primary),
+      realTerrain,
     });
     this.teamBox = new Map(teams.map((c, i) => [c.id, i]));
     this.scene.add(this.track.root);
     // Real relief: the landscape, the grass plane and the OSM scenery follow the
     // DEM relative to the nearby track height (the track itself stays flat).
-    const ground = realTerrain ? groundField(realTerrain, this.track.getCenterline()) : null;
+    // Circuits with real road heights (Spa, Suzuka) build and drape their own ground.
+    const ground = this.track.ground ?? (realTerrain ? groundField(realTerrain, this.track.getCenterline()) : null);
     this.ground = ground;
-    if (ground) {
+    if (ground && !this.track.ground) {
       for (const name of ['Grass', 'OsmScenery']) {
         const o = this.track.root.getObjectByName(name);
         if (o) drapeOnGround(o, ground.height);
       }
     }
-    this.terrain = buildTerrain(this.track.bounds, this.theme.terrain, 7, realTerrain, ground ? ground.height : null);
+    this.terrain = buildTerrain(this.track.bounds, this.theme.terrain, 7, realTerrain, ground ? ground.height : null, this.track.ground ? 90 : undefined);
     this.scene.add(this.terrain);
     // Racing line computed on the game's own (widened) road, not the real-width dataset line.
     // Baked minimum-lap-time line when the circuit has one, else minimum curvature.
-    this.racingLine = new RacingLine(layout.minTimeLine ?? racingLineFor(this.track), car.physics);
+    const linePath = layout.minTimeLine ?? racingLineFor(this.track);
+    this.racingLine = new RacingLine(linePath, car.physics, { heights: this.track.heightsFor(linePath) });
     this.scene.add(this.racingLine.mesh);
     this.lapTimer = new LapTimer(this.track.getCenterline().length, this.track.spawnIndex, `best:${car.id}:${layout.id}`);
 
@@ -223,7 +226,7 @@ export class Game {
         this.vehicles.push(vehicle);
         this.carOf.set(vehicle, def);
         let line = lines.get(def.id);
-        if (!line) lines.set(def.id, (line = new RacingLine(this.racingLine.path, def.physics)));
+        if (!line) lines.set(def.id, (line = new RacingLine(this.racingLine.path, def.physics, { heights: this.racingLine.heights })));
         // Front of the grid = faster drivers, with some randomness.
         const r = Math.sin(slot * 12.9898) * 43758.5453;
         const rand = r - Math.floor(r);
@@ -249,8 +252,11 @@ export class Game {
 
     // Surface is sampled under each wheel (two wheels on the grass pull the car around).
     const probe = new THREE.Vector3();
-    const surfaceAt = (x: number, z: number) => SURFACES[this.track.surfaceAt(probe.set(x, 0, z))];
-    for (const v of this.vehicles) v.physics.surfaceAt = surfaceAt;
+    const surfaceAt = (x: number, z: number, y = 0) => SURFACES[this.track.surfaceAt(probe.set(x, y, z))];
+    for (const v of this.vehicles) {
+      v.physics.surfaceAt = surfaceAt;
+      v.physics.aeroInAir = this.track.elevated;
+    }
 
     if (config.bench > 0) {
       this.autopilot = new AIDriver(this.player, this.racingLine, this.track, { pace: 0.95, lane: 0, aggression: 0.5 });
@@ -417,7 +423,7 @@ export class Game {
       let ai: AIDriver | null = null;
       if (slot.ai && net.ownsSlot(i)) {
         let line = this.rivalLines.get(def.id);
-        if (!line) this.rivalLines.set(def.id, (line = new RacingLine(this.racingLine.path, def.physics)));
+        if (!line) this.rivalLines.set(def.id, (line = new RacingLine(this.racingLine.path, def.physics, { heights: this.racingLine.heights })));
         const r = Math.sin(i * 12.9898) * 43758.5453;
         const rand = r - Math.floor(r);
         ai = new AIDriver(vehicle, line, this.track, { pace: 0.96 + (rand - 0.5) * 0.04, lane: (rand - 0.5) * 2.4, aggression: rand });

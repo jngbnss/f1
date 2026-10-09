@@ -72,6 +72,8 @@ export function buildTerrain(
   seed = 7,
   real: RealTerrain | null = null,
   groundHeight: ((x: number, z: number) => number) | null = null,
+  /** How far it sinks under the grass plane (m): coarse cells across a deep valley must stay below it. */
+  underGrass = UNDER_GRASS,
 ): THREE.Mesh {
   const minX = bounds.min.x - FLAT_MARGIN;
   const maxX = bounds.max.x + FLAT_MARGIN;
@@ -107,7 +109,7 @@ export function buildTerrain(
       const inside = Math.min(x - (bounds.min.x - GRASS_MARGIN), bounds.max.x + GRASS_MARGIN - x, z - (bounds.min.z - GRASS_MARGIN), bounds.max.z + GRASS_MARGIN - z);
       h = groundHeight(x, z);
       heights[i] = h;
-      pos.setY(i, FLAT_Y + h - UNDER_GRASS * smooth(0, 60, inside));
+      pos.setY(i, FLAT_Y + h - underGrass * smooth(0, underGrass > UNDER_GRASS ? 300 : 60, inside));
       woods[i] = fbm(x / 420, z / 420, seed + 50, false);
       continue;
     }

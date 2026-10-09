@@ -199,7 +199,7 @@ export class AIDriver {
     _tan.subVectors(line.points[(j + 1) % count], line.points[(j - 1 + count) % count]).setY(0).normalize();
     // Offset perpendicular to the line (+ = right), clamped to stay on the asphalt.
     const half = this.track.halfWidth - 1.3;
-    _target.set(p.x - _tan.z * this.offset, 0, p.z + _tan.x * this.offset);
+    _target.set(p.x - _tan.z * this.offset, p.y, p.z + _tan.x * this.offset);
     const lat = this.track.lateral(_target);
     if (Math.abs(lat) > half) {
       const fix = lat - Math.sign(lat) * half;

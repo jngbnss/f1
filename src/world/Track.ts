@@ -11,7 +11,11 @@ import { TiledInstances } from './TiledInstances';
 import { buildTrackside } from './Trackside';
 import { buildPaddock, PADDOCK_DEPTH } from './Paddock';
 import { buildPitBuilding, PIT_BUILDING_DEPTH, PIT_BUILDING_FRONT } from './PitBuilding';
-import type { TrackLayout } from './TrackLayout';
+import type { StandSpec, TrackLayout } from './TrackLayout';
+import { buildFerrisWheel } from './FerrisWheel';
+import { findCrossings, loopGap } from './Elevation';
+import type { Ground, RealTerrain } from './RealTerrain';
+import { drapeObject, elevatedGround } from './TrackGround';
 
 export type Surface = 'asphalt' | 'kerb' | 'grass' | 'gravel';
 
@@ -51,6 +55,12 @@ export interface Track {
   gridPose(slot: number): Pose;
   /** Ground type under a world position (grip / drag / sound). */
   surfaceAt(p: THREE.Vector3): Surface;
+  /** The road has real heights (Spa, Suzuka). */
+  readonly elevated: boolean;
+  /** Ground around a circuit with real road heights (null: flat circuit). */
+  readonly ground: Ground | null;
+  /** Road heights for a racing line (undefined: flat circuit). */
+  heightsFor(path: readonly [number, number][]): number[] | undefined;
   /** Per-frame animation (crowd), `time` in seconds. */
   /** Per frame: animations + distance culling around the camera. */
   update(time: number, camera?: THREE.Vector3): void;
@@ -67,6 +77,9 @@ export interface TrackMaterials {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+const X_AXIS = new THREE.Vector3(1, 0, 0);
+const pitchQ = new THREE.Quaternion();
+const xz = (v: THREE.Vector3): [number, number] => [v.x, v.z];
 const SPAWN_HEIGHT = 1.2;
 /** Corners tighter than this radius get kerbs / gravel traps. */
 const KERB_RADIUS = 260;
@@ -76,6 +89,14 @@ const KERB_WIDTH = 1.2;
 const FENCE_TOP = 3.4;
 /** Beyond barrier + this (m) a car has escaped the circuit and is put back. */
 const OUT_OF_BOUNDS_MARGIN = 6;
+/** Height difference counts this much more than horizontal distance in "which road am I on" queries. */
+const Y_WEIGHT = 4;
+/** Elevated circuits: the level run-off reaches this far behind the barrier (m). */
+const CORRIDOR_BEHIND_BARRIER = 4;
+/** Below this height difference two roads touch (no bridge between them), m. */
+const SAME_LEVEL = 3;
+/** Circuit name on the pit building's roof fascia. */
+const PIT_TITLES: Record<string, string> = { monza: 'Autodromo Nazionale Monza', spa: 'Circuit de Spa-Francorchamps', suzuka: 'Suzuka Circuit' };
 
 /** Deterministic PRNG so scenery is identical across runs (fair perf comparisons). */
 function mulberry32(seed: number): () => number {
@@ -104,8 +125,12 @@ class CenterlineGrid {
     });
   }
 
-  /** Index of the nearest sample within `radius` (or -1) and its squared distance. */
-  nearest(x: number, z: number, radius = this.cellSize): { index: number; distSq: number } {
+  /**
+   * Index of the nearest sample within `radius` (or -1) and its squared distance.
+   * With `y`, height counts too (×Y_WEIGHT): where the circuit passes over
+   * itself a car on the bridge belongs to the upper road, not the one below.
+   */
+  nearest(x: number, z: number, radius = this.cellSize, y = NaN): { index: number; distSq: number } {
     const r = Math.ceil(radius / this.cellSize);
     const cx = Math.floor(x / this.cellSize);
     const cz = Math.floor(z / this.cellSize);
@@ -117,7 +142,8 @@ class CenterlineGrid {
         if (!cell) continue;
         for (const i of cell) {
           const p = this.points[i];
-          const d = (p.x - x) ** 2 + (p.z - z) ** 2;
+          let d = (p.x - x) ** 2 + (p.z - z) ** 2;
+          if (y === y) d += ((p.y - y) * Y_WEIGHT) ** 2;
           if (d < distSq) {
             distSq = d;
             index = i;
@@ -125,6 +151,24 @@ class CenterlineGrid {
         }
       }
     return { index, distSq };
+  }
+
+  /** Lowest sample height within `radius` (Infinity if none). */
+  lowestWithin(x: number, z: number, radius: number): number {
+    const r = Math.ceil(radius / this.cellSize);
+    const cx = Math.floor(x / this.cellSize);
+    const cz = Math.floor(z / this.cellSize);
+    let low = Infinity;
+    for (let gx = cx - r; gx <= cx + r; gx++)
+      for (let gz = cz - r; gz <= cz + r; gz++) {
+        const cell = this.cells.get(this.key(gx, gz));
+        if (!cell) continue;
+        for (const i of cell) {
+          const p = this.points[i];
+          if ((p.x - x) ** 2 + (p.z - z) ** 2 < radius * radius && p.y < low) low = p.y;
+        }
+      }
+    return low;
   }
 
   private key(gx: number, gz: number): string {
@@ -139,12 +183,18 @@ export interface ProceduralTrackOptions {
   scenery?: OsmData;
   /** Box marking colours, one per team (pit lane). */
   pitBoxColors?: number[];
+  /** Real landscape heights (circuits with elevation blend their surroundings into it). */
+  realTerrain?: RealTerrain | null;
 }
 
 interface RibbonOptions {
   color?: (i: number) => THREE.Color;
   /** Only build segments for which this returns true. */
   include?: (i: number) => boolean;
+  /** UVs = world x / -z in meters (matches the grass plane's texture, so overlaps don't show). */
+  worldUv?: boolean;
+  /** Also part of the drivable trimesh collider (elevated circuits), at the road's own height. */
+  collide?: boolean;
 }
 
 /**
@@ -186,6 +236,21 @@ export class ProceduralTrack implements Track {
   /** `distance`: per-object cull distance (`userData.cullDistance`, small props) or the scenery default. */
   private readonly cullables: { object: THREE.Object3D; center: THREE.Vector3; radius: number; distance: number }[] = [];
   private standMaterials: { concrete: THREE.Material; seats: THREE.Material; roof: THREE.Material } | null = null;
+  /** The road has real heights (layout.heights); everything around it follows `ground`. */
+  readonly elevated: boolean;
+  /**
+   * Ground height around an elevated circuit (level run-off, blended into the
+   * real landscape). Null for flat circuits: Game drapes their surroundings itself.
+   */
+  ground: Ground | null = null;
+  /** Samples of a bridge deck (the road passes over another part of the circuit). */
+  private deck = new Uint8Array(0);
+  /** Drivable surface for the trimesh collider of elevated circuits (road + run-off + pit lane). */
+  private readonly surfaceVerts: number[] = [];
+  /** Per-frame animations (Ferris wheel). */
+  private readonly animations: ((time: number) => void)[] = [];
+  /** Footprints kept free of OSM scenery (famous grandstands). */
+  private reserved: { x: number; z: number; yaw: number; hl: number; hd: number }[] = [];
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -206,32 +271,49 @@ export class ProceduralTrack implements Track {
     shadeAsphalt(this.materials.asphalt);
     shadeGravel(this.materials.gravel);
 
+    this.elevated = !!layout.heights && layout.heights.length === layout.points.length;
     this.sampleCenterline();
     this.classifyCorners();
 
     const pad = this.barrierOffset + 2;
     for (const p of this.points) this.bounds.expandByPoint(p);
     this.bounds.expandByVector(new THREE.Vector3(pad, 0, pad));
-    this.bounds.max.y = 50;
-    this.bounds.min.y = -1;
+    this.bounds.max.y = Math.max(50, this.bounds.max.y + 50);
+    this.bounds.min.y = Math.min(-1, this.bounds.min.y - 10);
+
+    if (layout.pitSide) {
+      const colors = options.pitBoxColors ?? [0xffd200];
+      const lane = layout.pitLane;
+      this.pit = buildPitLaneData(this.points, this.rights, this.half, layout.pitSide, layout.sampleSpacing, Math.max(colors.length, 1), lane);
+      for (let k = this.pit.limiterStart; k <= this.pit.limiterEnd; k++) this.pitBuildingAt.add(this.pit.pathIndex[k]);
+    }
+    if (this.elevated) {
+      this.findBridges();
+      this.ground = elevatedGround({
+        points: this.points,
+        rights: this.rights,
+        corridor: (i, side) => this.corridorAt(side, i),
+        excluded: this.deck,
+        real: options.realTerrain ?? null,
+        bounds: this.bounds,
+      });
+    }
 
     this.buildGround();
     this.buildRoad();
     this.buildKerbsAndGravel();
-    if (layout.pitSide) {
-      const colors = options.pitBoxColors ?? [0xffd200];
-      this.pit = buildPitLaneData(this.points, this.rights, this.half, layout.pitSide, layout.sampleSpacing, Math.max(colors.length, 1));
-      for (let k = this.pit.limiterStart; k <= this.pit.limiterEnd; k++) this.pitBuildingAt.add(this.pit.pathIndex[k]);
-    }
     this.buildBarriers();
     if (this.pit) {
       this.buildPitLane(options.pitBoxColors ?? [0xffd200]);
-      const building = buildPitBuilding(this.pit, this.rights, options.pitBoxColors ?? [0xffd200], layout.name === 'Monza' ? 'Autodromo Nazionale Monza' : layout.name);
+      const building = buildPitBuilding(this.pit, this.rights, options.pitBoxColors ?? [0xffd200], PIT_TITLES[layout.id] ?? layout.name);
       this.disposables.push(...building.disposables);
       this.root.add(building.group);
       if (options.scenery) {
-        const paddock = buildPaddock(this.pit, this.rights, options.pitBoxColors ?? [0xffd200], (x, z) => this.clearance(x, z) > this.barrierOffset + 4);
+        // Built on flat ground, then laid onto the real slope (elevated circuits).
+        const flatPit = this.ground ? { ...this.pit, path: this.pit.path.map((p) => p.clone().setY(0)) } : this.pit;
+        const paddock = buildPaddock(flatPit, this.rights, options.pitBoxColors ?? [0xffd200], (x, z) => this.clearance(x, z) > this.barrierOffset + 4);
         this.disposables.push(...paddock.disposables);
+        if (this.ground) drapeObject(paddock.group, this.ground.height);
         this.root.add(paddock.group);
       }
     }
@@ -246,13 +328,18 @@ export class ProceduralTrack implements Track {
       sampleSpacing: layout.sampleSpacing,
       barrierAt: (side, i) => this.barrierAt(side, i, this.barrierOffset),
       clearance: (x, z) => this.clearance(x, z),
-      blocked: (side, i) => this.pitBuildingAt.has(i) && side === this.pit?.side,
+      blocked: (side, i) => (this.pitBuildingAt.has(i) && side === this.pit?.side) || this.deck[i] === 1,
       startGantry: { halfSpan: this.barrierOffset + 0.6, y: 7, height: 1.4, depth: 0.7 },
+      groundAt: this.ground ? this.ground.height : undefined,
     });
     this.disposables.push(...trackside.disposables);
     this.root.add(trackside.group);
     // Real circuits get their real buildings from OSM; generic ones only otherwise.
     let forestTrees: [number, number][] = [];
+    // Famous grandstands claim their ground first (OSM buildings / trees / props keep off it).
+    const stands = layout.stands ? this.placeFamousStands(layout.stands) : [];
+    this.reserved = stands.map((s) => ({ x: s.x, z: s.z, yaw: s.yaw, hl: s.length / 2 + 6, hd: s.depth / 2 + 6 }));
+    if (layout.ferrisWheel) this.buildFerrisWheel(layout.ferrisWheel);
     if (options.scenery) forestTrees = this.buildScenery(options.scenery);
     else this.buildPitAndGrandstand();
     this.forestSpots = forestTrees;
@@ -263,12 +350,15 @@ export class ProceduralTrack implements Track {
       const scatter = options.scenery ? 0 : Math.round((options.treesPerKm * this.length) / 1000);
       if (scatter + forestTrees.length > 0) this.buildTrees(scatter, forestTrees);
     }
+    const standRand = mulberry32(2024);
+    for (const s of stands) this.addTribune(s, standRand);
     this.buildSpectatorBanks();
     if (this.crowdSeats.length) {
       const crowd = buildCrowd(this.crowdSeats, this.crowdMaterial);
       this.disposables.push(...crowd.disposables, this.crowdMaterial);
       this.root.add(crowd.group);
     }
+    if (this.elevated) this.buildSurfaceCollider();
     this.collectCullables();
   }
 
@@ -287,7 +377,7 @@ export class ProceduralTrack implements Track {
   }
 
   nearestIndex(p: THREE.Vector3): number {
-    const hit = this.grid.nearest(p.x, p.z, 60);
+    const hit = this.grid.nearest(p.x, p.z, 60, this.elevated ? p.y : NaN);
     if (hit.index >= 0) return hit.index;
     // Far away from the track: brute force.
     let best = 0;
@@ -302,8 +392,24 @@ export class ProceduralTrack implements Track {
     return best;
   }
 
+  /** Nearest centerline sample by position only (scenery placement: height unknown). */
+  private nearestIndex2D(x: number, z: number): number {
+    const hit = this.grid.nearest(x, z, 60);
+    if (hit.index >= 0) return hit.index;
+    let best = 0;
+    let bestDist = Infinity;
+    this.points.forEach((c, i) => {
+      const d = (c.x - x) ** 2 + (c.z - z) ** 2;
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
+      }
+    });
+    return best;
+  }
+
   surfaceAt(p: THREE.Vector3): Surface {
-    const hit = this.grid.nearest(p.x, p.z, this.barrierOffset + 5);
+    const hit = this.grid.nearest(p.x, p.z, this.barrierOffset + 5, this.elevated ? p.y : NaN);
     if (hit.index < 0) return 'grass';
     const i = hit.index;
     const c = this.points[i];
@@ -328,9 +434,10 @@ export class ProceduralTrack implements Track {
     const q = new THREE.Quaternion();
     for (const { a, b } of built.wall) {
       q.setFromAxisAngle(UP, Math.atan2(b.x - a.x, b.z - a.z));
+      if (a.y !== b.y) q.multiply(pitchQ.setFromAxisAngle(X_AXIS, -Math.atan2(b.y - a.y, Math.hypot(b.x - a.x, b.z - a.z))));
       world.createCollider(
         rapier.ColliderDesc.cuboid(0.25, 0.8, a.distanceTo(b) / 2 + 0.05)
-          .setTranslation((a.x + b.x) / 2, 0.5, (a.z + b.z) / 2)
+          .setTranslation((a.x + b.x) / 2, (a.y + b.y) / 2 + 0.5, (a.z + b.z) / 2)
           .setRotation(q)
           .setFriction(0.05)
           .setRestitution(0.1)
@@ -378,6 +485,7 @@ export class ProceduralTrack implements Track {
 
   update(time: number, camera?: THREE.Vector3): void {
     this.crowdMaterial.setTime(time);
+    for (const a of this.animations) a(time);
     if (camera) {
       for (const c of this.cullables) c.object.visible = c.center.distanceTo(camera) - c.radius < c.distance;
     }
@@ -426,14 +534,54 @@ export class ProceduralTrack implements Track {
     const t = this.tangents[i];
     // Car forward is -Z: yaw so that (-sin yaw, 0, -cos yaw) == tangent.
     const yaw = Math.atan2(-t.x, -t.z);
+    const quaternion = new THREE.Quaternion().setFromAxisAngle(UP, yaw);
+    if (this.elevated) {
+      // Nose up / down with the road (rotation about the car's own X axis).
+      const n = this.points.length;
+      const a = this.points[(i - 2 + n) % n];
+      const b = this.points[(i + 2) % n];
+      const pitch = Math.atan2(b.y - a.y, Math.hypot(b.x - a.x, b.z - a.z));
+      quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), pitch));
+    }
     return {
-      position: this.points[i].clone().setY(SPAWN_HEIGHT),
-      quaternion: new THREE.Quaternion().setFromAxisAngle(UP, yaw),
+      position: this.points[i].clone().setY(this.points[i].y + SPAWN_HEIGHT),
+      quaternion,
     };
   }
 
+  /**
+   * Heights for a racing line (x, z per point, same driving order as the
+   * centerline): each point takes the height of the centerline next to it,
+   * searching only around the matching share of the lap so the line over a
+   * bridge gets the deck, not the road below. Undefined for flat circuits.
+   */
+  heightsFor(path: readonly [number, number][]): number[] | undefined {
+    if (!this.elevated) return undefined;
+    const n = this.points.length;
+    const m = path.length;
+    let hint = -1;
+    return path.map(([x, z], k) => {
+      const expected = Math.round((k / m) * n);
+      const from = hint >= 0 ? hint : expected;
+      let best = from;
+      let bestD = Infinity;
+      for (let o = -80; o <= 80; o++) {
+        const i = (from + o + n) % n;
+        const p = this.points[i];
+        const d = (p.x - x) ** 2 + (p.z - z) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+      hint = best;
+      return this.points[best].y;
+    });
+  }
+
   private sampleCenterline(): void {
-    const ctrl = this.layout.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    const heights = this.elevated ? this.layout.heights! : null;
+    const ctrl = this.layout.points.map(([x, z], k) => new THREE.Vector3(x, heights ? heights[k] : 0, z));
     const curve = new THREE.CatmullRomCurve3(ctrl, true, 'centripetal');
     // Default arc-length table (200) is far too coarse for real circuits with 1000+ points.
     curve.arcLengthDivisions = Math.max(200, ctrl.length * 10);
@@ -443,7 +591,8 @@ export class ProceduralTrack implements Track {
     this.points.push(...pts);
     const n = pts.length;
     for (let i = 0; i < n; i++) {
-      const t = pts[(i + 1) % n].clone().sub(pts[(i - 1 + n) % n]).normalize();
+      // Horizontal tangent: the cross-section stays level, right vectors stay horizontal.
+      const t = pts[(i + 1) % n].clone().sub(pts[(i - 1 + n) % n]).setY(0).normalize();
       this.tangents.push(t);
       this.rights.push(new THREE.Vector3().crossVectors(t, UP).normalize());
       this.length += pts[i].distanceTo(pts[(i + 1) % n]);
@@ -512,7 +661,8 @@ export class ProceduralTrack implements Track {
     const d = size.z + 1600;
 
     // Subdivided: a single huge quad loses depth precision and z-fights with the road.
-    const geo = new THREE.PlaneGeometry(w, d, Math.ceil(w / 40), Math.ceil(d / 40));
+    const cell = this.ground ? 10 : 40; // elevated ground needs the detail
+    const geo = new THREE.PlaneGeometry(w, d, Math.ceil(w / cell), Math.ceil(d / cell));
     geo.rotateX(-Math.PI / 2);
     // UVs in meters.
     const uv = geo.attributes.uv as THREE.BufferAttribute;
@@ -522,6 +672,36 @@ export class ProceduralTrack implements Track {
     mesh.name = 'Grass';
 
     const { rapier, world } = this.physics;
+    if (this.ground) {
+      // Elevated: the plane follows the ground; next to the road it sinks under the
+      // level run-off ribbons (exact heights, see buildRoad) so it never pokes through.
+      const ground = this.ground;
+      const pos = geo.attributes.position as THREE.BufferAttribute;
+      // One grid cell beyond the corridor the plane may not rise above the road either,
+      // or a triangle spanning the corridor edge would cut through the run-off on a hillside.
+      const near = this.barrierOffset + CORRIDOR_BEHIND_BARRIER + cell + 2;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i) + center.x;
+        const z = pos.getZ(i) + center.z;
+        const d = ground.distance(x, z);
+        let y = ground.height(x, z);
+        if (d < near) {
+          // Below every road whose corridor this cell could reach (two roads side by side at different heights).
+          const road = this.grid.lowestWithin(x, z, near + cell);
+          y = Math.min(y, road) - 0.7;
+        } else y -= 0.7 * (1 - smoothstepJs(near, near + 14, d));
+        pos.setY(i, y);
+        uv.setXY(i, x, -z);
+      }
+      geo.computeVertexNormals();
+      geo.computeBoundingSphere();
+      geo.computeBoundingBox();
+      // Same surface for physics (a car that leaves the run-off lands on it, then gets reset).
+      const verts = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) verts.set([pos.getX(i) + center.x, pos.getY(i) - 0.04, pos.getZ(i) + center.z], i * 3);
+      world.createCollider(rapier.ColliderDesc.trimesh(verts, new Uint32Array(geo.index!.array)).setFriction(1.0), this.fixedBody());
+      return;
+    }
     world.createCollider(
       rapier.ColliderDesc.cuboid(w / 2, 1, d / 2).setTranslation(center.x, -1, center.z).setFriction(1.0),
       this.fixedBody(),
@@ -529,28 +709,34 @@ export class ProceduralTrack implements Track {
   }
 
   /** Strip along the centerline between two lateral offsets. UVs: u = lateral m, v = distance m. */
-  private ribbon(inner: number, outer: number, y: number, opts: RibbonOptions = {}): THREE.BufferGeometry {
+  private ribbon(inner: number | ((i: number) => number), outer: number | ((i: number) => number), y: number, opts: RibbonOptions = {}): THREE.BufferGeometry {
     const n = this.points.length;
     const positions: number[] = [];
     const uvs: number[] = [];
     const colors: number[] = [];
     const v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    const innerAt = typeof inner === 'number' ? () => inner : inner;
+    const outerAt = typeof outer === 'number' ? () => outer : outer;
     let dist = 0;
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n;
       const seg = this.points[i].distanceTo(this.points[j]);
       if (!opts.include || opts.include(i)) {
-        v[0].copy(this.points[i]).addScaledVector(this.rights[i], inner).setY(y);
-        v[1].copy(this.points[i]).addScaledVector(this.rights[i], outer).setY(y);
-        v[2].copy(this.points[j]).addScaledVector(this.rights[j], inner).setY(y);
-        v[3].copy(this.points[j]).addScaledVector(this.rights[j], outer).setY(y);
+        const [ii, oi, ij, oj] = [innerAt(i), outerAt(i), innerAt(j), outerAt(j)];
+        // Level cross-section at the road's height (y = 0 on flat circuits).
+        v[0].copy(this.points[i]).addScaledVector(this.rights[i], ii).setY(this.points[i].y + y);
+        v[1].copy(this.points[i]).addScaledVector(this.rights[i], oi).setY(this.points[i].y + y);
+        v[2].copy(this.points[j]).addScaledVector(this.rights[j], ij).setY(this.points[j].y + y);
+        v[3].copy(this.points[j]).addScaledVector(this.rights[j], oj).setY(this.points[j].y + y);
         const c = opts.color?.(i);
         // two triangles, counter-clockwise seen from above (normals +Y)
         for (const k of [0, 1, 2, 1, 3, 2]) {
           positions.push(v[k].x, v[k].y, v[k].z);
-          uvs.push(k % 2 === 0 ? inner : outer, dist + (k >= 2 ? seg : 0));
+          if (opts.worldUv) uvs.push(v[k].x, -v[k].z);
+          else uvs.push(k % 2 === 0 ? (k >= 2 ? ij : ii) : k >= 2 ? oj : oi, dist + (k >= 2 ? seg : 0));
           if (c) colors.push(c.r, c.g, c.b);
         }
+        if (opts.collide) for (const k of [0, 1, 2, 1, 3, 2]) this.surfaceVerts.push(v[k].x, v[k].y - y, v[k].z);
       }
       dist += seg;
     }
@@ -564,11 +750,120 @@ export class ProceduralTrack implements Track {
 
   private buildRoad(): void {
     const half = this.half;
-    this.addMesh(this.ribbon(-half, half, 0.02), this.materials.asphalt).name = 'Asphalt';
+    this.addMesh(this.ribbon(-half, half, 0.02, { collide: this.elevated }), this.materials.asphalt).name = 'Asphalt';
 
     const lineMat = this.own(new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.7 }));
     this.addMesh(this.ribbon(-half + 0.25, -half + 0.45, 0.03), lineMat);
     this.addMesh(this.ribbon(half - 0.45, half - 0.25, 0.03), lineMat);
+    if (this.elevated) this.buildRunoff();
+  }
+
+  /**
+   * Elevated circuits: level grass run-off from the road edge to just behind
+   * the barrier, at the road's exact height (part of the drivable collider),
+   * clipped where another part of the circuit is closer. Where the ground
+   * falls away beside it (bridge approaches) a retaining wall closes the gap;
+   * over the lower road it is a bridge deck with a slab and piers.
+   */
+  private buildRunoff(): void {
+    const n = this.points.length;
+    const ground = this.ground!;
+    const extent = { [-1]: new Float32Array(n), [1]: new Float32Array(n) } as Record<number, Float32Array>;
+    const q = new THREE.Vector3();
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < n; i++) {
+        const full = this.corridorAt(side, i);
+        let reach = full;
+        for (let l = this.half + 1; l <= full; l += 1) {
+          q.copy(this.points[i]).addScaledVector(this.rights[i], side * l);
+          const hit = this.grid.nearest(q.x, q.z, full + 10, q.y);
+          if (hit.index >= 0 && loopGap(hit.index, i, n) > 10) {
+            reach = l - 0.5;
+            break;
+          }
+        }
+        extent[side][i] = Math.max(reach, this.half);
+      }
+    }
+    const runoff = (side: number) =>
+      this.ribbon(
+        side < 0 ? (i) => -extent[-1][i] : this.half,
+        side < 0 ? -this.half : (i) => extent[1][i],
+        -0.005,
+        { worldUv: true, collide: true },
+      );
+    for (const side of [-1, 1]) this.addMesh(runoff(side), this.materials.grass).name = 'Runoff';
+
+    // Retaining walls and bridge decks along the outer edges.
+    const concrete = this.own(new THREE.MeshStandardMaterial({ color: 0xb9b5ac, roughness: 0.9 }));
+    const pos: number[] = [];
+    const quad = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3) => {
+      for (const v of [a, b, c, a, c, d]) pos.push(v.x, v.y, v.z);
+    };
+    const edge = (i: number, side: number, out = 0) =>
+      this.points[i].clone().addScaledVector(this.rights[i], side * (extent[side][i] + out));
+    const DECK = 1.3;
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        const a = edge(i, side);
+        const b = edge(j, side);
+        if (this.deck[i] || this.deck[j]) {
+          // Deck fascia + underside slab (whole width, once per segment from the left side).
+          quad(a, b, b.clone().setY(b.y - DECK), a.clone().setY(a.y - DECK));
+          if (side < 0) {
+            const c = edge(i, 1);
+            const d = edge(j, 1);
+            quad(a.clone().setY(a.y - DECK), b.clone().setY(b.y - DECK), d.clone().setY(d.y - DECK), c.clone().setY(c.y - DECK));
+          }
+          continue;
+        }
+        // Ground just outside the edge: a wall down to it when it is clearly lower.
+        const ga = ground.height(...xz(edge(i, side, 0.8)));
+        const gb = ground.height(...xz(edge(j, side, 0.8)));
+        if (a.y - ga < 0.4 && b.y - gb < 0.4) continue;
+        quad(a, b, b.clone().setY(Math.min(b.y, gb) - 0.5), a.clone().setY(Math.min(a.y, ga) - 0.5));
+      }
+    }
+    // Piers under the deck: a pair of columns every ~12 m, standing on the ground below.
+    const pierGeo: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < n; i += 5) {
+      if (!this.deck[i]) continue;
+      for (const side of [-1, 1]) {
+        const p = this.points[i].clone().addScaledVector(this.rights[i], side * (this.half - 1));
+        const g = ground.height(p.x, p.z);
+        // Only outside the lower road's corridor (no pillar on its tarmac).
+        if (this.grid.nearest(p.x, p.z, this.barrierOffset + 2, g).distSq < (this.barrierOffset + 1.5) ** 2) continue;
+        const h = p.y - DECK - g + 0.3;
+        if (h < 1) continue;
+        pierGeo.push(new THREE.BoxGeometry(1.2, h, 1.2).translate(p.x, g - 0.3 + h / 2, p.z));
+      }
+    }
+    if (pos.length) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.computeVertexNormals();
+      const mesh = this.addMesh(geo, concrete);
+      mesh.name = 'Walls';
+      mesh.castShadow = true;
+      concrete.side = THREE.DoubleSide;
+    }
+    if (pierGeo.length) {
+      const merged = mergeGeometries(pierGeo)!;
+      pierGeo.forEach((g) => g.dispose());
+      const piers = this.addMesh(merged, concrete);
+      piers.name = 'BridgePiers';
+      piers.castShadow = true;
+    }
+  }
+
+  /** Trimesh collider of the drivable surface (elevated circuits): road, run-off, pit lane. */
+  private buildSurfaceCollider(): void {
+    const { rapier, world } = this.physics;
+    const verts = new Float32Array(this.surfaceVerts);
+    const index = new Uint32Array(verts.length / 3);
+    for (let i = 0; i < index.length; i++) index[i] = i;
+    world.createCollider(rapier.ColliderDesc.trimesh(verts, index).setFriction(1.0), this.fixedBody());
   }
 
   private buildKerbsAndGravel(): void {
@@ -656,17 +951,19 @@ export class ProceduralTrack implements Track {
         p.addVectors(a, b).multiplyScalar(0.5);
         // Skip pieces that would land on tarmac: inside of hairpins tighter than
         // the barrier offset, or where two parts of the circuit run close together.
-        if (this.grid.nearest(p.x, p.z, offI).distSq < (Math.min(offI, offJ) - 1.5) ** 2) continue;
+        if (this.grid.nearest(p.x, p.z, offI, this.elevated ? p.y : NaN).distSq < (Math.min(offI, offJ) - 1.5) ** 2) continue;
         const len = a.distanceTo(b) + 0.3; // small overlap closes gaps on curves
         q.setFromAxisAngle(UP, Math.atan2(b.x - a.x, b.z - a.z));
-        p.y = 0;
+        const yawOnly = q.clone();
+        // Follow the gradient: pitch about the segment's own X axis (flat circuits: none).
+        if (a.y !== b.y) q.multiply(pitchQ.setFromAxisAngle(X_AXIS, -Math.atan2(b.y - a.y, Math.hypot(b.x - a.x, b.z - a.z))));
         const scaled = new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, len));
         // Along the pit building its garages are the wall: collider only.
         if (!(side === this.pit?.side && this.pitBuildingAt.has(i))) {
           railMatrices.push(scaled);
           fenceMatrices.push(scaled.clone());
-          if (i % 2 === 0) postMatrices.push(new THREE.Matrix4().compose(p, q, one));
-          if (i % 4 === 0) poleMatrices.push(new THREE.Matrix4().compose(p, q, one));
+          if (i % 2 === 0) postMatrices.push(new THREE.Matrix4().compose(p, yawOnly, one));
+          if (i % 4 === 0) poleMatrices.push(new THREE.Matrix4().compose(p, yawOnly, one));
         }
 
         c.addVectors(this.rights[i], this.rights[j])
@@ -675,7 +972,7 @@ export class ProceduralTrack implements Track {
           .multiplyScalar(side * (colliderThickness / 2 - 0.25));
         world.createCollider(
           rapier.ColliderDesc.cuboid(colliderThickness / 2, (colliderTop - colliderBottom) / 2, len / 2)
-            .setTranslation(p.x + c.x, (colliderTop + colliderBottom) / 2, p.z + c.z)
+            .setTranslation(p.x + c.x, p.y + (colliderTop + colliderBottom) / 2, p.z + c.z)
             .setRotation(q)
             .setFriction(0.05)
             .setRestitution(0.1)
@@ -702,7 +999,46 @@ export class ProceduralTrack implements Track {
 
   /** True when `p` is clearly outside the barriers (escaped the circuit). */
   isOutOfBounds(p: THREE.Vector3): boolean {
-    return this.grid.nearest(p.x, p.z, this.barrierOffset + OUT_OF_BOUNDS_MARGIN).index < 0;
+    if (!this.elevated) return this.grid.nearest(p.x, p.z, this.barrierOffset + OUT_OF_BOUNDS_MARGIN).index < 0;
+    // Also out when far below / above the road it is next to (fell off a bridge or an embankment).
+    const hit = this.grid.nearest(p.x, p.z, this.barrierOffset + OUT_OF_BOUNDS_MARGIN, p.y);
+    if (hit.index < 0) return true;
+    const c = this.points[hit.index];
+    const lateral = this.lateral(p, hit.index);
+    return Math.abs(lateral) > this.barrierAt(Math.sign(lateral) || 1, hit.index, this.barrierOffset) + OUT_OF_BOUNDS_MARGIN || p.y < c.y - 4;
+  }
+
+  /** Outer edge of the level run-off on `side` at sample i (elevated circuits). */
+  private corridorAt(side: number, i: number): number {
+    return this.barrierAt(side, i, this.barrierOffset) + CORRIDOR_BEHIND_BARRIER;
+  }
+
+  /**
+   * Bridge decks: where the circuit crosses itself, the samples of the upper
+   * road that pass over the lower road's corridor. They don't shape the ground,
+   * get a deck structure instead of an embankment, and the "same section" tests
+   * treat the two roads as unrelated (they are metres apart vertically).
+   */
+  private findBridges(): void {
+    const n = this.points.length;
+    this.deck = new Uint8Array(n);
+    const pts2 = this.points.map((p) => [p.x, p.z] as [number, number]);
+    const crossings = findCrossings(pts2, this.points.map((p) => p.y));
+    const reach = this.barrierOffset + CORRIDOR_BEHIND_BARRIER + 8;
+    for (const c of crossings) {
+      const lower = this.points[c.lower];
+      for (let k = -60; k <= 60; k++) {
+        const i = (c.upper + k + n) % n;
+        const p = this.points[i];
+        // Distance from this upper sample to the lower road's centerline (nearby lower samples).
+        let d = Infinity;
+        for (let m = -40; m <= 40; m++) {
+          const q = this.points[(c.lower + m + n) % n];
+          d = Math.min(d, Math.hypot(p.x - q.x, p.z - q.z));
+        }
+        if (d < reach && p.y - lower.y > SAME_LEVEL) this.deck[i] = 1;
+      }
+    }
   }
 
   private buildStartLine(): void {
@@ -727,7 +1063,7 @@ export class ProceduralTrack implements Track {
     const geo = new THREE.PlaneGeometry(w, 1.6);
     geo.rotateX(-Math.PI / 2);
     const strip = this.addMesh(geo, this.own(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8 })));
-    strip.position.set(p.x, 0.035, p.z);
+    strip.position.set(p.x, p.y + (this.elevated ? 0.06 : 0.035), p.z);
     strip.rotation.y = yaw;
     strip.name = 'StartLine';
 
@@ -760,7 +1096,7 @@ export class ProceduralTrack implements Track {
         l.position.set(k * 0.85, y, -0.85);
         gantry.add(l);
       }
-    gantry.position.set(p.x, 0, p.z);
+    gantry.position.set(p.x, p.y, p.z);
     gantry.rotation.y = yaw;
     gantry.name = 'StartGantry';
     this.root.add(gantry);
@@ -780,7 +1116,7 @@ export class ProceduralTrack implements Track {
     // Cheap reject far from the circuit (nearestIndex brute-forces there).
     if (this.clearance(x, z, 130) === Infinity) return false;
     const p = new THREE.Vector3(x, 0, z);
-    const i = this.nearestIndex(p);
+    const i = this.nearestIndex2D(x, z);
     if (!this.pitBuildingAt.has(i)) return false;
     const lat = this.lateral(p, i) * pit.side;
     return lat > 0 && lat < pit.lateralAt(i) + PIT_BUILDING_FRONT + PIT_BUILDING_DEPTH + PADDOCK_DEPTH;
@@ -820,15 +1156,17 @@ export class ProceduralTrack implements Track {
       clearance: (x, z) => this.clearance(x, z),
       distance: this.distanceField(2000),
       nearestPoint: (x, z) => {
-        const p = this.points[this.nearestIndex(new THREE.Vector3(x, 0, z))];
+        const p = this.points[this.nearestIndex2D(x, z)];
         return { x: p.x, z: p.z };
       },
       minClearance: this.barrierOffset + 2,
-      exclude: (x, z) => this.behindPitBuilding(x, z),
+      exclude: (x, z) => this.behindPitBuilding(x, z) || this.isReserved(x, z),
       asphalt: this.materials.asphalt,
       rand: mulberry32(4242),
     });
     this.disposables.push(...result.disposables);
+    // Elevated circuits: buildings, roads, car parks, props onto the real slope.
+    if (this.ground) drapeObject(result.group, this.ground.height);
     this.root.add(result.group);
     const rand = mulberry32(777);
     for (const spec of result.grandstands) this.addTribune(spec, rand);
@@ -914,6 +1252,58 @@ export class ProceduralTrack implements Track {
     }
   }
 
+  /** Grandstands at the circuit's famous corners (where OSM maps none), on the preferred side when it fits. */
+  private placeFamousStands(stands: readonly StandSpec[]): TribuneSpec[] {
+    const n = this.points.length;
+    const out: TribuneSpec[] = [];
+    for (const spec of stands) {
+      const i = Math.round(spec.at / this.layout.sampleSpacing) % n;
+      const t = this.tangents[i];
+      const r = this.rights[i];
+      for (const side of [spec.side, -spec.side]) {
+        if (this.pitBuildingAt.has(i) && side === this.pit?.side) continue;
+        const off = this.barrierAt(side, i, this.barrierOffset) + 6 + spec.depth / 2;
+        const center = this.points[i].clone().addScaledVector(r, side * off);
+        if (!this.isClear(center, t, r, spec.length, spec.depth)) continue;
+        // Front (local -X) towards the track: direction -side * r.
+        const fx = -side * r.x;
+        const fz = -side * r.z;
+        out.push({ x: center.x, z: center.z, yaw: Math.atan2(fz, -fx), length: spec.length, depth: spec.depth, height: spec.height });
+        break;
+      }
+    }
+    return out;
+  }
+
+  /** Inside a reserved footprint (famous grandstand + margin)? */
+  private isReserved(x: number, z: number): boolean {
+    for (const r of this.reserved) {
+      const dx = x - r.x;
+      const dz = z - r.z;
+      // Tribune local axes: X = depth (away from the track), Z = length; rotation.y = yaw.
+      const lx = dx * Math.cos(r.yaw) - dz * Math.sin(r.yaw);
+      const lz = dx * Math.sin(r.yaw) + dz * Math.cos(r.yaw);
+      if (Math.abs(lx) < r.hd && Math.abs(lz) < r.hl) return true;
+    }
+    return false;
+  }
+
+  private buildFerrisWheel(spec: { at: number; side: number; distance: number }): void {
+    const n = this.points.length;
+    const i = Math.round(spec.at / this.layout.sampleSpacing) % n;
+    const r = this.rights[i];
+    const p = this.points[i].clone().addScaledVector(r, spec.side * spec.distance);
+    const y = this.ground ? this.ground.height(p.x, p.z) : 0;
+    // Wheel plane facing the track.
+    const wheel = buildFerrisWheel(p.x, y, p.z, Math.atan2(-spec.side * r.x, -spec.side * r.z));
+    wheel.group.traverse((o) => (o.userData.cullDistance = 6000));
+    this.disposables.push(...wheel.disposables);
+    this.root.add(wheel.group);
+    this.animations.push(wheel.update);
+    // Keep the park's trees and buildings off its base.
+    this.reserved.push({ x: p.x, z: p.z, yaw: 0, hl: 40, hd: 40 });
+  }
+
   /** Stepped grandstand + its seated crowd. */
   private addTribune(spec: TribuneSpec, rand: () => number): void {
     if (!this.standMaterials) {
@@ -922,6 +1312,24 @@ export class ProceduralTrack implements Track {
         seats: this.own(new THREE.MeshStandardMaterial({ color: 0x2a5fb0, roughness: 0.7, vertexColors: true })),
         roof: this.own(new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.5, metalness: 0.3 })),
       };
+    }
+    if (this.ground && spec.y === undefined) {
+      // Stand on the lowest corner of its footprint (the slope disappears under the steps).
+      const c = Math.cos(spec.yaw);
+      const s = Math.sin(spec.yaw);
+      let low = Infinity;
+      for (const [a, b] of [
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1],
+        [0, 0],
+      ]) {
+        const lx = (a * spec.depth) / 2;
+        const lz = (b * spec.length) / 2;
+        low = Math.min(low, this.ground.height(spec.x + c * lx + s * lz, spec.z - s * lx + c * lz));
+      }
+      spec = { ...spec, y: low - 0.2 };
     }
     const tribune = buildTribune(spec, this.standMaterials, rand);
     this.disposables.push(...tribune.disposables);
@@ -954,7 +1362,7 @@ export class ProceduralTrack implements Track {
           const dz = this.points[i].z - p.z;
           q.setFromAxisAngle(UP, Math.atan2(-dx, -dz) + (rand() - 0.5) * 0.5);
           const color = new THREE.Color(shirts[Math.floor(rand() * shirts.length)]);
-          this.crowdSeats.push({ matrix: new THREE.Matrix4().compose(p.clone().setY(0.25), q, one), color });
+          this.crowdSeats.push({ matrix: new THREE.Matrix4().compose(p.clone().setY((this.ground?.height(p.x, p.z) ?? 0) + 0.25), q, one), color });
           placed++;
         }
       }
@@ -1040,6 +1448,11 @@ export class ProceduralTrack implements Track {
     this.root.add(c.group, t.group);
   }
 }
+
+const smoothstepJs = (e0: number, e1: number, x: number) => {
+  const k = Math.min(Math.max((x - e0) / (e1 - e0), 0), 1);
+  return k * k * (3 - 2 * k);
+};
 
 /** Merges parts into one non-indexed geometry with per-part vertex colors. */
 function treeGeometry(parts: [THREE.BufferGeometry, THREE.Color][]): THREE.BufferGeometry {

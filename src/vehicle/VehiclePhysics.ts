@@ -70,7 +70,7 @@ export class VehiclePhysics {
   private readonly massPerWheel: number;
   private readonly drivenCount: number;
   /** Ground under a wheel contact (x, z). Unset = asphalt everywhere. */
-  surfaceAt: ((x: number, z: number) => SurfaceSample) | null = null;
+  surfaceAt: ((x: number, z: number, y?: number) => SurfaceSample) | null = null;
   /** Average surface grip under the grounded wheels in the last step (1 = asphalt). */
   surfaceGrip = 1;
   /** Tyre state (compound, wear, temperature) per axle, multiplies tyre friction. */
@@ -83,6 +83,12 @@ export class VehiclePhysics {
    * pedal at low downforce locks the wheels (flat spots, no steering).
    */
   brakeAssist = true;
+  /**
+   * Keep the downforce while all four wheels are off the ground (circuits with real
+   * crests: Spa, Suzuka). On flat circuits a car only takes off in a crash, where
+   * pressing it down would just make the crash worse.
+   */
+  aeroInAir = false;
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -248,7 +254,7 @@ export class VehiclePhysics {
       let surfGrip = 1;
       let surfDrag = 0;
       if (this.surfaceAt) {
-        const sf = this.surfaceAt(_origin.x, _origin.z);
+        const sf = this.surfaceAt(_origin.x, _origin.z, _origin.y);
         surfGrip = sf.grip;
         surfDrag = sf.drag;
       }
@@ -326,7 +332,10 @@ export class VehiclePhysics {
       _impulse.copy(_linvel).multiplyScalar((-dv / speed) * c.mass);
       body.applyImpulse(_impulse, true);
     }
-    if (grounded > 0) {
+    // Aero works in the air too (an F1 car stays planted over a crest like Eau Rouge / Raidillon).
+    // Not for a car on its side or roof, nor one riding on another car (pressing it down there
+    // would only turn a touch into a crash).
+    if (grounded > 0 || (this.aeroInAir && _up.y > 0.5 && !this.onAnotherCar())) {
       const down = c.downforce * speed * speed * dt;
       _impulse.copy(_up).multiplyScalar(-down);
       body.applyImpulse(_impulse, true);
@@ -348,6 +357,15 @@ export class VehiclePhysics {
       const s = cap / speed;
       body.setLinvel({ x: lv.x * s, y: lv.y * s, z: lv.z * s }, true);
     }
+  }
+
+  /** Another car's chassis right below this one (all wheels in the air on top of it)? */
+  private onAnotherCar(): boolean {
+    const t = this.body.translation();
+    this.ray.origin = { x: t.x, y: t.y, z: t.z };
+    this.ray.dir = { x: 0, y: -1, z: 0 };
+    const hit = this.physics.world.castRay(this.ray, 2.5, true, undefined, undefined, undefined, this.body);
+    return !!hit && hit.collider.collisionGroups() === CHASSIS_GROUPS;
   }
 
   /** Current physics pose (written into the given targets). */

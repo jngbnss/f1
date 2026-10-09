@@ -46,7 +46,7 @@ export function buildPitBuilding(
   // Text and garages must read left to right from the lane: along -t when the pits are on the right.
   const uOf = (d: number) => (pit.side > 0 ? length - d : d) / length;
   const at = (k: number, depth: number, y: number) =>
-    pit.path[k].clone().addScaledVector(rights[pit.pathIndex[k]], pit.side * (PIT_BUILDING_FRONT + depth)).setY(y);
+    pit.path[k].clone().addScaledVector(rights[pit.pathIndex[k]], pit.side * (PIT_BUILDING_FRONT + depth)).setY(pit.path[k].y + y);
 
   // --- facade canvas: row 0 = garages (GROUND_H), row 1 = roof fascia ---------
   const W = Math.min(8192, Math.ceil(length * PX_PER_M));
@@ -155,7 +155,7 @@ export function buildPitBuilding(
     soups.facade.quad(at(k, -ROOF_OVERHANG, ROOF_Y), at(k + 1, -ROOF_OVERHANG, ROOF_Y), at(k + 1, -ROOF_OVERHANG, ROOF_Y + FASCIA_H), at(k, -ROOF_OVERHANG, ROOF_Y + FASCIA_H), [f0, vFascia[0], f1, vFascia[0], f1, vFascia[1], f0, vFascia[1]], face);
     soups.white.quad(at(k, -ROOF_OVERHANG, ROOF_Y + FASCIA_H), at(k + 1, -ROOF_OVERHANG, ROOF_Y + FASCIA_H), at(k + 1, PIT_BUILDING_DEPTH, ROOF_Y + FASCIA_H), at(k, PIT_BUILDING_DEPTH, ROOF_Y + FASCIA_H), FULL, upV);
     // Back wall.
-    soups.concrete.quad(at(k, PIT_BUILDING_DEPTH, 0), at(k + 1, PIT_BUILDING_DEPTH, 0), at(k + 1, PIT_BUILDING_DEPTH, ROOF_Y + FASCIA_H), at(k, PIT_BUILDING_DEPTH, ROOF_Y + FASCIA_H), FULL, outward(k));
+    soups.concrete.quad(at(k, PIT_BUILDING_DEPTH, -3), at(k + 1, PIT_BUILDING_DEPTH, -3), at(k + 1, PIT_BUILDING_DEPTH, ROOF_Y + FASCIA_H), at(k, PIT_BUILDING_DEPTH, ROOF_Y + FASCIA_H), FULL, outward(k));
   }
   // End walls.
   for (const [k, dir] of [
@@ -163,7 +163,7 @@ export function buildPitBuilding(
     [k1, 1],
   ] as const) {
     const t = pit.path[Math.min(k + 1, pit.path.length - 1)].clone().sub(pit.path[Math.max(k - 1, 0)]).normalize().multiplyScalar(dir);
-    soups.concrete.quad(at(k, -ROOF_OVERHANG, 0), at(k, PIT_BUILDING_DEPTH, 0), at(k, PIT_BUILDING_DEPTH, ROOF_Y + FASCIA_H), at(k, -ROOF_OVERHANG, ROOF_Y + FASCIA_H), FULL, t);
+    soups.concrete.quad(at(k, -ROOF_OVERHANG, -3), at(k, PIT_BUILDING_DEPTH, -3), at(k, PIT_BUILDING_DEPTH, ROOF_Y + FASCIA_H), at(k, -ROOF_OVERHANG, ROOF_Y + FASCIA_H), FULL, t);
   }
 
   const facadeMat = new THREE.MeshStandardMaterial({ map: facadeTex, roughness: 0.75, emissive: 0xffffff, emissiveMap: facadeTex, emissiveIntensity: 0.12 });
