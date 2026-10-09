@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { VehicleConfig } from '../VehicleConfig';
 import type { WheelState } from '../VehiclePhysics';
 import type { VehicleVisual } from '../VehicleVisual';
-import { applyLivery, applyTyreBand, numberTexture, type Livery } from './F1Livery';
+import { helmetTexture, liveryMaterial, numberTexture, rimMaterial, tyreMaterial, type Livery } from './F1Livery';
 
 /**
  * 2026 F1 car from public/models/f1-2026.glb (built by scripts/build-f1-model.ts
@@ -33,6 +33,24 @@ interface Debris {
 
 /** Driver's helmet in model space (open cockpit between z -0.45 and -0.05). */
 const HELMET = new THREE.Vector3(0, 0.8, -0.22);
+/** Small parts (model space). */
+const TCAM = new THREE.Vector3(0, 1.1, 0.24);
+const RAIN_LIGHT = new THREE.Vector3(0, 0.3, 2.42);
+const ENDPLATE_LIGHT = new THREE.Vector3(0.575, 0.66, 2.38);
+
+/** Geometry shared by every car. */
+let partsCache: { helmet: THREE.BufferGeometry; visor: THREE.BufferGeometry; tcam: THREE.BufferGeometry; rainLight: THREE.BufferGeometry; endplateLight: THREE.BufferGeometry } | null = null;
+function sharedParts() {
+  partsCache ??= {
+    helmet: new THREE.SphereGeometry(0.135, 28, 18),
+    // Visor opening facing forward (-z).
+    visor: new THREE.SphereGeometry(0.1375, 24, 6, Math.PI * 1.15, Math.PI * 0.7, Math.PI * 0.4, Math.PI * 0.17),
+    tcam: new THREE.BoxGeometry(0.075, 0.045, 0.13),
+    rainLight: new THREE.BoxGeometry(0.11, 0.05, 0.025),
+    endplateLight: new THREE.BoxGeometry(0.012, 0.16, 0.02),
+  };
+  return partsCache;
+}
 /** Tyre compound sidewall colours (Pirelli: soft red, medium yellow, hard white). */
 export const COMPOUND_COLORS = { soft: 0xe10600, medium: 0xffd200, hard: 0xf0f0f0 } as const;
 
@@ -106,22 +124,25 @@ export class GltfF1Visual implements VehicleVisual {
   private readonly textures: THREE.Texture[] = [];
   /** Sidewall band colour (tyre compound). */
   private readonly band = { value: new THREE.Color(COMPOUND_COLORS.medium) };
+  private light!: THREE.MeshStandardMaterial;
+  private lastSpin = 0;
+  private lastSpinTime = 0;
+  private spinRate = 0;
+  private decel = 0;
 
   constructor(config: VehicleConfig, livery: Livery, driver = 0) {
     if (!template) throw new Error('F1 model not loaded');
-    const paint = this.own(new THREE.MeshPhysicalMaterial({ metalness: 0.1, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.08 }));
-    const number = numberTexture(livery.numbers[driver % 2]);
+    const raceNumber = livery.numbers[driver % 2];
+    const number = numberTexture(raceNumber);
     this.textures.push(number);
-    applyLivery(paint, livery, number);
-    const tyre = this.own(new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 }));
-    applyTyreBand(tyre, this.band);
+    // Bodywork and wings share one livery material (regions, carbon and decals are placed in the shader).
+    const paint = this.own(liveryMaterial(livery, { slot: 0, number }));
     const slots: Record<string, THREE.Material> = {
       paint,
-      // Wings: the livery's second colour reads best against the body.
-      accent: this.own(new THREE.MeshPhysicalMaterial({ color: livery.style === 0 ? livery.accent : livery.secondary, metalness: 0.1, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.1 })),
-      carbon: this.own(new THREE.MeshPhysicalMaterial({ color: 0x141619, metalness: 0.3, roughness: 0.45, clearcoat: 0.7, clearcoatRoughness: 0.25 })),
-      tyre,
-      rim: this.own(new THREE.MeshStandardMaterial({ color: 0x2b2e33, metalness: 0.85, roughness: 0.3 })),
+      accent: paint,
+      carbon: this.own(liveryMaterial(livery, { slot: 1, number: null })),
+      tyre: this.own(tyreMaterial(this.band)),
+      rim: this.own(rimMaterial(livery.rim)),
     };
     const instance = (src: THREE.Object3D): THREE.Object3D => {
       const copy = src.clone();
@@ -162,18 +183,35 @@ export class GltfF1Visual implements VehicleVisual {
       if (name === 'FrontWing') this.frontWing = group;
       else this.rearWing = group;
     }
-    // Driver: team-coloured helmet with a dark visor band.
-    const helmetMat = this.own(new THREE.MeshPhysicalMaterial({ color: livery.helmet, roughness: 0.25, clearcoat: 1 }));
-    const visorMat = this.own(new THREE.MeshPhysicalMaterial({ color: 0x0a0c10, roughness: 0.05, metalness: 0.6, clearcoat: 1 }));
-    const helmetGeo = new THREE.SphereGeometry(0.135, 20, 14);
-    const visorGeo = new THREE.SphereGeometry(0.137, 20, 6, -Math.PI * 0.35, Math.PI * 0.7, Math.PI * 0.38, Math.PI * 0.16).rotateY(Math.PI);
-    this.geometries.push(helmetGeo, visorGeo);
-    const helmet = new THREE.Mesh(helmetGeo, helmetMat);
-    const visor = new THREE.Mesh(visorGeo, visorMat);
-    helmet.position.copy(HELMET);
-    visor.position.copy(HELMET);
+    // Driver: painted helmet (stripes, crown, number) with a tinted, iridescent visor.
+    const helmetTex = helmetTexture(livery, raceNumber);
+    this.textures.push(helmetTex);
+    const parts = sharedParts();
+    const helmetMat = this.own(new THREE.MeshPhysicalMaterial({ map: helmetTex, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.04 }));
+    const visorMat = this.own(new THREE.MeshPhysicalMaterial({ color: 0x07080b, roughness: 0.04, metalness: 0.5, clearcoat: 1, iridescence: 0.8, iridescenceIOR: 1.6 }));
+    const helmet = new THREE.Mesh(parts.helmet, helmetMat);
+    const visor = new THREE.Mesh(parts.visor, visorMat);
+    for (const m of [helmet, visor]) {
+      m.position.copy(HELMET);
+      m.scale.set(1, 0.96, 1.1);
+    }
     helmet.castShadow = true;
     body.add(helmet, visor);
+    // T-cam pod on the airbox: black on the first car, fluorescent yellow on the second (like the real grid).
+    const tcam = new THREE.Mesh(parts.tcam, this.own(new THREE.MeshPhysicalMaterial({ color: driver % 2 ? 0xd4f000 : 0x111111, roughness: 0.35, clearcoat: 1 })));
+    tcam.position.copy(TCAM);
+    body.add(tcam);
+    // Rain light (crash structure) and the endplate strips: flash while the car harvests energy (lifting / braking).
+    this.light = this.own(new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff1a10, emissiveIntensity: 0.3, roughness: 0.3 }));
+    const rain = new THREE.Mesh(parts.rainLight, this.light);
+    rain.position.copy(RAIN_LIGHT);
+    body.add(rain);
+    for (const s of [-1, 1]) {
+      const strip = new THREE.Mesh(parts.endplateLight, this.light);
+      strip.position.set(s * ENDPLATE_LIGHT.x, ENDPLATE_LIGHT.y, ENDPLATE_LIGHT.z);
+      this.rearWing.add(strip);
+      strip.position.sub(REAR_WING_PIVOT);
+    }
     this.root.add(body);
 
     // Wheels: mount (model x/z, physics height) -> steer -> spin -> mesh.
@@ -258,6 +296,18 @@ export class GltfF1Visual implements VehicleVisual {
 
   updateWheels(wheels: readonly WheelState[]): void {
     if (this.debris.length) this.updateDebris();
+    // Harvesting: front wheels slowing down -> flash the rain lights (4 Hz).
+    const now = performance.now() / 1000;
+    const dt = now - this.lastSpinTime;
+    if (wheels.length && dt > 0.02) {
+      const rate = (wheels[0].spin - this.lastSpin) / dt;
+      if (this.lastSpinTime > 0) this.decel = this.decel * 0.7 + 0.3 * ((this.spinRate - rate) / dt);
+      this.spinRate = rate;
+      this.lastSpin = wheels[0].spin;
+      this.lastSpinTime = now;
+      const harvesting = this.decel > 25 && Math.abs(rate) > 8;
+      this.light.emissiveIntensity = harvesting ? (Math.floor(now * 8) % 2 ? 6 : 0.3) : 0.3;
+    }
     for (let i = 0; i < wheels.length; i++) {
       const w = wheels[i];
       this.steers[i].position.y = -w.suspensionLength;
