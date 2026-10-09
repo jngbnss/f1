@@ -1,6 +1,7 @@
 import { CLASS_INFO, type CarClass } from '../vehicle/catalog/specs';
 import type { CarInfo as CarDefinition } from '../vehicle/catalog';
 import type { TrackEntry } from '../world/tracks';
+import { mountWeatherPicker } from '../world/Weather';
 
 export interface MenuSelection {
   carId: string;
@@ -49,6 +50,7 @@ export function showMenu(
         <h2>레이스</h2>
         <div class="menu-grid" data-group="ai"></div>
         <div class="menu-grid menu-laps" data-group="laps"></div>
+        <div data-group="weather"></div>
         <button class="menu-start" type="button">출발 ▶ <small>(Enter)</small></button>
         <button class="menu-start menu-mp" type="button" style="background:#2f6fde;margin-top:10px">👥 친구와 레이스 <small>방 만들기 · 최대 20명</small></button>
         <p class="menu-note">실제 서킷 레이아웃: TUMFTM racetrack-database (LGPL-3.0) · © OpenStreetMap contributors. 높낮이 없이 평지로 재현됩니다.</p>
@@ -143,6 +145,7 @@ export function showMenu(
       resolve({ carId, trackId, ai, laps, multiplayer: true });
     });
     window.addEventListener('keydown', onKey);
+    mountWeatherPicker(root.querySelector<HTMLDivElement>('[data-group="weather"]')!);
     render();
     document.body.append(root);
   });

@@ -42,6 +42,10 @@ export interface WorldTheme {
   /** Multiplies the grass texture (lush vs dry vs dull). */
   grassTint: number;
   terrain: TerrainStyle;
+  /** Night: no HDRI; a dark procedural sky and floodlight-only lighting (see world/Weather.ts). */
+  night?: boolean;
+  /** Lowest sun elevation (rad) taken from the HDRI (default 0.35; dusk goes lower for long shadows). */
+  minSunElevation?: number;
 }
 
 const BASE: WorldTheme = {

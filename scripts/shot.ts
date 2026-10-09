@@ -24,6 +24,8 @@ const out = opt('out', 'shots');
 const query = opt('query', '');
 /** JS expression evaluated in the page right after each screenshot (printed as JSON); needs window.sim (dev or ?bench). */
 const evalExpr = opt('eval', '');
+/** JS expression (may return a promise) evaluated before each screenshot, e.g. to park the camera somewhere. */
+const preExpr = opt('pre', '');
 const tracks = argv.length ? argv : ['test', 'spielberg', 'monza', 'silverstone', 'spa'];
 const port = Number(process.env.SHOT_PORT ?? 4180);
 const cdpPort = Number(process.env.CDP_PORT ?? 9333);
@@ -98,12 +100,14 @@ async function main(): Promise<void> {
       const [track, car] = entry.split('@');
       await cdp.send('Page.navigate', { url: `http://localhost:${port}/?bench=999&track=${track}${car ? `&car=${car}` : ''}${query}` });
       await sleep(wait * 1000);
+      if (preExpr) await cdp.send('Runtime.evaluate', { expression: `(async () => { await (${preExpr}); })()`, awaitPromise: true });
       const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
       const file = join(out, `${entry.replace('@', '_')}.png`);
       writeFileSync(file, Buffer.from(String(shot.result?.data ?? ''), 'base64'));
       console.log(`saved ${file}`);
       if (evalExpr) {
-        const r = await cdp.send('Runtime.evaluate', { expression: `JSON.stringify(${evalExpr})`, returnByValue: true });
+        // Promises are awaited, so an expression can sample over time (e.g. fps A/B toggles).
+        const r = await cdp.send('Runtime.evaluate', { expression: `(async () => JSON.stringify(await (${evalExpr})))()`, returnByValue: true, awaitPromise: true });
         console.log(JSON.stringify(r.result));
       }
     }

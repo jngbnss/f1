@@ -10,6 +10,15 @@ import * as THREE from 'three';
  * SMAA anti-aliasing. The renderer's own tone mapping and MSAA are off
  * while this runs (they would apply twice).
  */
+/** Weather / time-of-day tuning (see world/Weather.ts). */
+export interface PostFxOptions {
+  /** Bloom strength and the luminance it starts at (night: stronger, lower threshold for floodlights). */
+  bloom?: number;
+  bloomThreshold?: number;
+  /** Extra full-screen UV effect after grading (rain drops on the lens). */
+  lens?: Effect | null;
+}
+
 export class PostFx {
   private readonly composer: EffectComposer;
   private readonly ao: N8AOPostPass;
@@ -19,6 +28,7 @@ export class PostFx {
     private readonly renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
     camera: THREE.PerspectiveCamera,
+    options: PostFxOptions = {},
   ) {
     this.pixelRatio = renderer.getPixelRatio();
     renderer.toneMapping = THREE.NoToneMapping;
@@ -50,7 +60,7 @@ export class PostFx {
     );
     this.composer.addPass(new EffectPass(camera, sanitize));
 
-    const bloom = new BloomEffect({ intensity: 0.35, luminanceThreshold: 0.9, luminanceSmoothing: 0.2, mipmapBlur: true });
+    const bloom = new BloomEffect({ intensity: options.bloom ?? 0.35, luminanceThreshold: options.bloomThreshold ?? 0.9, luminanceSmoothing: 0.2, mipmapBlur: true });
     // AgX keeps saturated liveries and grass from washing out the way ACES does;
     // a touch of contrast and colour afterwards gives the broadcast look. (The stock
     // BrightnessContrast/HueSaturation effects turned near-black pixels white.)
@@ -66,6 +76,7 @@ export class PostFx {
     );
     const vignette = new VignetteEffect({ offset: 0.3, darkness: 0.35 });
     this.composer.addPass(new EffectPass(camera, bloom, tone, grade, vignette));
+    if (options.lens) this.composer.addPass(new EffectPass(camera, options.lens));
     this.composer.addPass(new EffectPass(camera, new SMAAEffect({ preset: SMAAPreset.MEDIUM })));
   }
 
