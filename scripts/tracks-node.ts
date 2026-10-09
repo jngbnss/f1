@@ -1,7 +1,7 @@
 /** Circuit data for Node scripts (the game itself loads it through Vite). */
 import { existsSync, readFileSync } from 'node:fs';
 import type { OsmData } from '../src/world/OsmScenery';
-import { DEMO_TRACK, FAMOUS_STANDS, FERRIS_WHEELS, parseTumCsv, PIT_LANE, PIT_SIDE, type TrackLayout } from '../src/world/TrackLayout';
+import { applyCircuitSpecifics, DEMO_TRACK, FAMOUS_STANDS, FERRIS_WHEELS, parseTumCsv, PIT_LANE, PIT_SIDE, type TrackLayout } from '../src/world/TrackLayout';
 
 /** [id, name, data file] in 2026 calendar order — keep in sync with src/world/tracks/index.ts. */
 export const REAL_CIRCUITS: [string, string, string][] = [
@@ -9,6 +9,7 @@ export const REAL_CIRCUITS: [string, string, string][] = [
   ['shanghai', 'Shanghai International', 'Shanghai'],
   ['suzuka', 'Suzuka', 'Suzuka'],
   ['sakhir', 'Bahrain International', 'Sakhir'],
+  ['monaco', 'Monaco', 'Monaco'],
   ['montreal', 'Circuit Gilles Villeneuve', 'Montreal'],
   ['catalunya', 'Barcelona-Catalunya', 'Catalunya'],
   ['spielberg', 'Red Bull Ring', 'Spielberg'],
@@ -31,6 +32,7 @@ export function loadLayout(id: string): TrackLayout {
   if (!entry) return DEMO_TRACK;
   const [, name, file] = entry;
   const layout = parseTumCsv(id, name, readFileSync(dataUrl(`${file}.csv`), 'utf8'));
+  applyCircuitSpecifics(layout);
   layout.pitSide = PIT_SIDE[id];
   layout.pitLane = PIT_LANE[id];
   layout.stands = FAMOUS_STANDS[id];

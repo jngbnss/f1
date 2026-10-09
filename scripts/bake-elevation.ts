@@ -129,6 +129,10 @@ for (let pass = 0; pass < 60; pass++) {
   }
   if (!changed) break;
 }
+// Harbour-front roads (Monaco): 30 m DEM pixels mix quay and sea, so the road would sit
+// at the waterline. Real quays stand ~2.5 m above the sea (datum: -baseHeight).
+const quay = -meta.baseHeight + 2.5;
+if (id === 'monaco') for (let i = 0; i < n; i++) h[i] = Math.max(h[i], quay);
 h = smooth(h, 8);
 
 // Self-crossings: make room for a bridge.

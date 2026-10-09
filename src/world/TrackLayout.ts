@@ -35,6 +35,15 @@ export interface TrackLayout {
   stands?: StandSpec[];
   /** Landmark visible from the track (Suzuka's Ferris wheel): m along the lap, side, distance from the centerline. */
   ferrisWheel?: { at: number; side: number; distance: number };
+  /**
+   * Street circuit (Monaco): walls right at the road edge, pavements instead of
+   * grass run-off and gravel traps, a paved town around the track.
+   */
+  street?: boolean;
+  /** Sea / harbour next to the circuit: water surface height (track datum) and world [x, z] outline. */
+  sea?: { level: number; polygon: [number, number][] };
+  /** Ground kept free of OSM buildings and props for a hand-built landmark: [x, z, half size]. */
+  clearings?: [number, number, number][];
 }
 
 export interface StandSpec {
@@ -55,6 +64,14 @@ export const FAMOUS_STANDS: Record<string, StandSpec[]> = {
     { at: 6200, length: 90, depth: 14, height: 8, side: 1 },
     { at: 6800, length: 130, depth: 22, height: 12, side: -1 },
   ],
+  // Monaco: start straight (Tribune K side of Bd Albert 1er), Sainte Dévote, Tabac, the Swimming Pool and Rascasse.
+  monaco: [
+    { at: 90, length: 130, depth: 16, height: 12, side: -1 },
+    { at: 185, length: 60, depth: 12, height: 10, side: -1 },
+    { at: 2300, length: 90, depth: 14, height: 10, side: -1 },
+    { at: 2560, length: 110, depth: 14, height: 10, side: -1 },
+    { at: 2860, length: 70, depth: 12, height: 10, side: 1 },
+  ],
   suzuka: [
     { at: 120, length: 260, depth: 28, height: 16, side: -1 },
     { at: 720, length: 140, depth: 22, height: 12, side: -1 },
@@ -72,7 +89,7 @@ export const FERRIS_WHEELS: Record<string, { at: number; side: number; distance:
 };
 
 /** Side of the pit lane on the start/finish straight (+1 right), where the real one is. */
-export const PIT_SIDE: Record<string, number> = { monza: 1, spa: 1, suzuka: 1 };
+export const PIT_SIDE: Record<string, number> = { monza: 1, spa: 1, suzuka: 1, monaco: 1 };
 
 /**
  * Pit lanes that don't fit the default (330 m before the line to 230 m after,
@@ -82,7 +99,21 @@ export const PIT_SIDE: Record<string, number> = { monza: 1, spa: 1, suzuka: 1 };
 export const PIT_LANE: Record<string, { entry: number; exit: number; boxes: number }> = {
   spa: { entry: 145, exit: 330, boxes: 95 },
   suzuka: { entry: 140, exit: 420, boxes: 140 },
+  // Monaco: from the Anthony Noghès exit along the harbour side of Boulevard Albert 1er.
+  monaco: { entry: 190, exit: 150, boxes: 20 },
 };
+
+/** Per-circuit layout overrides that the CSV can't carry. */
+export function applyCircuitSpecifics(layout: TrackLayout): void {
+  if (layout.id === 'monaco') {
+    // The real road is 8-10 m wide: widened less than the permanent circuits so it stays
+    // a narrow street track, with the walls right at the kerb.
+    layout.roadWidth = 13.5;
+    layout.runoff = 1.6;
+    layout.street = true;
+    layout.attribution = 'Track & scenery: © OpenStreetMap contributors (ODbL)';
+  }
+}
 
 /** ~1.2 km hand-made test circuit: long straight, hairpin, chicane, fast sweepers. */
 export const DEMO_TRACK: TrackLayout = {

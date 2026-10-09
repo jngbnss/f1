@@ -102,6 +102,13 @@ export interface ElevatedGroundInput {
   excluded: Uint8Array;
   real: RealTerrain | null;
   bounds: THREE.Box3;
+  /** Blend width into the landscape (m); default BLEND. A town (Monaco) blends faster. */
+  blend?: number;
+  /**
+   * Sea / harbour (world [x, z] polygon): outside the road corridors the ground
+   * there is kept below the water surface so the water plane shows right up to the quays.
+   */
+  water?: { level: number; polygon: [number, number][] };
 }
 
 export interface ElevatedGround extends Ground {
@@ -234,7 +241,7 @@ export function elevatedGround(input: ElevatedGroundInput): ElevatedGround {
     // Inside a corridor: that road's height, exactly.
     if (bestE <= 0) return [bestH, bestD];
     const road = sh / sw;
-    return [road + (landscape(x, z) - road) * smoothstep(0, BLEND, bestE), bestD];
+    return [road + (landscape(x, z) - road) * smoothstep(0, input.blend ?? BLEND, bestE), bestD];
   };
 
   // --- raster near the circuit ----------------------------------------------
@@ -245,9 +252,13 @@ export function elevatedGround(input: ElevatedGroundInput): ElevatedGround {
   const h = Math.ceil((bounds.max.z - bounds.min.z + 2 * margin) / CELL) + 1;
   const heights = new Float32Array(w * h);
   const dist = new Float32Array(w * h);
+  const wet = input.water ? polygonRows(input.water.polygon, z0, h, CELL) : null;
   for (let j = 0; j < h; j++)
     for (let i = 0; i < w; i++) {
-      const [hh, dd] = evaluate(x0 + i * CELL, z0 + j * CELL);
+      const x = x0 + i * CELL;
+      let [hh, dd] = evaluate(x, z0 + j * CELL);
+      // In the harbour, beyond the quay edge (corridor + a few m): under the water.
+      if (wet && dd > 14 && inside(wet[j], x)) hh = Math.min(hh, input.water!.level - 2.5);
       heights[j * w + i] = hh;
       dist[j * w + i] = Math.min(dd, 1e4);
     }
@@ -268,4 +279,27 @@ export function elevatedGround(input: ElevatedGroundInput): ElevatedGround {
     height: (x, z) => (inRaster(x, z) ? sampleRaster(heights, x, z) : landscape(x, z)),
     distance: (x, z) => (inRaster(x, z) ? sampleRaster(dist, x, z) : 1e4),
   };
+}
+
+/** Scanline crossings of a polygon for each raster row (sorted x), for fast point-in-polygon tests. */
+function polygonRows(poly: [number, number][], z0: number, rows: number, cell: number): Float32Array[] {
+  const out: Float32Array[] = [];
+  const n = poly.length;
+  for (let j = 0; j < rows; j++) {
+    const z = z0 + j * cell + 1e-3;
+    const xs: number[] = [];
+    for (let k = 0; k < n; k++) {
+      const [ax, az] = poly[k];
+      const [bx, bz] = poly[(k + 1) % n];
+      if ((az <= z && bz > z) || (bz <= z && az > z)) xs.push(ax + ((z - az) / (bz - az)) * (bx - ax));
+    }
+    out.push(Float32Array.from(xs.sort((a, b) => a - b)));
+  }
+  return out;
+}
+
+function inside(row: Float32Array, x: number): boolean {
+  let c = 0;
+  for (let k = 0; k < row.length && row[k] < x; k++) c++;
+  return (c & 1) === 1;
 }

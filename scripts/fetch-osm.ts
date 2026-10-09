@@ -13,7 +13,7 @@
  * transform (rotation + translation) that best maps the TUM centerline onto
  * OSM highway=raceway geometry: coarse grid search, then trimmed ICP.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 export interface Circuit {
@@ -32,6 +32,8 @@ export const CIRCUITS: Circuit[] = [
   { id: 'shanghai', file: 'Shanghai', lat: 31.3389, lon: 121.2197 },
   { id: 'suzuka', file: 'Suzuka', lat: 34.8431, lon: 136.541 },
   { id: 'sakhir', file: 'Sakhir', lat: 26.0325, lon: 50.5106 },
+  // Projection origin of scripts/fetch-monaco.ts: its CSV is already in the OSM frame (Monaco_geo.json).
+  { id: 'monaco', file: 'Monaco', lat: 43.7365, lon: 7.4235 },
   { id: 'montreal', file: 'Montreal', lat: 45.5, lon: -73.5228 },
   { id: 'catalunya', file: 'Catalunya', lat: 41.57, lon: 2.2611 },
   { id: 'budapest', file: 'Budapest', lat: 47.5789, lon: 19.2486 },
@@ -308,9 +310,15 @@ async function processCircuit(c: Circuit): Promise<void> {
   const ext = Math.max(...tum.map((p) => Math.hypot(p[0], p[1])));
   const radius = Math.round(Math.max(2500, ext + 400));
 
-  const race = await overpass(`[out:json][timeout:90];way["highway"="raceway"](around:${radius},${c.lat},${c.lon});out geom;`);
-  const raceLines = race.elements.filter((e) => e.geometry).map((e) => densify(e.geometry!.map((g) => proj(g.lat, g.lon)), 2));
-  let t = align(tum, raceLines.flat());
+  // Circuits built from OSM directly (Monaco) carry an exact georeference: no search.
+  const geoFile = new URL(`${c.file}_geo.json`, DATA_DIR);
+  const exact = existsSync(geoFile) ? (JSON.parse(readFileSync(geoFile, 'utf8')) as { exact?: boolean; theta: number; tx: number; ty: number }) : null;
+  let t = exact?.exact ? { theta: exact.theta, tx: exact.tx, ty: exact.ty, rms: 0, inliers: 1 } : null;
+  if (!t) {
+    const race = await overpass(`[out:json][timeout:90];way["highway"="raceway"](around:${radius},${c.lat},${c.lon});out geom;`);
+    const raceLines = race.elements.filter((e) => e.geometry).map((e) => densify(e.geometry!.map((g) => proj(g.lat, g.lon)), 2));
+    t = align(tum, raceLines.flat());
+  }
   if (t.inliers < 0.8) {
     // Street / park circuits (Albert Park, parts of Montréal) are public roads, not raceways.
     console.log(`  raceway fit ${(t.inliers * 100).toFixed(0)}% -> trying public roads`);

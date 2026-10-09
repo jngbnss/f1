@@ -1,5 +1,5 @@
 import type { OsmData } from '../OsmScenery';
-import { DEMO_TRACK, FAMOUS_STANDS, FERRIS_WHEELS, parseTumCsv, PIT_LANE, PIT_SIDE, type TrackLayout } from '../TrackLayout';
+import { applyCircuitSpecifics, DEMO_TRACK, FAMOUS_STANDS, FERRIS_WHEELS, parseTumCsv, PIT_LANE, PIT_SIDE, type TrackLayout } from '../TrackLayout';
 
 export interface TrackEntry {
   id: string;
@@ -28,19 +28,27 @@ function realCircuit(id: string, name: string, location: string, lengthKm: numbe
     lengthKm,
     load: async () => {
       // The dataset's racing line is for the real road width; the game computes its own.
-      const [csv, osm, mintime, woods, elev] = await Promise.all([
+      const [csv, osm, mintime, woods, elev, marks] = await Promise.all([
         loadFile(`${file}.csv`),
         loadFile(`${file}_osm.json`),
         loadFile(`${file}_mintime.json`),
         loadFile(`${file}_woods.json`),
         loadFile(`${file}_elev.json`),
+        file === 'Monaco' ? loadFile(`${file}_landmarks.json`) : Promise.resolve(null),
       ]);
       if (!csv) throw new Error(`Missing track data: ${file}.csv`);
       const layout = parseTumCsv(id, name, csv);
+      applyCircuitSpecifics(layout);
       layout.pitSide = PIT_SIDE[id];
       layout.pitLane = PIT_LANE[id];
       layout.stands = FAMOUS_STANDS[id];
       layout.ferrisWheel = FERRIS_WHEELS[id];
+      if (marks) {
+        const m = JSON.parse(marks) as { seaLevel: number | null; sea?: number[]; casino?: [number, number] | null };
+        layout.sea = seaFrom(m);
+        // The Casino de Monte-Carlo is built by hand (MonacoDressing): keep OSM's box off its square.
+        if (m.casino) layout.clearings = [[m.casino[0], m.casino[1], 42]];
+      }
       if (elev) layout.heights = (JSON.parse(elev) as { heights: number[] }).heights;
       if (mintime) layout.minTimeLine = (JSON.parse(mintime) as { path: [number, number][] }).path;
       if (osm) {
@@ -53,6 +61,13 @@ function realCircuit(id: string, name: string, location: string, lengthKm: numbe
   };
 }
 
+function seaFrom(m: { seaLevel: number | null; sea?: number[] }): TrackLayout['sea'] {
+  if (m.seaLevel === null || !m.sea) return undefined;
+  const polygon: [number, number][] = [];
+  for (let i = 0; i + 1 < m.sea.length; i += 2) polygon.push([m.sea[i], m.sea[i + 1]]);
+  return { level: m.seaLevel, polygon };
+}
+
 export const TRACKS: TrackEntry[] = [
   { id: 'test', name: 'Test Circuit', location: 'web-sim-lab', lengthKm: 1.2, load: async () => DEMO_TRACK },
   // 2026 calendar order (circuits available in the TUMFTM dataset). Some
@@ -61,6 +76,8 @@ export const TRACKS: TrackEntry[] = [
   realCircuit('shanghai', 'Shanghai International', 'Shanghai, China', 5.5, 'Shanghai'),
   realCircuit('suzuka', 'Suzuka', 'Suzuka, Japan', 5.8, 'Suzuka'),
   realCircuit('sakhir', 'Bahrain International', 'Sakhir, Bahrain', 5.4, 'Sakhir'),
+  // Street circuit: centerline built from OpenStreetMap (scripts/fetch-monaco.ts), not TUMFTM.
+  realCircuit('monaco', 'Monaco', 'Monte Carlo, Monaco', 3.3, 'Monaco'),
   realCircuit('montreal', 'Circuit Gilles Villeneuve', 'Montréal, Canada', 4.4, 'Montreal'),
   realCircuit('catalunya', 'Barcelona-Catalunya', 'Montmeló, Spain', 4.7, 'Catalunya'),
   realCircuit('spielberg', 'Red Bull Ring', 'Spielberg, Austria', 4.3, 'Spielberg'),
@@ -80,7 +97,7 @@ export const TRACKS: TrackEntry[] = [
  * pass (scenery, trees, trackside detail); the others stay reachable by URL
  * (?track=spa) for tests and benchmarks.
  */
-export const FEATURED_TRACKS: TrackEntry[] = ['monza', 'spa', 'suzuka'].map((id) => TRACKS.find((t) => t.id === id)!);
+export const FEATURED_TRACKS: TrackEntry[] = ['monza', 'spa', 'suzuka', 'monaco'].map((id) => TRACKS.find((t) => t.id === id)!);
 
 export function findTrack(id: string | null | undefined): TrackEntry {
   return TRACKS.find((t) => t.id === id) ?? TRACKS[0];

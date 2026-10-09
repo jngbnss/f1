@@ -26,6 +26,8 @@ export type Surface = 'asphalt' | 'kerb' | 'grass' | 'gravel';
  */
 export interface Track {
   readonly name: string;
+  /** Street circuit (Monaco): paved surroundings instead of grass. */
+  readonly street: boolean;
   readonly root: THREE.Object3D;
   /** World-space bounds of the drivable area (used for out-of-world checks). */
   readonly bounds: THREE.Box3;
@@ -96,7 +98,7 @@ const CORRIDOR_BEHIND_BARRIER = 4;
 /** Below this height difference two roads touch (no bridge between them), m. */
 const SAME_LEVEL = 3;
 /** Circuit name on the pit building's roof fascia. */
-const PIT_TITLES: Record<string, string> = { monza: 'Autodromo Nazionale Monza', spa: 'Circuit de Spa-Francorchamps', suzuka: 'Suzuka Circuit' };
+const PIT_TITLES: Record<string, string> = { monza: 'Autodromo Nazionale Monza', spa: 'Circuit de Spa-Francorchamps', suzuka: 'Suzuka Circuit', monaco: 'Circuit de Monaco' };
 
 /** Deterministic PRNG so scenery is identical across runs (fair perf comparisons). */
 function mulberry32(seed: number): () => number {
@@ -229,6 +231,8 @@ export class ProceduralTrack implements Track {
   private grid!: CenterlineGrid;
   private readonly half: number;
   private readonly barrierOffset: number;
+  /** Street circuit (Monaco): pavements, no gravel, paved town. */
+  street = false;
   /** Centreline samples along the pit building (its side has no rails/fence visuals there). */
   private readonly pitBuildingAt = new Set<number>();
   private readonly crowdSeats: CrowdSeat[] = [];
@@ -267,7 +271,9 @@ export class ProceduralTrack implements Track {
       gravel: this.own(new THREE.MeshStandardMaterial({ color: 0xc9b48a, roughness: 1 })),
     };
 
-    shadeGrass(this.materials.grass);
+    this.street = !!layout.street;
+    // A street circuit is paved all round (the ground material becomes paving stone).
+    if (!this.street) shadeGrass(this.materials.grass);
     shadeAsphalt(this.materials.asphalt);
     shadeGravel(this.materials.gravel);
 
@@ -296,6 +302,9 @@ export class ProceduralTrack implements Track {
         excluded: this.deck,
         real: options.realTerrain ?? null,
         bounds: this.bounds,
+        // A town is terraced: the ground meets the landscape quickly. The harbour stays wet.
+        blend: layout.street ? 45 : undefined,
+        water: layout.sea,
       });
     }
 
@@ -339,6 +348,7 @@ export class ProceduralTrack implements Track {
     // Famous grandstands claim their ground first (OSM buildings / trees / props keep off it).
     const stands = layout.stands ? this.placeFamousStands(layout.stands) : [];
     this.reserved = stands.map((s) => ({ x: s.x, z: s.z, yaw: s.yaw, hl: s.length / 2 + 6, hd: s.depth / 2 + 6 }));
+    for (const [x, z, r] of layout.clearings ?? []) this.reserved.push({ x, z, yaw: 0, hl: r, hd: r });
     if (layout.ferrisWheel) this.buildFerrisWheel(layout.ferrisWheel);
     if (options.scenery) forestTrees = this.buildScenery(options.scenery);
     else this.buildPitAndGrandstand();
@@ -421,7 +431,8 @@ export class ProceduralTrack implements Track {
     if (this.kerb[i] && a <= this.half + KERB_WIDTH) return 'kerb';
     if (this.gravelSide[i] === Math.sign(lateral) && a <= this.barrierOffset) return 'gravel';
     if (this.pit && this.pit.inRange(i) && Math.sign(lateral) === this.pit.side && Math.abs(a - this.pit.lateralAt(i)) <= PIT_LANE_WIDTH / 2 + 0.5) return 'asphalt';
-    return 'grass';
+    // Street circuit: pavement up to the wall, no grass.
+    return this.street ? 'asphalt' : 'grass';
   }
 
   /** Pit lane surface, markings and the pit wall (with colliders). */
@@ -629,7 +640,8 @@ export class ProceduralTrack implements Track {
       if (Math.abs(c) > 1 / KERB_RADIUS) {
         for (let j = -Math.round(6 / ds); j <= Math.round(6 / ds); j++) this.kerb[(i + j + n) % n] = 1;
       }
-      if (Math.abs(c) > 1 / GRAVEL_RADIUS) {
+      // Street circuits have no gravel traps: the wall is right there.
+      if (!this.street && Math.abs(c) > 1 / GRAVEL_RADIUS) {
         // Turning left (c > 0) -> outside of the corner is the right side (+1).
         const side = c > 0 ? 1 : -1;
         for (let j = -before; j <= after; j++) this.gravelSide[(i + j + n) % n] = side;
@@ -878,6 +890,14 @@ export class ProceduralTrack implements Track {
     this.addMesh(this.ribbon(-half - KERB_WIDTH, -half, 0.03, { color, include: isKerb }), kerbMat).name = 'Kerbs';
     this.addMesh(this.ribbon(half, half + KERB_WIDTH, 0.03, { color, include: isKerb }), kerbMat).name = 'Kerbs';
 
+    if (this.street) {
+      // Pavement between the road edge and the wall (light stone, a touch above the road).
+      const pavement = this.own(new THREE.MeshStandardMaterial({ color: 0xb9b4aa, roughness: 0.85 }));
+      const outer = this.barrierOffset + 0.3;
+      this.addMesh(this.ribbon(-outer, -half, 0.018), pavement).name = 'Pavement';
+      this.addMesh(this.ribbon(half, outer, 0.018), pavement).name = 'Pavement';
+    }
+
     const gravelIn = half + KERB_WIDTH + 1.0;
     const gravelOut = this.barrierOffset - 0.6;
     this.addMesh(
@@ -902,7 +922,8 @@ export class ProceduralTrack implements Track {
     // Collider reaches below the ground and above the fence; its inner face
     // stays at the rails, the extra thickness goes outward (no tunnelling).
     const colliderBottom = -1;
-    const colliderTop = FENCE_TOP + 0.5;
+    // Street circuits: the town (buildings, tall fences) stands right behind the wall.
+    const colliderTop = FENCE_TOP + (this.street ? 4 : 0.5);
     const colliderThickness = 1.5;
 
     // Three W-beam rails in one unit-length geometry (scaled along Z per segment).

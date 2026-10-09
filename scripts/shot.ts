@@ -9,7 +9,8 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
 
 const argv = process.argv.slice(2);
 const opt = (name: string, fallback: string) => {
@@ -44,7 +45,7 @@ const browser = [
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function waitFor(url: string): Promise<Response> {
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 400; i++) {
     try {
       return await fetch(url);
     } catch {
@@ -82,7 +83,9 @@ async function main(): Promise<void> {
   if (!existsSync('dist/index.html')) throw new Error('dist/ missing: run `npm run build` first');
   if (!browser) throw new Error('No Chrome/Edge found; set BROWSER=<path>');
   mkdirSync(out, { recursive: true });
-  const server = spawn(`npx vite preview --port ${port} --strictPort`, { shell: true, stdio: 'ignore' });
+  // Vite straight from node_modules (npx can stall resolving it, e.g. in a git worktree).
+  const viteBin = join(dirname(createRequire(import.meta.url).resolve('vite/package.json')), 'bin', 'vite.js');
+  const server = spawn(process.execPath, [viteBin, 'preview', '--port', String(port), '--strictPort'], { stdio: 'ignore' });
   const profile = mkdtempSync(join(tmpdir(), 'web-sim-lab-shot-'));
   const chrome = spawn(browser, [
     '--headless=new',
@@ -122,8 +125,15 @@ async function main(): Promise<void> {
   } finally {
     chrome.kill();
     server.kill();
-    if (process.platform === 'win32' && server.pid) spawn('taskkill', ['/pid', String(server.pid), '/T', '/F'], { stdio: 'ignore' });
-    setTimeout(() => rmSync(profile, { recursive: true, force: true }), 1500);
+    if (process.platform === 'win32') for (const pid of [server.pid, chrome.pid]) if (pid) spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    // Chrome may still hold the profile for a moment: a leftover temp dir is harmless.
+    setTimeout(() => {
+      try {
+        rmSync(profile, { recursive: true, force: true });
+      } catch {
+        /* still locked */
+      }
+    }, 1500);
   }
 }
 

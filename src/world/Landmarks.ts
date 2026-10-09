@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildMonaco } from './MonacoDressing';
 import monzaRaw from './tracks/data/Monza_landmarks.json?raw';
 import { buildCrowd, buildTribune, CrowdMaterial } from './Crowd';
 import { PIT_BUILDING_FRONT } from './PitBuilding';
@@ -38,6 +39,7 @@ export function buildLandmarks(trackId: string, track: Track, groundY: (x: numbe
   const group = new THREE.Group();
   group.name = 'Landmarks';
   const disposables: { dispose(): void }[] = [];
+  if (trackId === 'monaco' && typeof document !== 'undefined') return buildMonaco(track, groundY);
   if (trackId !== 'monza' || typeof document === 'undefined') return { group, dispose: () => {} };
   const ctx = new Ctx(track, groundY, group, disposables);
   buildBanking(ctx, MONZA.banking);

@@ -381,7 +381,7 @@ export class Game {
     this.loop.start();
     // Stream heavy assets after the first frame: drive first, prettier a moment later.
     const base = import.meta.env.BASE_URL;
-    const textures = applyTrackTextures(this.track.materials, this.renderer, this.theme.grassTint);
+    const textures = applyTrackTextures(this.track.materials, this.renderer, this.theme.grassTint, undefined, this.track.street);
     textures.catch((e) => console.warn('Track textures failed', e));
     const real = this.realTerrain;
     if (real) {

@@ -247,6 +247,22 @@ export const THEMES: Record<string, WorldTheme> = {
     grassTint: 0xa8bb6a,
     terrain: { height: 420, scale: 2600, ramp: 2500, ridged: true, forest: 0.5, meadow: 0x8a8158, woods: 0x3d4a2a, rock: 0x9a8a70, rockLine: 0.7 },
   },
+  // Monte Carlo: bright Riviera sun, deep blue sea, the Maritime Alps behind the town.
+  riviera: {
+    ...BASE,
+    id: 'riviera',
+    hdri: 'syferfontein_6d_clear_puresky_2k.hdr',
+    exposure: 1.02,
+    sunIntensity: 3.4,
+    sunColor: 0xfff0d8,
+    hemiIntensity: 0.3,
+    envIntensity: 1.05,
+    fogDensity: 0.00012,
+    skyTop: 0x3f7fd0,
+    skyHorizon: 0xcfe3f2,
+    grassTint: 0x8fb05e,
+    terrain: { height: 900, scale: 3000, ramp: 2000, ridged: true, forest: 0.35, meadow: 0x7d7a52, woods: 0x3a4a2a, rock: 0xa89c86, rockLine: 0.6 },
+  },
   // Hungarian plain around the Hungaroring: rolling hills, hot summer.
   pannonia: {
     ...BASE,
@@ -322,6 +338,7 @@ const BY_TRACK: Record<string, string> = {
   monza: 'lombardy',
   silverstone: 'england',
   spa: 'ardennes',
+  monaco: 'riviera',
 };
 
 export function themeFor(trackId: string, override?: string | null): WorldTheme {

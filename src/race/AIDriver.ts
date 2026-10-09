@@ -89,7 +89,9 @@ export class AIDriver {
 
     // --- traffic: anyone in our path? ----------------------------------
     const merge = Math.min(Math.max((this.travelled - START_MERGE[0]) / (START_MERGE[1] - START_MERGE[0]), 0), 1);
-    let desiredOffset = this.startOffset + (this.profile.lane - this.startOffset) * merge * merge * (3 - 2 * merge);
+    // Street circuits (Monaco): stay on the line in single file; lanes only on wide tracks.
+    const lane = this.track.street ? this.profile.lane * 0.3 : this.profile.lane;
+    let desiredOffset = this.startOffset + (lane - this.startOffset) * merge * merge * (3 - 2 * merge);
     let followSpeed = Infinity;
     let sideNudge = 0;
     // Racing line position across the track, to express other cars relative to it.
@@ -105,7 +107,9 @@ export class AIDriver {
         sideNudge += (side > 0 ? -1 : 1) * (2.9 - Math.abs(side));
         continue;
       }
-      if (ahead < -2 || ahead > Math.max(35, speed * 1.1) || Math.abs(side) > 3.2) continue;
+      // Tight street hairpins: a car stopped in the bend sits well off our heading line.
+      const sideReach = this.track.street && speed < 25 ? 5.5 : 3.2;
+      if (ahead < -2 || ahead > Math.max(35, speed * 1.1) || Math.abs(side) > sideReach) continue;
       const otherSpeed = o.physics.forwardSpeed;
       if (otherSpeed > speed + 2 && ahead > 6) continue; // pulling away, ignore
       // Pass on the side with more room (asphalt edge minus margin).
@@ -115,15 +119,17 @@ export class AIDriver {
       const roomLeft = otherLat + half;
       const passSide = roomRight > roomLeft ? 1 : -1;
       const room = Math.max(roomRight, roomLeft);
-      if (room > 3.2 && ahead > 3) {
+      // Between walls a pass needs a real gap (Monaco is nearly impossible to pass on).
+      const passRoom = this.track.street ? 5.5 : 3.2;
+      if (room > passRoom && ahead > 3) {
         desiredOffset = otherLat - lineLateral + passSide * 3.4;
       }
       // Closing in with no room to pass (or a cautious driver): match speed
       // with a ~5 m gap instead of ramming.
       const closing = speed - otherSpeed;
       // Brake in time: the gap needed grows with the closing speed (decelerating at ~3 g).
-      const needed = 6 + (closing > 0 ? (closing * closing) / (2 * 25) + closing * 0.3 : 0);
-      if (ahead < needed && closing > 0 && (room < 3.2 || this.profile.aggression < 0.25 || ahead < 12)) {
+      const needed = (this.track.street ? 1.5 : 1) * (6 + (closing > 0 ? (closing * closing) / (2 * 25) + closing * 0.3 : 0));
+      if (ahead < needed && closing > 0 && (room < passRoom || this.profile.aggression < 0.25 || ahead < 12 || this.track.street)) {
         followSpeed = Math.min(followSpeed, otherSpeed + Math.max(ahead - 6, 0) * 0.5);
       }
     }
@@ -192,7 +198,8 @@ export class AIDriver {
   private lookaheadPoint(speed: number): THREE.Vector3 {
     const line = this.line;
     const count = line.points.length;
-    const ahead = 7 + Math.max(speed, 0) * 0.55;
+    // Between walls the pursuit point stays closer (a long chord cuts tight corners into the wall).
+    const ahead = this.track.street ? 5 + Math.max(speed, 0) * 0.32 : 7 + Math.max(speed, 0) * 0.55;
     let d = 0;
     let j = this.index;
     for (let k = 0; k < 200 && d < ahead; k++) {
