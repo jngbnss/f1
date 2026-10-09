@@ -26,6 +26,10 @@ export class VehicleController {
   readonly commands: VehicleCommands = { drive: 0, brake: 0, handbrake: 0, steerAngle: 0 };
   /** Smoothed steering input, -1..1. */
   private steer = 0;
+  /** Brake line pressure, 0..1: builds up in ~0.1 s like a real pedal + hydraulics. */
+  private brakePressure = 0;
+  /** Human drivers get the pedal build-up; AI (already analog and planned) does not. */
+  brakeRamp = true;
 
   constructor(private readonly config: VehicleConfig) {}
 
@@ -46,6 +50,10 @@ export class VehicleController {
       else cmd.drive -= input.brake;
     }
     cmd.handbrake = input.handbrake;
+    // Pressure ramps toward the pedal (a stamp on a digital key/button still takes ~0.1 s to bite).
+    const pressureRate = cmd.brake > this.brakePressure ? 10 : 16;
+    this.brakePressure += Math.max(-pressureRate * dt, Math.min(pressureRate * dt, cmd.brake - this.brakePressure));
+    if (this.brakeRamp) cmd.brake = this.brakePressure;
 
     // --- steering -----------------------------------------------------
     const target = input.steer;
@@ -64,6 +72,7 @@ export class VehicleController {
 
   reset(): void {
     this.steer = 0;
+    this.brakePressure = 0;
     this.commands.drive = 0;
     this.commands.brake = 0;
     this.commands.handbrake = 0;

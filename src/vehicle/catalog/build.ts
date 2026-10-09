@@ -97,6 +97,8 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
     engineForce: mass * G * 1.4,
     reverseForce: mass * 5,
     brakeForce: mass * G * 4,
+    // Single-seaters run strong forward bias; road cars a little less.
+    brakeBias: formula ? 0.56 : 0.6,
     handbrakeForce: mass * 6,
     maxSpeed: spec.limited ? vTop : vTop * 1.04,
     maxReverseSpeed: 12,

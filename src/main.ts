@@ -1,4 +1,6 @@
 import './style.css';
+import './ui/responsive.css';
+import { driveSettings } from './ui/DriveSettings';
 import { readConfig, urlWith } from './config';
 import { clearBenchResults } from './performance/Benchmark';
 import { showMenu } from './ui/Menu';
@@ -45,6 +47,7 @@ async function main(): Promise<void> {
     const game = await Game.create(container, config, findCar(carId), layout);
     game.start();
     loading?.remove();
+    setupDriving(game, config.touch, config.bench > 0);
 
     if (import.meta.env.DEV || config.bench > 0) {
       // Console handle for experiments: sim.perf.snapshot, sim.player, sim.resetPlayer() ...
@@ -58,6 +61,37 @@ async function main(): Promise<void> {
       loading.textContent = `Failed to start: ${err instanceof Error ? err.message : String(err)}`;
     }
   }
+}
+
+/**
+ * Driver aids and touch controls around the running game: brake assist from
+ * the saved settings (B toggles it), on-screen controls on touch screens.
+ */
+async function setupDriving(game: import('./core/Game').Game, touch: boolean, autopilot: boolean): Promise<void> {
+  driveSettings.watch((s) => {
+    // The benchmark autopilot always drives with the assist (like every AI car).
+    game.player.physics.brakeAssist = s.brakeAssist || autopilot;
+  });
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  document.body.append(toast);
+  let hide = 0;
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'KeyB' || e.repeat) return;
+    const on = !driveSettings.get().brakeAssist;
+    driveSettings.set({ brakeAssist: on });
+    toast.textContent = on ? '브레이크 보조 켬 (잠김 없음)' : '브레이크 보조 끔 (세게 밟으면 바퀴 잠김)';
+    toast.classList.add('show');
+    clearTimeout(hide);
+    hide = window.setTimeout(() => toast.classList.remove('show'), 1600);
+  });
+  if (!touch) return;
+  const { TouchControls } = await import('./ui/TouchControls');
+  const controls = new TouchControls({
+    setPaused: (p) => game.setPaused(p),
+    playerLocked: () => game.player.physics.wheels.slice(0, 2).some((w) => w.locked),
+  });
+  game.input.add(controls.input);
 }
 
 void main();

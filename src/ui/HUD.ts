@@ -102,7 +102,7 @@ export class HUD {
 
     this.helpEl = document.createElement('div');
     this.helpEl.className = 'help';
-    this.helpEl.textContent = 'W/↑ 가속 · S/↓ 브레이크/후진 · A/D 조향 · Space 핸드브레이크 · R 리셋 · L 레이싱 라인 · C 시점 · M 소리 · H HUD · Esc 메뉴';
+    this.helpEl.textContent = 'W/↑ 가속 · S/↓ 브레이크/후진 · A/D 조향 · Space 핸드브레이크 · B 브레이크 보조 · R 리셋 · L 레이싱 라인 · C 시점 · M 소리 · H HUD · Esc 메뉴';
 
     const trackEl = document.createElement('div');
     trackEl.className = 'trackname';

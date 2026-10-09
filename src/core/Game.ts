@@ -9,6 +9,7 @@ import { KeyboardInput } from '../input/KeyboardInput';
 import { Benchmark } from '../performance/Benchmark';
 import { DynamicResolution } from '../performance/DynamicResolution';
 import { PostFx } from '../render/PostFx';
+import { TyreSmoke } from '../render/TyreSmoke';
 import { PerformanceMonitor } from '../performance/PerformanceMonitor';
 import { PhysicsDebugRenderer } from '../physics/PhysicsDebugRenderer';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
@@ -104,6 +105,8 @@ export class Game {
   private readonly aiOutTime = new Map<Vehicle, number>();
   private readonly dynamicResolution: DynamicResolution | null;
   private postFx: PostFx | null = null;
+  /** Smoke from locked / sliding tyres. */
+  private readonly tyreSmoke = new TyreSmoke();
   /** Latched lap event from fixed steps, consumed by the next rendered frame. */
   private lapEvent: 'lap' | 'best' | null = null;
   readonly racingLine: RacingLine;
@@ -186,6 +189,7 @@ export class Game {
     const playerPose = opponents > 0 ? this.track.gridPose(playerSlot) : this.track.getSpawnPose();
     this.player = new Vehicle(physics, car.physics, car.createVisual(), playerPose, car.gearbox);
     this.scene.add(this.player.object3D);
+    this.scene.add(this.tyreSmoke.mesh);
     this.vehicles.push(this.player);
 
     if (opponents > 0) {
@@ -317,6 +321,17 @@ export class Game {
       car.cls === 'formula' ? loadF1Model(base).catch((e) => console.warn('F1 model failed', e)) : null,
     ]);
     return new Game(container, config, physics, car, layout, realTerrain);
+  }
+
+  /** Freeze the simulation and its sound (pause menu, app in background). */
+  setPaused(paused: boolean): void {
+    if (paused) {
+      this.loop.stop();
+      void this.audio?.ctx?.suspend();
+    } else {
+      this.loop.start();
+      void this.audio?.ctx?.resume();
+    }
   }
 
   start(): void {
@@ -477,6 +492,7 @@ export class Game {
     this.carAudio?.dispose();
     for (const voice of this.voices.values()) voice.dispose();
     this.audio?.dispose();
+    this.tyreSmoke.dispose();
     this.input.dispose();
     for (const v of this.vehicles) v.dispose();
     this.track.dispose();
@@ -569,6 +585,7 @@ export class Game {
     for (const v of this.vehicles) v.visual.setDetail?.(v.object3D.position.distanceToSquared(cam) < 70 * 70);
     const speedRatio = this.player.physics.forwardSpeed / this.player.config.maxSpeed;
     this.followCamera.update(this.player.object3D, speedRatio, frameDt);
+    this.tyreSmoke.update(frameDt, this.vehicles, this.followCamera.camera);
     this.environment.update(this.player.object3D.position);
     this.track.update(performance.now() / 1000, this.followCamera.camera.position);
     this.minimap.update(this.minimapCars);

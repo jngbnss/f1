@@ -52,6 +52,7 @@ export class AIDriver {
     readonly profile: AIProfile,
   ) {
     this.offset = profile.lane;
+    vehicle.controller.brakeRamp = false;
   }
 
   /** @param others every other car on track (player included) */

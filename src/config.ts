@@ -3,6 +3,8 @@
  * can be toggled without code changes, e.g.
  *   /?car=formula&track=monza&shadows=0&pr=1&aa=0&debug=1
  */
+import { isMobile, isTouchDevice } from './platform';
+
 export interface SimConfig {
   /** Car / track ids; when missing (or `menu` is set) the start menu is shown. */
   car: string | null;
@@ -46,6 +48,10 @@ export interface SimConfig {
   benchQueue: string[];
   /** First run of a benchmark series (earlier results are discarded). */
   benchFirst: boolean;
+  /** Touch screen: on-screen controls, brake assist by default. */
+  touch: boolean;
+  /** Phone / small tablet: lighter defaults (each one still overridable in the URL). */
+  mobile: boolean;
 }
 
 function num(params: URLSearchParams, key: string, fallback: number): number {
@@ -67,18 +73,20 @@ export function readConfig(search = window.location.search): SimConfig {
   const track = p.get('track');
   const benchRaw = p.get('bench');
   const bench = benchRaw === null ? 0 : Number(benchRaw) > 1 ? Number(benchRaw) : 40;
+  // Phones: no post-processing (AO/bloom passes), smaller shadow map, 1x pixels.
+  const mobile = isMobile(search);
   return {
     car,
     track,
     showMenu: !bench && (p.has('menu') || !car || !track),
     shadows: bool(p, 'shadows', true),
-    shadowMapSize: num(p, 'shadowmap', 2048),
+    shadowMapSize: num(p, 'shadowmap', mobile ? 1024 : 2048),
     antialias: bool(p, 'aa', true),
-    postfx: bool(p, 'fx', true),
+    postfx: bool(p, 'fx', !mobile),
     forest: bool(p, 'forest', true),
     camera: p.get('cam'),
     damage: p.get('dmg') ? (p.get('dmg')!.split(',').map(Number).concat(0).slice(0, 2) as [number, number]) : null,
-    pixelRatio: num(p, 'pr', 1.5),
+    pixelRatio: num(p, 'pr', mobile ? 1 : 1.5),
     // Benchmarks measure the full-resolution cost, so dynamic resolution is off unless asked for.
     dynamicResolution: bool(p, 'dynres', !bench),
     physicsDebug: bool(p, 'debug', false),
@@ -93,6 +101,8 @@ export function readConfig(search = window.location.search): SimConfig {
     theme: p.get('theme'),
     benchQueue: (p.get('benchq') ?? '').split(',').filter(Boolean),
     benchFirst: !p.has('benchi'),
+    touch: isTouchDevice(search),
+    mobile,
   };
 }
 

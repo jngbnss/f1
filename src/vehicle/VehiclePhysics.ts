@@ -13,6 +13,8 @@ export interface WheelState {
   steerAngle: number;
   /** Lateral slip speed at the contact patch (m/s); useful for skid FX/audio. */
   slip: number;
+  /** Brake torque beyond what the tyre can take: the wheel has stopped turning and slides. */
+  locked: boolean;
 }
 
 export interface Pose {
@@ -75,6 +77,12 @@ export class VehiclePhysics {
   readonly tyreGrip = { front: 1, rear: 1 };
   /** Aero efficiency per axle (1 = intact; damaged wings lose downforce on their end). */
   readonly aero = { front: 1, rear: 1 };
+  /**
+   * ABS-like brake assist: pedal pressure is trimmed to just below the lock-up
+   * point per wheel (what a good driver does by feel). Off = stamping on the
+   * pedal at low downforce locks the wheels (flat spots, no steering).
+   */
+  brakeAssist = true;
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -122,6 +130,7 @@ export class VehiclePhysics {
       spin: 0,
       steerAngle: 0,
       slip: 0,
+      locked: false,
     }));
   }
 
@@ -202,6 +211,7 @@ export class VehiclePhysics {
         ws.grounded = false;
         ws.suspensionLength = c.suspensionRestLength;
         ws.slip = 0;
+        ws.locked = false;
         continue;
       }
 
@@ -233,7 +243,6 @@ export class VehiclePhysics {
       const vLong = _vel.dot(_wheelFwd);
       const vLat = _vel.dot(_wheelRight);
       ws.slip = vLat;
-      ws.spin += (vLong / c.wheelRadius) * dt;
 
       // --- surface under this wheel -----------------------------------
       let surfGrip = 1;
@@ -256,13 +265,31 @@ export class VehiclePhysics {
         grip *= f;
         mu *= f;
       }
-      const maxForce = mu * load; // N
+      let maxForce = mu * load; // N
       // Lateral: cancel a fraction of the sideways slip this step.
       let lateralF = (-vLat * this.massPerWheel * grip) / dt;
       // Longitudinal: engine (driven wheels) minus brakes, signed against travel.
       let driveF = wc.driven ? driveForce / this.drivenCount : 0;
-      let brakeF = (cmd.brake * c.brakeForce) / c.wheels.length;
+      // Brake bias: the front axle takes the larger share (weight transfers forward under
+      // braking). The assist works like an ideal (load-proportional) split + ABS instead.
+      const bias = this.brakeAssist ? 0.5 : (c.brakeBias ?? 0.5);
+      const axleWheels = c.wheels.length / 2;
+      let brakeF = (cmd.brake * c.brakeForce * (isFront ? bias : 1 - bias)) / axleWheels;
+      // Lock-up: brake torque beyond the tyre's grip stops the wheel; a sliding tyre
+      // brakes less (kinetic friction) and can hardly steer. With the assist (ABS) the
+      // friction circle below just trims the excess and the wheel keeps turning.
+      // Tyres give ~10 % more peak grip in a straight line before they lock.
+      const locked = !this.brakeAssist && brakeF > maxForce * 1.1 && Math.abs(vLong) > 2;
+      ws.locked = locked;
+      if (locked) {
+        // A sliding tyre scrubs (wear, heat, screech): report the slide like a slip.
+        ws.slip = Math.sign(vLat || 1) * Math.min(Math.hypot(vLat, vLong * 0.4), 12);
+        maxForce *= 0.8;
+        lateralF *= 0.25;
+        brakeF = maxForce;
+      }
       if (wc.handbrake) brakeF += (cmd.handbrake * c.handbrakeForce) / 2;
+      if (!locked) ws.spin += (vLong / c.wheelRadius) * dt;
       // Friction circle: what the tyre can't transmit is lost (wheelspin / lock-up).
       const longF = driveF - brakeF * Math.sign(vLong || 1);
       const total = Math.hypot(lateralF, longF);

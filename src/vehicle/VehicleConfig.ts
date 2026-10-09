@@ -33,6 +33,8 @@ export interface VehicleConfig {
   engineForce: number;
   reverseForce: number;
   brakeForce: number;
+  /** Front share of the brake force (0.5 = even; F1 runs ~0.56–0.6). */
+  brakeBias?: number;
   handbrakeForce: number;
   /** Rev limiter in top gear (m/s). Real top speed usually comes from power vs drag first. */
   maxSpeed: number;
