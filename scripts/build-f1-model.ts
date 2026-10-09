@@ -141,11 +141,15 @@ function splitAlong(s: Soup, planes: [axis: 0 | 1 | 2, value: number][]): Soup {
 
 // ---- Region painting (car space). Front axle z = -1.70, rear z = +1.70. ----
 const FRONT_AXLE = -1.7;
+const FRONT_WING_Z = -2.05;
+const FRONT_WING_TOP = 0.33;
+const REAR_WING_Z = 1.85;
+const REAR_WING_BOTTOM = 0.45;
 const REAR_AXLE = 1.7;
 /** Every plane bodySlot() tests against. */
 const BORDERS: [0 | 1 | 2, number][] = [
   [1, 0.2], [1, 0.3], [1, 0.45], [1, 0.7], [1, 0.76],
-  [2, -2.0], [2, 1.85], [2, FRONT_AXLE - 0.45], [2, FRONT_AXLE + 0.45], [2, REAR_AXLE - 0.45], [2, REAR_AXLE + 0.45], [2, -0.95], [2, -0.1],
+  [2, -2.0], [2, FRONT_WING_Z], [2, REAR_WING_Z], [1, FRONT_WING_TOP], [1, REAR_WING_BOTTOM], [2, FRONT_AXLE - 0.45], [2, FRONT_AXLE + 0.45], [2, REAR_AXLE - 0.45], [2, REAR_AXLE + 0.45], [2, -0.95], [2, -0.1],
   [0, -0.4], [0, -0.2], [0, -0.12], [0, 0.12], [0, 0.2], [0, 0.4],
 ];
 function bodySlot(p: THREE.Vector3): string {
@@ -189,10 +193,38 @@ function toMesh(name: string, parts: Map<string, THREE.BufferGeometry>): Mesh {
   return mesh;
 }
 
+/**
+ * Detachable parts for damage: the front wing with the nose tip (one assembly,
+ * like the real car) and the rear wing. Split after simplification along the
+ * same planes, so the parts fit the body exactly.
+ */
+const PARTS: [name: string, test: (c: THREE.Vector3) => boolean][] = [
+  ['FrontWing', (c) => c.z < FRONT_WING_Z && c.y < FRONT_WING_TOP],
+  ['RearWing', (c) => c.z > REAR_WING_Z && c.y > REAR_WING_BOTTOM],
+  ['Body', () => true],
+];
+function partition(s: Soup): Map<string, Soup> {
+  const out = new Map<string, number[]>();
+  const c = new THREE.Vector3();
+  const P = s.positions;
+  for (let t = 0; t < s.indices.length; t += 3) {
+    c.set(0, 0, 0);
+    for (let k = 0; k < 3; k++) c.add(new THREE.Vector3(P[s.indices[t + k] * 3], P[s.indices[t + k] * 3 + 1], P[s.indices[t + k] * 3 + 2]));
+    c.divideScalar(3);
+    const [name] = PARTS.find(([, test]) => test(c))!;
+    let list = out.get(name);
+    if (!list) out.set(name, (list = []));
+    list.push(s.indices[t], s.indices[t + 1], s.indices[t + 2]);
+  }
+  return new Map([...out].map(([k, v]) => [k, { positions: s.positions, indices: new Uint32Array(v) }]));
+}
+
 const bodySoup = extract(body);
 BODY_TRIS.forEach((tris, lod) => {
   console.log(`body LOD${lod}`);
-  scene.addChild(doc.createNode(`Body_LOD${lod}`).setMesh(toMesh(`Body_LOD${lod}`, slots(splitAlong(simplify(bodySoup, tris), BORDERS), bodySlot))));
+  for (const [name, part] of partition(splitAlong(simplify(bodySoup, tris), BORDERS))) {
+    scene.addChild(doc.createNode(`${name}_LOD${lod}`).setMesh(toMesh(`${name}_LOD${lod}`, slots(part, bodySlot))));
+  }
 });
 
 const RIM_RADIUS = 0.27;

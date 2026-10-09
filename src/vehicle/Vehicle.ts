@@ -7,6 +7,7 @@ import { VehicleController } from './VehicleController';
 import { VehiclePhysics, type Pose } from './VehiclePhysics';
 import type { VehicleVisual } from './VehicleVisual';
 import { TyreSet } from './Tyres';
+import { DamageState } from './Damage';
 
 /**
  * One car = controller (intent -> commands) + physics (rigid body) + visual (meshes).
@@ -21,6 +22,8 @@ export class Vehicle {
   throttle = 0;
   /** Fitted tyres (compound, wear, temperature). */
   readonly tyres = new TyreSet('medium');
+  /** Wing damage (front / rear). */
+  readonly damage = new DamageState();
 
   private readonly prevPos = new THREE.Vector3();
   private readonly prevQuat = new THREE.Quaternion();
@@ -66,6 +69,9 @@ export class Vehicle {
     this.tyres.update(this.physics, dt);
     this.physics.tyreGrip.front = this.tyres.grip('front');
     this.physics.tyreGrip.rear = this.tyres.grip('rear');
+    const aero = this.damage.aero();
+    this.physics.aero.front = aero.front;
+    this.physics.aero.rear = aero.rear;
     this.throttle = Math.abs(cmd.drive);
     this.gearbox?.update(this.physics.forwardSpeed, this.throttle, this.physics.groundedWheels > 0, dt);
   }

@@ -61,6 +61,8 @@ export interface SurfaceSample {
  */
 export class VehiclePhysics {
   readonly body: RAPIER.RigidBody;
+  /** Chassis collider (impacts are reported for it). */
+  readonly collider: RAPIER.Collider;
   readonly wheels: WheelState[];
   private readonly ray: RAPIER.Ray;
   private readonly massPerWheel: number;
@@ -105,8 +107,11 @@ export class VehiclePhysics {
       )
       .setFriction(0.3)
       .setRestitution(0.1)
-      .setCollisionGroups(CHASSIS_GROUPS);
-    world.createCollider(colliderDesc, this.body);
+      .setCollisionGroups(CHASSIS_GROUPS)
+      // Report hits harder than ~2 g (barriers, other cars) for damage.
+      .setActiveEvents(rapier.ActiveEvents.CONTACT_FORCE_EVENTS)
+      .setContactForceEventThreshold(c.mass * 9.81 * 2);
+    this.collider = world.createCollider(colliderDesc, this.body);
 
     this.ray = new rapier.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
     this.massPerWheel = c.mass / c.wheels.length;

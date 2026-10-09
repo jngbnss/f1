@@ -16,6 +16,8 @@ export interface SimConfig {
   antialias: boolean;
   /** Starting camera view (chase, far, tcam, cockpit, nose); otherwise the last one used. */
   camera: string | null;
+  /** Test hook: starting wing damage "front,rear" (0..1) for the player. */
+  damage: [number, number] | null;
   /** Impostor trees in real forests. */
   forest: boolean;
   /** Post-processing chain (AO, bloom, ACES tone mapping, SMAA). */
@@ -75,6 +77,7 @@ export function readConfig(search = window.location.search): SimConfig {
     postfx: bool(p, 'fx', true),
     forest: bool(p, 'forest', true),
     camera: p.get('cam'),
+    damage: p.get('dmg') ? (p.get('dmg')!.split(',').map(Number).concat(0).slice(0, 2) as [number, number]) : null,
     pixelRatio: num(p, 'pr', 1.5),
     // Benchmarks measure the full-resolution cost, so dynamic resolution is off unless asked for.
     dynamicResolution: bool(p, 'dynres', !bench),

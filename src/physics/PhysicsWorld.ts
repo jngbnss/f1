@@ -19,6 +19,8 @@ export const SUSPENSION_RAY_GROUPS = 0xffff_fff9;
  */
 export class PhysicsWorld {
   readonly world: RAPIER.World;
+  /** Contact-force events of the last step (car impacts). */
+  readonly events: RAPIER.EventQueue;
 
   private constructor(
     readonly rapier: Rapier,
@@ -26,6 +28,7 @@ export class PhysicsWorld {
   ) {
     this.world = new rapier.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = fixedDt;
+    this.events = new rapier.EventQueue(true);
   }
 
   /** Loads the WASM module (embedded in the -compat build, no bundler plugin needed). */
@@ -35,6 +38,11 @@ export class PhysicsWorld {
   }
 
   step(): void {
-    this.world.step();
+    this.world.step(this.events);
+  }
+
+  /** Impacts of the last step: both collider handles and the total force between them (N, acting on collider 2). */
+  drainContactForces(f: (collider1: number, collider2: number, force: RAPIER.Vector) => void): void {
+    this.events.drainContactForceEvents((e) => f(e.collider1(), e.collider2(), e.totalForce()));
   }
 }

@@ -18,6 +18,8 @@ export interface VehicleVisual {
   setDetail?(near: boolean): void;
   /** Tyre sidewall colour of the fitted compound. */
   setCompound?(color: number): void;
+  /** Wing damage 0..1 (front, rear): drooping wings, detached past the limit; 0 = repaired. */
+  setDamage?(front: number, rear: number): void;
   dispose(): void;
 }
 

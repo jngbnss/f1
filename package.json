@@ -12,6 +12,7 @@
     "race:test": "tsx scripts/race-test.ts",
     "barrier:test": "tsx scripts/barrier-test.ts",
     "pit:test": "tsx scripts/pit-test.ts",
+    "damage:test": "tsx scripts/damage-test.ts",
     "tyre:test": "tsx scripts/tyre-test.ts",
     "bench": "tsx scripts/bench.ts",
     "model:f1": "tsx scripts/build-f1-model.ts"

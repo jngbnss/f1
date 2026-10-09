@@ -19,6 +19,8 @@ export interface CarPanelState {
   temp: [number, number];
   tempC: [number, number];
   pit: string | null;
+  /** Wing damage 0..1 (front, rear). */
+  damage: [number, number];
   ahead: number | null;
   behind: number | null;
 }
@@ -271,6 +273,9 @@ export class HUD {
     const gap = (v: number | null, sign: string) => (v === null ? '–' : `${sign}${v.toFixed(1)}`);
     this.carEl.innerHTML =
       `<div class="tyre"><b style="color:${s.compoundColor};border-color:${s.compoundColor}">${s.compound}</b><div>${axle('앞', 0)}${axle('뒤', 1)}</div></div>` +
+      (s.damage[0] > 0.02 || s.damage[1] > 0.02
+        ? `<div class="damage"><span class="${s.damage[0] >= 0.6 ? 'bad' : s.damage[0] > 0.02 ? 'warn' : ''}">앞날개 ${Math.round(s.damage[0] * 100)}%</span><span class="${s.damage[1] >= 0.6 ? 'bad' : s.damage[1] > 0.02 ? 'warn' : ''}">뒷날개 ${Math.round(s.damage[1] * 100)}%</span></div>`
+        : '') +
       `<div class="intervals"><span>앞차 <b>${gap(s.ahead, '-')}</b></span><span>뒤차 <b>${gap(s.behind, '+')}</b></span></div>` +
       (s.pit ? `<div class="pit">${s.pit}</div>` : '<div class="pit hint">P 피트 · 1/2/3 타이어</div>');
   }

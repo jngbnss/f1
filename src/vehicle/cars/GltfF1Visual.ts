@@ -17,6 +17,20 @@ import { applyLivery, applyTyreBand, numberTexture, type Livery } from './F1Live
 
 export const F1_MODEL_CREDIT = 'F1 car: "F1 2026 concept" by Qvist_designs (CC-BY-4.0)';
 
+/** Wing mounting points in model space (pivots for drooping when damaged). */
+const FRONT_WING_PIVOT = new THREE.Vector3(0, 0.3, -2.05);
+const REAR_WING_PIVOT = new THREE.Vector3(0, 0.5, 1.85);
+/** Damage at which a wing comes off (matches Damage.DETACH). */
+const DETACH = 0.6;
+
+/** A wing that came off: tumbles to the ground next to where it broke off, then stays. */
+interface Debris {
+  object: THREE.Object3D;
+  velocity: THREE.Vector3;
+  spin: THREE.Vector3;
+  age: number;
+}
+
 /** Driver's helmet in model space (open cockpit between z -0.45 and -0.05). */
 const HELMET = new THREE.Vector3(0, 0.8, -0.22);
 /** Tyre compound sidewall colours (Pirelli: soft red, medium yellow, hard white). */
@@ -83,6 +97,10 @@ export class GltfF1Visual implements VehicleVisual {
   private readonly spins: THREE.Object3D[] = [];
   private readonly lods: Lods[] = [];
   private readonly materials: THREE.Material[] = [];
+  private frontWing!: THREE.Group;
+  private rearWing!: THREE.Group;
+  private readonly debris: Debris[] = [];
+  private lastDebrisUpdate = 0;
   private readonly geometries: THREE.BufferGeometry[] = [];
   private near = true;
   private readonly textures: THREE.Texture[] = [];
@@ -128,6 +146,22 @@ export class GltfF1Visual implements VehicleVisual {
     far.visible = false;
     body.add(near, far);
     this.lods.push({ near, far });
+    // Detachable wings, each in a group pivoting at its mounting point.
+    for (const [name, pivot] of [['FrontWing', FRONT_WING_PIVOT], ['RearWing', REAR_WING_PIVOT]] as const) {
+      const group = new THREE.Group();
+      group.name = name;
+      group.position.copy(pivot);
+      const wNear = instance(template.getObjectByName(`${name}_LOD0`)!);
+      const wFar = instance(template.getObjectByName(`${name}_LOD1`)!);
+      wNear.position.copy(pivot).negate();
+      wFar.position.copy(pivot).negate();
+      wFar.visible = false;
+      group.add(wNear, wFar);
+      this.lods.push({ near: wNear, far: wFar });
+      body.add(group);
+      if (name === 'FrontWing') this.frontWing = group;
+      else this.rearWing = group;
+    }
     // Driver: team-coloured helmet with a dark visor band.
     const helmetMat = this.own(new THREE.MeshPhysicalMaterial({ color: livery.helmet, roughness: 0.25, clearcoat: 1 }));
     const visorMat = this.own(new THREE.MeshPhysicalMaterial({ color: 0x0a0c10, roughness: 0.05, metalness: 0.6, clearcoat: 1 }));
@@ -165,7 +199,65 @@ export class GltfF1Visual implements VehicleVisual {
     }
   }
 
+  setDamage(front: number, rear: number): void {
+    this.wingDamage(this.frontWing, front, 1);
+    this.wingDamage(this.rearWing, rear, -1);
+    if (front === 0 && rear === 0) {
+      for (const d of this.debris) d.object.removeFromParent();
+      this.debris.length = 0;
+    }
+  }
+
+  /** Droops a damaged wing; past DETACH it breaks off as debris (once). */
+  private wingDamage(wing: THREE.Group, amount: number, side: 1 | -1): void {
+    if (amount >= DETACH) {
+      if (!wing.visible) return;
+      wing.visible = false;
+      const scene = this.root.parent;
+      if (!scene) return;
+      const piece = wing.clone();
+      piece.visible = true;
+      wing.updateWorldMatrix(true, false);
+      wing.matrixWorld.decompose(piece.position, piece.quaternion, piece.scale);
+      scene.add(piece);
+      const fwd = new THREE.Vector3(0, 0, -side).applyQuaternion(this.root.quaternion);
+      this.debris.push({
+        object: piece,
+        velocity: fwd.multiplyScalar(4).add(new THREE.Vector3((Math.random() - 0.5) * 6, 3, (Math.random() - 0.5) * 6)),
+        spin: new THREE.Vector3(Math.random() * 6, Math.random() * 6, Math.random() * 6),
+        age: 0,
+      });
+      return;
+    }
+    wing.visible = true;
+    // Bent mounting: the wing tips down (front) / back (rear) and sags.
+    wing.rotation.x = side * amount * 0.35;
+    wing.position.y = (side > 0 ? FRONT_WING_PIVOT.y : REAR_WING_PIVOT.y) - amount * 0.06;
+  }
+
+  private updateDebris(): void {
+    const now = performance.now() / 1000;
+    const dt = Math.min(now - (this.lastDebrisUpdate || now), 0.05);
+    this.lastDebrisUpdate = now;
+    for (const d of this.debris) {
+      if (d.age > 3) continue;
+      d.age += dt;
+      d.velocity.y -= 9.81 * dt;
+      d.object.position.addScaledVector(d.velocity, dt);
+      if (d.object.position.y < 0.05) {
+        d.object.position.y = 0.05;
+        d.velocity.multiplyScalar(0.3);
+        d.velocity.y = Math.abs(d.velocity.y) * 0.3;
+        d.spin.multiplyScalar(0.4);
+      }
+      d.object.rotation.x += d.spin.x * dt;
+      d.object.rotation.y += d.spin.y * dt;
+      d.object.rotation.z += d.spin.z * dt;
+    }
+  }
+
   updateWheels(wheels: readonly WheelState[]): void {
+    if (this.debris.length) this.updateDebris();
     for (let i = 0; i < wheels.length; i++) {
       const w = wheels[i];
       this.steers[i].position.y = -w.suspensionLength;
@@ -190,6 +282,7 @@ export class GltfF1Visual implements VehicleVisual {
 
   dispose(): void {
     this.root.removeFromParent();
+    for (const d of this.debris) d.object.removeFromParent();
     // Body geometry belongs to the shared template; only per-car resources go.
     for (const m of this.materials) m.dispose();
     for (const t of this.textures) t.dispose();

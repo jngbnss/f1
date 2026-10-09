@@ -13,8 +13,8 @@ export interface AIProfile {
   aggression: number;
 }
 
-/** Race start: grid lane kept until the first, fully on the line from the second (m). */
-const START_MERGE = [150, 600];
+/** Race start: grid lane kept until the first, fully on the line from the second (m); before the first corner of short run-ups (Monza T1 is ~350 m from the line). */
+const START_MERGE = [60, 260];
 const _fwd = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _to = new THREE.Vector3();
@@ -86,6 +86,7 @@ export class AIDriver {
     const merge = Math.min(Math.max((this.travelled - START_MERGE[0]) / (START_MERGE[1] - START_MERGE[0]), 0), 1);
     let desiredOffset = this.startOffset + (this.profile.lane - this.startOffset) * merge * merge * (3 - 2 * merge);
     let followSpeed = Infinity;
+    let sideNudge = 0;
     // Racing line position across the track, to express other cars relative to it.
     const lineLateral = this.track.lateral(this.line.points[this.index]);
     for (const o of others) {
@@ -93,7 +94,13 @@ export class AIDriver {
       _to.subVectors(o.position, pos).setY(0);
       const ahead = _to.dot(_fwd);
       const side = _to.dot(_right);
-      if (ahead < -2 || ahead > 35 || Math.abs(side) > 3.2) continue;
+      // Look further ahead at speed: at 300 km/h a car 40 m ahead is under a second away.
+      // Alongside: make room instead of leaning on each other (wheel-to-wheel contact pushes cars off).
+      if (Math.abs(ahead) < 5.5 && Math.abs(side) < 2.9) {
+        sideNudge += (side > 0 ? -1 : 1) * (2.9 - Math.abs(side));
+        continue;
+      }
+      if (ahead < -2 || ahead > Math.max(35, speed * 1.1) || Math.abs(side) > 3.2) continue;
       const otherSpeed = o.physics.forwardSpeed;
       if (otherSpeed > speed + 2 && ahead > 6) continue; // pulling away, ignore
       // Pass on the side with more room (asphalt edge minus margin).
@@ -109,10 +116,16 @@ export class AIDriver {
       // Closing in with no room to pass (or a cautious driver): match speed
       // with a ~5 m gap instead of ramming.
       const closing = speed - otherSpeed;
-      if (ahead < 10 && closing > 0 && (room < 3.2 || this.profile.aggression < 0.25)) {
-        followSpeed = Math.min(followSpeed, otherSpeed + (ahead - 5) * 0.5);
+      // Brake in time: the gap needed grows with the closing speed (decelerating at ~3 g).
+      const needed = 6 + (closing > 0 ? (closing * closing) / (2 * 25) + closing * 0.3 : 0);
+      if (ahead < needed && closing > 0 && (room < 3.2 || this.profile.aggression < 0.25 || ahead < 12)) {
+        followSpeed = Math.min(followSpeed, otherSpeed + Math.max(ahead - 6, 0) * 0.5);
       }
     }
+    desiredOffset += sideNudge;
+    // Never aim off the asphalt (passing on the outside of a corner used to run cars into the barrier).
+    const edge = this.track.halfWidth - 1.8;
+    desiredOffset = THREE.MathUtils.clamp(lineLateral + desiredOffset, -edge, edge) - lineLateral;
     this.offset += (desiredOffset - this.offset) * (1 - Math.exp(-1.5 * dt));
 
     // --- steering: pure pursuit to a point ahead on the (offset) line ---
@@ -120,13 +133,18 @@ export class AIDriver {
 
     // --- speed: brake for the slowest point within braking distance ----
     // Braking grip is planned at the (lower) target speed: conservative with aero.
-    let target = line.speeds[this.index] * this.profile.pace;
+    // The line was planned on fresh tyres and intact wings: corner speed scales with
+    // sqrt(grip), so cold or worn tyres and a broken wing mean braking earlier.
+    const ph = v.physics;
+    const grip = Math.min(ph.tyreGrip.front * (0.5 + 0.5 * ph.aero.front), ph.tyreGrip.rear * (0.5 + 0.5 * ph.aero.rear));
+    const pace = this.profile.pace * Math.sqrt(Math.min(1, grip));
+    let target = line.speeds[this.index] * pace;
     let dist = 0;
     for (let k = 1; k < 160 && dist < 320; k++) {
       dist += line.segmentLength(this.index + k - 1);
       const j = (this.index + k) % count;
-      const vj = line.speeds[j] * this.profile.pace;
-      const allowed = Math.sqrt(vj * vj + 2 * line.brakeAt(vj) * 0.9 * dist);
+      const vj = line.speeds[j] * pace;
+      const allowed = Math.sqrt(vj * vj + 2 * line.brakeAt(vj) * 0.9 * Math.min(1, grip) * dist);
       if (allowed < target) target = allowed;
     }
     target = Math.min(target, followSpeed);

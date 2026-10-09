@@ -123,6 +123,9 @@ html, body {
 .car-panel em.cold { color: #5ab0ff; }
 .car-panel em.ok { color: #2bd56f; }
 .car-panel em.hot { color: #ff6b4a; }
+.car-panel .damage { display: flex; justify-content: space-between; margin-top: 6px; }
+.car-panel .damage .warn { color: #ffb020; }
+.car-panel .damage .bad { color: #ff4a3d; font-weight: 700; }
 .car-panel .intervals { display: flex; justify-content: space-between; margin-top: 6px; opacity: 0.9; }
 .car-panel .pit { margin-top: 6px; color: #2bd56f; font-weight: 700; }
 .car-panel .pit.hint { color: #8b97a5; font-weight: 400; }

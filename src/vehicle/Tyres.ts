@@ -66,7 +66,7 @@ export class TyreSet {
     const t = this.temp[axle];
     const [lo, hi] = spec.window;
     const out = t < lo ? (lo - t) / 30 : t > hi ? (t - hi) / 25 : 0;
-    const thermal = 1 - 0.14 * Math.min(out, 1.5) ** 1.5;
+    const thermal = 1 - 0.1 * Math.min(out, 1.2) ** 1.5;
     const w = this.wear[axle];
     const worn = 1 - 0.07 * w - 0.25 * Math.max(0, w - 0.7) ** 1.5 * 4;
     return spec.grip * thermal * Math.max(worn, 0.55);
@@ -100,7 +100,8 @@ export class TyreSet {
     ];
     for (const [axle, slip] of axles) {
       // Sliding energy heats (slip m/s x speed), airflow cools towards ambient.
-      const heat = 0.18 * slip * Math.min(speed, 90) + 0.06 * speed;
+      // Slip is capped: a spin or a trip over the grass must not cook the tyres for a whole lap.
+      const heat = 0.18 * Math.min(slip, 1.2) * Math.min(speed, 90) + 0.06 * speed;
       const cool = (this.temp[axle] - AMBIENT) * (0.015 + speed * 0.0009);
       this.temp[axle] += (heat - cool) * dt;
       // Wear: base per km, more when sliding and when overheated.

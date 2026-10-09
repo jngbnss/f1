@@ -20,6 +20,7 @@ import { liveryFor } from '../vehicle/cars/F1Livery';
 import { COMPOUND_COLORS } from '../vehicle/cars/GltfF1Visual';
 import { COMPOUND_LABELS, COMPOUND_NAMES, COMPOUNDS, type Compound } from '../vehicle/Tyres';
 import { PitStops } from '../race/PitStops';
+import { applyImpacts } from '../race/Impacts';
 import { AIDriver } from '../race/AIDriver';
 import { LapTimer } from '../race/LapTimer';
 import { RaceManager, type Racer } from '../race/RaceManager';
@@ -98,6 +99,8 @@ export class Game {
   private readonly teamBox: Map<string, number>;
   /** Compound the player will get at the next stop. */
   private nextCompound: Compound = 'hard';
+  /** Chassis collider handle -> car, for impact damage. */
+  private readonly byCollider = new Map<number, Vehicle>();
   private readonly aiOutTime = new Map<Vehicle, number>();
   private readonly dynamicResolution: DynamicResolution | null;
   private postFx: PostFx | null = null;
@@ -261,6 +264,10 @@ export class Game {
     }
     this.followCamera.snap(this.player.object3D);
     if (config.postfx) this.postFx = new PostFx(this.renderer, this.scene, this.followCamera.camera);
+    if (config.damage) {
+      [this.player.damage.front, this.player.damage.rear] = config.damage;
+      this.player.visual.setDamage?.(...config.damage);
+    }
     const credits = [
       layout.attribution,
       realTerrain ? REAL_TERRAIN_CREDIT : '',
@@ -393,6 +400,7 @@ export class Game {
       temp: [band(t.temp.front), band(t.temp.rear)],
       tempC: [t.temp.front, t.temp.rear],
       pit: phase ? pitText[phase] : null,
+      damage: [this.player.damage.front, this.player.damage.rear],
       ahead: i > 0 ? interval(standings[i - 1], me) : null,
       behind: i < standings.length - 1 ? interval(me, standings[i + 1]) : null,
     });
@@ -402,8 +410,14 @@ export class Game {
   private servicePit = (v: Vehicle, compound: Compound): number => {
     v.tyres.fit(compound);
     v.visual.setCompound?.(COMPOUND_COLORS[compound]);
-    if (v === this.player) this.hud.toast(`타이어 교체: ${COMPOUND_NAMES[compound]}`);
-    return 2.1 + Math.random() * 0.8;
+    // New nose / rear wing: about six seconds more, like a real wing change.
+    const repair = v.damage.any ? 6 + Math.random() * 1.5 : 0;
+    if (repair) {
+      v.damage.repair();
+      v.visual.setDamage?.(0, 0);
+    }
+    if (v === this.player) this.hud.toast(`타이어 교체: ${COMPOUND_NAMES[compound]}${repair ? ' + 날개 교체' : ''}`);
+    return 2.1 + Math.random() * 0.8 + repair;
   };
 
   /** AI pit strategy: stop near the tyre cliff unless the race is about to end. */
@@ -411,7 +425,8 @@ export class Game {
     if (!this.pitStops || r.finished || this.pitStops.phase(r.vehicle)) return;
     const t = r.vehicle.tyres;
     const lapsLeft = this.race!.laps - this.race!.lapOf(r);
-    if (Math.max(t.wear.front, t.wear.rear) < 0.68 || lapsLeft < 1) return;
+    const broken = r.vehicle.damage.front > 0.35 || r.vehicle.damage.rear > 0.35;
+    if ((Math.max(t.wear.front, t.wear.rear) < 0.68 && !broken) || lapsLeft < 1) return;
     const compound: Compound = lapsLeft > 4 ? 'hard' : lapsLeft > 2 ? 'medium' : 'soft';
     this.pitStops.request(r.vehicle, compound, this.teamBox.get(this.carOf.get(r.vehicle)?.id ?? '') ?? 0);
   }
@@ -503,6 +518,11 @@ export class Game {
     }
     this.physics.step();
     for (const v of this.vehicles) v.snapshot();
+    if (!this.byCollider.size) for (const v of this.vehicles) this.byCollider.set(v.physics.collider.handle, v);
+    applyImpacts(this.physics, this.byCollider, dt, (v) => {
+      v.visual.setDamage?.(v.damage.front, v.damage.rear);
+      if (v === this.player && (v.damage.front >= 0.6 || v.damage.rear >= 0.6)) this.hud.toast(v.damage.front >= 0.6 ? '앞날개 파손! P로 피트인' : '뒷날개 파손! P로 피트인');
+    });
     if (this.race) {
       this.recoverAI(dt);
       this.race.update(dt);
