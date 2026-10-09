@@ -32,8 +32,8 @@ function check(ok: boolean, message: string): void {
   if (!ok) failures++;
 }
 
-/** One car per class: hot hatch, sports car, GT3, hypercar, F1. */
-const CLASS_REPS = ['vw-golf-gti', 'porsche-911-carrera-s', 'porsche-911-gt3r', 'mclaren-p1', 'f1-ferrari'].map((id) => findCar(id));
+/** Two F1 teams (all teams share the same physics apart from colors). */
+const CLASS_REPS = ['f1-ferrari', 'f1-mclaren'].map((id) => findCar(id));
 
 const realTracks: TrackLayout[] = REAL_CIRCUITS.map(([id]) => loadLayout(id));
 
@@ -160,7 +160,7 @@ console.log('Racing line');
   let widest = 0;
   for (const [x, z] of path) widest = Math.max(widest, Math.abs(rbrTrack.lateral(new Vector3(x, 0, z))));
   check(widest > rbrTrack.halfWidth - 2.5, `racing line uses the road width: max offset ${widest.toFixed(1)} m of ${rbrTrack.halfWidth.toFixed(1)} m`);
-  const line = new RacingLine(path, findCar('porsche-911-gt3r').physics);
+  const line = new RacingLine(path, findCar('f1-ferrari').physics);
   // Car ~60 m before the slowest point of the first 300 m (turn 1).
   let slow = 0;
   for (let i = 0; i < 150; i++) if (line.speeds[i] < line.speeds[slow]) slow = i;

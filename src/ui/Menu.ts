@@ -46,7 +46,7 @@ export function showMenu(
         <div class="menu-grid" data-group="track"></div>
         <h2>레이스</h2>
         <div class="menu-grid" data-group="ai"></div>
-        <div class="menu-grid laps" data-group="laps"></div>
+        <div class="menu-grid menu-laps" data-group="laps"></div>
         <button class="menu-start" type="button">출발 ▶ <small>(Enter)</small></button>
         <p class="menu-note">실제 서킷 레이아웃: TUMFTM racetrack-database (LGPL-3.0) · © OpenStreetMap contributors. 높낮이 없이 평지로 재현됩니다.</p>
       </div>`;
@@ -75,7 +75,9 @@ export function showMenu(
 
     const render = () => {
       classGrid.replaceChildren(
-        ...(Object.keys(CLASS_INFO) as CarClass[]).map((k) =>
+        ...(Object.keys(CLASS_INFO) as CarClass[])
+          .filter((k) => cars.some((c) => c.cls === k))
+          .map((k) =>
           card(CLASS_INFO[k].label, CLASS_INFO[k].description, k === cls, () => {
             cls = k;
             // Keep the selection inside the visible class.

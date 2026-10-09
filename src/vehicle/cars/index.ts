@@ -48,14 +48,11 @@ export function findCar(id: string | null | undefined): CarDefinition {
 }
 
 /**
- * Opponents for a race: cars of the same class closest in performance index
- * (an F1 car races the other F1 teams first, then F2 / IndyCar ...).
+ * Opponents for a race, like a real grid: the player's teammate first, then
+ * every other team with both of its cars (10 teams = 20 cars incl. player).
  */
 export function opponentsFor(car: CarDefinition, count: number): CarDefinition[] {
-  const pool = CARS.filter((c) => c.cls === car.cls && c.id !== car.id).sort(
-    (a, b) => Math.abs(a.stats.pi - car.stats.pi) - Math.abs(b.stats.pi - car.stats.pi),
-  );
-  const out: CarDefinition[] = [];
-  for (let i = 0; i < count; i++) out.push(pool[i % pool.length]);
-  return out;
+  const others = CARS.filter((c) => c.cls === car.cls && c.id !== car.id);
+  const grid = [car, ...others.flatMap((c) => [c, c])];
+  return Array.from({ length: count }, (_, i) => grid[i % grid.length]);
 }

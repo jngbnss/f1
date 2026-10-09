@@ -16,7 +16,7 @@ import { loadLayout } from './tracks-node';
 import { ProceduralTrack } from '../src/world/Track';
 import { DEMO_TRACK, parseTumCsv, type TrackLayout } from '../src/world/TrackLayout';
 
-const [trackId = 'test', carsArg = '20', lapsArg = '2', carId = 'gt'] = process.argv.slice(2);
+const [trackId = 'test', carsArg = '20', lapsArg = '2', carId = 'f1-ferrari'] = process.argv.slice(2);
 const layout: TrackLayout = loadLayout(trackId);
 
 const dt = 1 / 60;
@@ -50,6 +50,7 @@ while (t < limit && !racers.every((r) => r.finished)) {
   for (const r of racers) {
     const v = r.vehicle;
     if ((v.isFlipped() && v.physics.speed < 3) || v.position.y < -5 || r.ai!.unstuckCount >= 3) {
+      if (process.env.RESET_LOG) console.log(`  reset ${r.name} t=${t.toFixed(1)}s at sample ${track.nearestIndex(v.position)} lateral ${track.lateral(v.position).toFixed(1)} m, flipped=${v.isFlipped()} unstuck=${r.ai!.unstuckCount}`);
       v.teleport(track.getResetPose(v.position));
       r.ai!.resetState();
       r.ai!.unstuckCount = 0;

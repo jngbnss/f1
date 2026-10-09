@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { SUSPENSION_RAY_GROUPS, type PhysicsWorld } from '../physics/PhysicsWorld';
+import { CHASSIS_GROUPS, SUSPENSION_RAY_GROUPS, type PhysicsWorld } from '../physics/PhysicsWorld';
 import type { VehicleConfig } from './VehicleConfig';
 import type { VehicleCommands } from './VehicleController';
 
@@ -100,7 +100,8 @@ export class VehiclePhysics {
         { x: 0, y: 0, z: 0, w: 1 },
       )
       .setFriction(0.3)
-      .setRestitution(0.1);
+      .setRestitution(0.1)
+      .setCollisionGroups(CHASSIS_GROUPS);
     world.createCollider(colliderDesc, this.body);
 
     this.ray = new rapier.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });

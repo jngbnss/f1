@@ -74,7 +74,7 @@ export function readConfig(search = window.location.search): SimConfig {
     treesPerKm: num(p, 'trees', 0),
     physicsHz: num(p, 'hz', 60),
     sound: bool(p, 'sound', !bench),
-    ai: num(p, 'ai', bench ? 19 : 11),
+    ai: num(p, 'ai', 19),
     // Benchmarks must not reach the finish (results screen) during the run.
     laps: bench ? 99 : num(p, 'laps', 3),
     bench,

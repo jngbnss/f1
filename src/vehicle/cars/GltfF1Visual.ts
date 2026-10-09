@@ -19,6 +19,11 @@ export const F1_MODEL_CREDIT = 'F1 car: "F1 2026 concept" by Qvist_designs (CC-B
 /** Tyre centre height in the model (the CAD tyres sink 3 cm into the ground). */
 const MODEL_WHEEL_Y = 0.33;
 const G = 9.81;
+/**
+ * The CAD tyres are 2022-25 size (front 330 / rear 430 mm wide incl. bulge).
+ * 2026 tyres are 25 / 30 mm narrower than those: 280 / 375 mm.
+ */
+const TYRE_WIDTH_SCALE = { front: 0.28 / 0.33, rear: 0.375 / 0.43 };
 
 let template: THREE.Group | null = null;
 let loading: Promise<void> | null = null;
@@ -93,6 +98,7 @@ export class GltfF1Visual implements VehicleVisual {
       mount.position.set(src.position.x, wc.position.y, src.position.z);
       const steer = new THREE.Object3D();
       const spin = new THREE.Object3D();
+      spin.scale.x = wc.position.z > 0 ? TYRE_WIDTH_SCALE.rear : TYRE_WIDTH_SCALE.front;
       const wheelNear = instance(src.getObjectByName(`${name}_LOD0`)!);
       const wheelFar = instance(src.getObjectByName(`${name}_LOD1`)!);
       wheelFar.visible = false;

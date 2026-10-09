@@ -29,8 +29,8 @@ export function carInfo(spec: CarSpec): CarInfo {
 
 export const CAR_LIST: CarInfo[] = CAR_SPECS.map(carInfo);
 
-/** Old ids (before the 100-car catalog) still work in URLs and saved settings. */
-const ALIASES: Record<string, string> = { formula: 'f1-ferrari', gt: 'porsche-911-gt3r', street: 'vw-golf-gti' };
+/** Old ids still work in URLs and saved settings (removed cars fall back to the default). */
+const ALIASES: Record<string, string> = { formula: 'f1-ferrari' };
 export const DEFAULT_CAR_ID = 'f1-ferrari';
 
 /** Catalog id for a URL/config value (aliases and unknown ids resolved). */

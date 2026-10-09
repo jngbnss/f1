@@ -4,11 +4,13 @@ export type Rapier = typeof RAPIER;
 
 /**
  * Rapier collision groups (upper 16 bits = member of, lower 16 = interacts with).
- * Barriers are walls, not ground: suspension rays skip them, otherwise a car
- * leaning on a barrier drives up its face and over the top.
+ * Barriers and other cars are not ground: suspension rays skip them, otherwise
+ * a car leaning on a barrier drives up its face and over the top, and a wheel
+ * that overlaps a rival's chassis climbs onto it and flips both cars.
  */
 export const BARRIER_GROUPS = 0x0002_ffff;
-export const SUSPENSION_RAY_GROUPS = 0xffff_fffd;
+export const CHASSIS_GROUPS = 0x0004_ffff;
+export const SUSPENSION_RAY_GROUPS = 0xffff_fff9;
 
 /**
  * Thin owner of the Rapier world. Everything physics-related receives this

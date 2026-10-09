@@ -118,7 +118,7 @@ html, body {
 .results li { display: flex; justify-content: space-between; padding: 2px 0; }
 .results li.me { color: #ffd23f; font-weight: 700; }
 .results p { font-size: 11px; color: #8b97a5; margin-top: 12px; }
-.menu-grid.laps { margin-top: 10px; grid-template-columns: repeat(3, minmax(90px, 140px)); }
+.menu-grid.menu-laps { margin-top: 10px; grid-template-columns: repeat(3, minmax(90px, 140px)); }
 .bench {
   position: fixed; inset: 50% auto auto 50%; transform: translate(-50%, -50%); z-index: 20;
   background: rgba(10, 14, 20, 0.94); color: #e6edf3; padding: 20px 24px; border-radius: 10px;

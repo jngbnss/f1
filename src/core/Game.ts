@@ -30,12 +30,6 @@ import type { TrackLayout } from '../world/TrackLayout';
 import { GameLoop } from './GameLoop';
 import { F1_MODEL_CREDIT, f1ModelReady, GltfF1Visual, loadF1Model } from '../vehicle/cars/GltfF1Visual';
 
-/** Opponent paint colors (no real team liveries). */
-const PALETTE = [
-  0xe10600, 0x00a19c, 0xff8700, 0x0090ff, 0x2b4562, 0xf596c8, 0x37bedd, 0x52e252, 0xb6babd, 0xffd700,
-  0x6c0000, 0x1e5bc6, 0x00352f, 0xc92d4b, 0x900000, 0x5e8faa, 0xffffff, 0x358c75, 0x8a2be2,
-];
-
 /** Player's dot on the minimap. */
 const PLAYER_DOT = 0xffd23f;
 
@@ -158,10 +152,8 @@ export class Game {
           continue;
         }
         const def = rivals[rivalIndex++];
-        // Repeated models (small classes) get an alternative paint.
-        const repeat = rivals.indexOf(def) !== rivalIndex - 1;
-        const color = repeat ? PALETTE[rivalIndex % PALETTE.length] : def.spec.color;
-        const vehicle = new Vehicle(physics, def.physics, def.createVisual(color), this.track.gridPose(slot), def.gearbox);
+        // Teammates share their team's livery.
+        const vehicle = new Vehicle(physics, def.physics, def.createVisual(), this.track.gridPose(slot), def.gearbox);
         this.scene.add(vehicle.object3D);
         this.vehicles.push(vehicle);
         this.carOf.set(vehicle, def);
@@ -175,7 +167,7 @@ export class Game {
           lane: (rand - 0.5) * 2.4,
           aggression: rand,
         });
-        racers.push(this.racer(def.spec.brand, vehicle, ai, false, color));
+        racers.push(this.racer(def.spec.brand, vehicle, ai, false, def.spec.color));
       }
       this.race = new RaceManager(this.track, racers, Math.max(1, Math.round(config.laps)));
     }

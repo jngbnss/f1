@@ -125,7 +125,7 @@ export async function measure(car: CarDefinition): Promise<HandlingResult> {
 async function main(): Promise<void> {
   const ids = process.argv.slice(2).filter((a) => !a.startsWith('--'));
   // Default: one car per class ('all' = the whole catalog, slow).
-  const reps = ['vw-golf-gti', 'porsche-911-carrera-s', 'porsche-911-gt3r', 'mclaren-p1', 'f1-ferrari'];
+  const reps = ['f1-ferrari'];
   const cars = ids.includes('all') ? CARS : CARS.filter((c) => (ids.length ? ids : reps).includes(c.id));
   const json = process.argv.includes('--json');
   const results: HandlingResult[] = [];
