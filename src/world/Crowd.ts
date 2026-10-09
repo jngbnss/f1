@@ -135,6 +135,21 @@ export function buildTribune(
   const seating = new THREE.ExtrudeGeometry(shape, { depth: spec.length, bevelEnabled: false });
   seating.translate(-spec.depth / 2, 0, -spec.length / 2);
   disposables.push(seating);
+  // Row shading: treads (seats) alternate light/dark per row, risers are darker,
+  // so the stand reads as rows of seats instead of one block.
+  {
+    const pos = seating.attributes.position as THREE.BufferAttribute;
+    const nrm = seating.attributes.normal as THREE.BufferAttribute;
+    const colors = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i += 3) {
+      const y = (pos.getY(i) + pos.getY(i + 1) + pos.getY(i + 2)) / 3;
+      const row = Math.floor(y / stepRise - 0.01);
+      const tread = Math.abs(nrm.getY(i)) > 0.5;
+      const shade = tread ? (row % 2 === 0 ? 1 : 0.86) : 0.55;
+      for (let k = 0; k < 3; k++) colors.set([shade, shade, shade], (i + k) * 3);
+    }
+    seating.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  }
   const seatMesh = new THREE.Mesh(seating, materials.seats);
   seatMesh.castShadow = seatMesh.receiveShadow = true;
   group.add(seatMesh);
@@ -148,6 +163,29 @@ export function buildTribune(
   roofMesh.rotation.z = -0.05;
   wallMesh.castShadow = roofMesh.castShadow = true;
   group.add(wallMesh, roofMesh);
+  // Steel columns along the front edge, a fascia board under the roof edge
+  // and closed ends: the details that make it read as a building.
+  const parts: THREE.BufferGeometry[] = [];
+  const colH = top + 3.2;
+  const columns = Math.max(2, Math.round(spec.length / 9) + 1);
+  for (let c = 0; c < columns; c++) {
+    const z = -spec.length / 2 + 0.3 + (c / (columns - 1)) * (spec.length - 0.6);
+    parts.push(new THREE.CylinderGeometry(0.12, 0.14, colH, 8).translate(-spec.depth / 2 - 0.6, colH / 2, z));
+  }
+  parts.push(new THREE.BoxGeometry(0.15, 0.8, spec.length + 1).translate(-spec.depth / 2 - 1.45, top + 3.0, 0));
+  const steel = mergeGeometries(parts)!;
+  parts.forEach((p) => p.dispose());
+  const ends = mergeGeometries([-1, 1].map((side) => {
+    const g = new THREE.ShapeGeometry(shape);
+    g.translate(-spec.depth / 2, 0, side * (spec.length / 2 + 0.01));
+    return g;
+  }))!;
+  disposables.push(steel, ends);
+  const steelMesh = new THREE.Mesh(steel, materials.roof);
+  steelMesh.castShadow = true;
+  const endMesh = new THREE.Mesh(ends, materials.concrete);
+  (endMesh.material as THREE.Material).side = THREE.DoubleSide;
+  group.add(steelMesh, endMesh);
 
   group.position.set(spec.x, 0, spec.z);
   group.rotation.y = spec.yaw;

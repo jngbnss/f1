@@ -784,7 +784,7 @@ export class ProceduralTrack implements Track {
     if (!this.standMaterials) {
       this.standMaterials = {
         concrete: this.own(new THREE.MeshStandardMaterial({ color: 0xbdb8ae, roughness: 0.9 })),
-        seats: this.own(new THREE.MeshStandardMaterial({ color: 0x2a5fb0, roughness: 0.7 })),
+        seats: this.own(new THREE.MeshStandardMaterial({ color: 0x2a5fb0, roughness: 0.7, vertexColors: true })),
         roof: this.own(new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.5, metalness: 0.3 })),
       };
     }
