@@ -3,7 +3,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { BARRIER_GROUPS, type PhysicsWorld } from '../physics/PhysicsWorld';
 import type { Pose } from '../vehicle/VehiclePhysics';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { buildCrowd, buildTribune, CrowdMaterial, type CrowdSeat, type TribuneSpec } from './Crowd';
+import { buildCrowd, buildTribune, CrowdMaterial, dressFans, type CrowdSeat, type TribuneSpec } from './Crowd';
 import { shadeAsphalt, shadeGrass, shadeGravel } from './GroundShading';
 import { buildOsmScenery, type OsmData } from './OsmScenery';
 import { buildPitLaneData, buildPitLaneMeshes, PIT_LANE_WIDTH, type PitLaneData } from './PitLane';
@@ -354,6 +354,7 @@ export class ProceduralTrack implements Track {
     for (const s of stands) this.addTribune(s, standRand);
     this.buildSpectatorBanks();
     if (this.crowdSeats.length) {
+      dressFans(this.crowdSeats, layout.id);
       const crowd = buildCrowd(this.crowdSeats, this.crowdMaterial);
       this.disposables.push(...crowd.disposables, this.crowdMaterial);
       this.root.add(crowd.group);

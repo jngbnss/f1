@@ -33,7 +33,7 @@ export interface CrowdSeat {
 }
 
 const SKIN = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac];
-const SHIRTS = [0xe10600, 0xffffff, 0x1e5bc6, 0xffd700, 0x00a19c, 0xff8700, 0x111111, 0xf596c8, 0x52e252, 0x9b59b6];
+export const SHIRTS = [0xe10600, 0xffffff, 0x1e5bc6, 0xffd700, 0x00a19c, 0xff8700, 0x111111, 0xf596c8, 0x52e252, 0x9b59b6];
 
 /** Shared material with the cheering animation; call `setTime` every frame. */
 export class CrowdMaterial extends THREE.MeshStandardMaterial {
@@ -228,4 +228,62 @@ export function buildCrowd(seats: CrowdSeat[], material: CrowdMaterial): { group
     { name: 'Crowd', tileSize: 120 },
   );
   return { group: tiles.group, disposables: [hi, lo] };
+}
+
+/**
+ * F1 fans wear their team's colours and sit together: seats are grouped in
+ * ~7 m blocks, each block mostly one team (a few neutral or other shirts mixed
+ * in). The home crowd gets extra weight: tifosi at Monza, the Dutch orange
+ * army at Spa, Honda / Red Bull fans at Suzuka.
+ */
+const FAN_TEAMS: { id: string; colors: number[]; weight: number }[] = [
+  { id: 'ferrari', colors: [0xdc0000, 0xdc0000, 0xffd200], weight: 18 },
+  { id: 'mclaren', colors: [0xff8000, 0xff8000, 0x111111], weight: 12 },
+  { id: 'redbull', colors: [0x1e2a5a, 0x1e2a5a, 0xd0021b], weight: 11 },
+  { id: 'mercedes', colors: [0x111111, 0x00d2be, 0xc0c4c8], weight: 11 },
+  { id: 'aston', colors: [0x00594f, 0x00594f, 0xcedc00], weight: 6 },
+  { id: 'alpine', colors: [0x0a5cd6, 0xff5fae], weight: 5 },
+  { id: 'williams', colors: [0x0d2a62, 0x00a3e0], weight: 5 },
+  { id: 'haas', colors: [0xf4f4f4, 0xd0021b, 0x1a1a1a], weight: 3 },
+  { id: 'racingbulls', colors: [0xf3f3f5, 0x1d3fa6], weight: 3 },
+  { id: 'audi', colors: [0x8e959c, 0xe2003c, 0x141518], weight: 4 },
+  { id: 'dutch', colors: [0xff6a00, 0xff6a00, 0xff8a1a], weight: 0 },
+  { id: 'neutral', colors: [0xf2f2f2, 0x1b1b1b, 0x6b6f75, 0x3b5a8a, 0xb9a27c], weight: 14 },
+];
+const HOME_CROWD: Record<string, Record<string, number>> = {
+  monza: { ferrari: 4 },
+  spa: { dutch: 14, redbull: 1.4 },
+  zandvoort: { dutch: 30 },
+  suzuka: { redbull: 1.6, racingbulls: 2.5, aston: 1.5 },
+  silverstone: { mercedes: 1.6, mclaren: 1.8, williams: 1.8 },
+};
+
+export function dressFans(seats: CrowdSeat[], trackId: string, seed = 7): void {
+  const boost = HOME_CROWD[trackId] ?? {};
+  const teams = FAN_TEAMS.map((t) => ({ ...t, weight: t.id in boost ? (t.weight || 1) * boost[t.id] : t.weight }));
+  const total = teams.reduce((a, t) => a + t.weight, 0);
+  const pick = (r: number) => {
+    let x = r * total;
+    for (const t of teams) if ((x -= t.weight) <= 0) return t;
+    return teams[teams.length - 1];
+  };
+  const hash = (a: number, b: number) => {
+    let h = (Math.imul(a, 73856093) ^ Math.imul(b, 19349663) ^ seed) >>> 0;
+    h = Math.imul(h ^ (h >>> 13), 0x5bd1e995) >>> 0;
+    return ((h ^ (h >>> 15)) >>> 0) / 4294967296;
+  };
+  let s = seed >>> 0;
+  const rand = () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  for (const seat of seats) {
+    const e = seat.matrix.elements;
+    const block = pick(hash(Math.floor(e[12] / 7), Math.floor(e[14] / 7)));
+    const team = rand() < 0.72 ? block : pick(rand());
+    seat.color.setHex(team.colors[Math.floor(rand() * team.colors.length)]);
+  }
 }
