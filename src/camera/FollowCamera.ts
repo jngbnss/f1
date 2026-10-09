@@ -27,19 +27,23 @@ const DEFAULTS: FollowCameraOptions = {
 };
 
 /** Camera views, cycled with C (like the F1 games: chase, far chase, T-cam, cockpit, nose). */
-export type CameraMode = 'chase' | 'far' | 'tcam' | 'cockpit' | 'nose';
-export const CAMERA_MODES: CameraMode[] = ['chase', 'far', 'tcam', 'cockpit', 'nose'];
-export const CAMERA_LABELS: Record<CameraMode, string> = { chase: '체이스', far: '먼 체이스', tcam: 'T-캠', cockpit: '콕핏', nose: '노즈캠' };
+export type CameraMode = 'chase' | 'far' | 'tcam' | 'cockpit' | 'driver' | 'nose';
+export const CAMERA_MODES: CameraMode[] = ['chase', 'far', 'tcam', 'cockpit', 'driver', 'nose'];
+export const CAMERA_LABELS: Record<CameraMode, string> = { chase: '체이스', far: '먼 체이스', tcam: 'T-캠', cockpit: '콕핏', driver: '드라이버 시점', nose: '노즈캠' };
+type OnboardMode = 'tcam' | 'cockpit' | 'driver' | 'nose';
+const isOnboard = (m: CameraMode): m is OnboardMode => m === 'tcam' || m === 'cockpit' || m === 'driver' || m === 'nose';
 
 /**
  * Onboard camera mounts in car space (m; +X right, +Y up, -Z forward,
  * origin = chassis centre), matched to the 2026 F1 body: driver's eyes
  * under the halo, T-cam on top of the airbox, nose cam ahead of the cockpit.
  */
-const ONBOARD: Record<'tcam' | 'cockpit' | 'nose', { pos: THREE.Vector3; look: THREE.Vector3; fov: number }> = {
+const ONBOARD: Record<OnboardMode, { pos: THREE.Vector3; look: THREE.Vector3; fov: number }> = {
   tcam: { pos: new THREE.Vector3(0, 0.62, 0.2), look: new THREE.Vector3(0, 0.25, -12), fov: 68 },
   cockpit: { pos: new THREE.Vector3(0, 0.44, -0.55), look: new THREE.Vector3(0, 0.2, -12), fov: 78 },
   nose: { pos: new THREE.Vector3(0, 0.12, -2.2), look: new THREE.Vector3(0, 0.05, -14), fov: 74 },
+  // Inside the helmet: halo pillar, steering wheel and mirrors in view.
+  driver: { pos: new THREE.Vector3(0, 0.31, -0.26), look: new THREE.Vector3(0, 0.0, -12), fov: 80 },
 };
 const _local = new THREE.Vector3();
 const _m = new THREE.Matrix4();
@@ -81,7 +85,7 @@ export class FollowCamera {
    * @param speedRatio 0..1 of top speed, drives FOV
    */
   update(target: THREE.Object3D, speedRatio: number, dt: number): void {
-    if (this.mode === 'tcam' || this.mode === 'cockpit' || this.mode === 'nose') {
+    if (isOnboard(this.mode)) {
       this.updateOnboard(target, speedRatio, dt);
       return;
     }
@@ -125,7 +129,7 @@ export class FollowCamera {
 
   setMode(mode: CameraMode): CameraMode {
     this.mode = mode;
-    const onboard = this.mode === 'tcam' || this.mode === 'cockpit' || this.mode === 'nose';
+    const onboard = isOnboard(this.mode);
     // Onboard views sit centimetres from the bodywork.
     this.camera.near = onboard ? 0.05 : 0.3;
     this.camera.updateProjectionMatrix();
@@ -135,7 +139,7 @@ export class FollowCamera {
 
   /** Rigidly mounted on the car (suspension pitch and roll included, like a real onboard). */
   private updateOnboard(target: THREE.Object3D, speedRatio: number, dt: number): void {
-    const mount = ONBOARD[this.mode as 'tcam' | 'cockpit' | 'nose'];
+    const mount = ONBOARD[this.mode as OnboardMode];
     target.updateMatrixWorld();
     _m.copy(target.matrixWorld);
     this.camera.position.copy(_local.copy(mount.pos).applyMatrix4(_m));
@@ -152,7 +156,7 @@ export class FollowCamera {
 
   /** Jump straight behind the target (spawn / reset). */
   snap(target: THREE.Object3D): void {
-    if (this.mode === 'tcam' || this.mode === 'cockpit' || this.mode === 'nose') {
+    if (isOnboard(this.mode)) {
       this.updateOnboard(target, 0, 1);
       return;
     }
