@@ -4,6 +4,7 @@ import type { VehicleConfig } from '../VehicleConfig';
 import type { WheelState } from '../VehiclePhysics';
 import type { VehicleVisual } from '../VehicleVisual';
 import { helmetTexture, liveryMaterial, numberTexture, rimMaterial, tyreMaterial, type Livery } from './F1Livery';
+import { SteeringWheel, type DashState } from './SteeringWheel';
 
 /**
  * 2026 F1 car from public/models/f1-2026.glb (built by scripts/build-f1-model.ts
@@ -36,6 +37,8 @@ const HELMET = new THREE.Vector3(0, 0.8, -0.22);
 /** Steering wheel hub (model space) and wheel turn per radian of front-wheel steer. */
 const STEERING_WHEEL = new THREE.Vector3(0, 0.68, -0.6);
 const STEERING_RATIO = 5;
+/** Carbon brake disc radius (2026: 278 mm discs front). */
+const DISC_RADIUS = 0.14;
 /** Small parts (model space). */
 const TCAM = new THREE.Vector3(0, 1.1, 0.24);
 const RAIN_LIGHT = new THREE.Vector3(0, 0.3, 2.42);
@@ -179,7 +182,13 @@ export class GltfF1Visual implements VehicleVisual {
   private readonly band = { value: new THREE.Color(COMPOUND_COLORS.medium) };
   private light!: THREE.MeshStandardMaterial;
   /** Steering wheel (turns with the front wheels; seen from the driver's-eye camera). */
-  private steeringWheel!: THREE.Group;
+  private steeringWheel!: SteeringWheel;
+  /** Brake discs: one shared glowing material, heated by braking, cooled by airflow. */
+  private discMaterial!: THREE.MeshStandardMaterial;
+  /** Brake glow seen through the wheel covers (rim shader uniform). */
+  private rimGlow: THREE.Color | null = null;
+  private brakeTemp = 0;
+  private lastBrakeTime = 0;
   private lastSpin = 0;
   private lastSpinTime = 0;
   private spinRate = 0;
@@ -199,6 +208,7 @@ export class GltfF1Visual implements VehicleVisual {
       tyre: this.own(tyreMaterial(this.band)),
       rim: this.own(rimMaterial(livery.rim)),
     };
+    this.rimGlow = (slots.rim.userData.rimGlow as { value: THREE.Color } | undefined)?.value ?? null;
     const instance = (src: THREE.Object3D): THREE.Object3D => {
       const copy = src.clone();
       copy.traverse((o) => {
@@ -257,11 +267,11 @@ export class GltfF1Visual implements VehicleVisual {
     tcam.position.copy(TCAM);
     body.add(tcam);
     // Steering wheel in front of the driver, tilted towards the helmet.
-    this.steeringWheel = steeringWheel(this.textures, (m) => this.own(m));
+    this.steeringWheel = new SteeringWheel(this.textures, (m) => this.own(m), this.geometries);
     const column = new THREE.Group();
     column.position.copy(STEERING_WHEEL);
     column.rotation.x = -0.32;
-    column.add(this.steeringWheel);
+    column.add(this.steeringWheel.group);
     body.add(column);
     // Rain light (crash structure) and the endplate strips: flash while the car harvests energy (lifting / braking).
     this.light = this.own(new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff1a10, emissiveIntensity: 0.3, roughness: 0.3 }));
@@ -275,6 +285,13 @@ export class GltfF1Visual implements VehicleVisual {
       strip.position.sub(REAR_WING_PIVOT);
     }
     this.root.add(body);
+
+    // Brake discs + calipers on the inboard side of each wheel (they steer, they don't spin).
+    this.discMaterial = this.own(new THREE.MeshStandardMaterial({ color: 0x2a2c30, metalness: 0.6, roughness: 0.45, emissive: 0x000000 }));
+    const caliperMat = this.own(new THREE.MeshStandardMaterial({ color: 0x1b1d21, metalness: 0.4, roughness: 0.5 }));
+    const discGeo = new THREE.CylinderGeometry(DISC_RADIUS, DISC_RADIUS, 0.034, 28).rotateZ(Math.PI / 2);
+    const caliperGeo = new THREE.BoxGeometry(0.05, 0.09, 0.07);
+    this.geometries.push(discGeo, caliperGeo);
 
     // Wheels: mount (model x/z, physics height) -> steer -> spin -> mesh.
     const names = ['Wheel_FL', 'Wheel_FR', 'Wheel_RL', 'Wheel_RR'];
@@ -292,6 +309,12 @@ export class GltfF1Visual implements VehicleVisual {
       spin.add(wheelNear, wheelFar);
       this.lods.push({ near: wheelNear, far: wheelFar });
       steer.add(spin);
+      const inboard = -Math.sign(src.position.x) * (wc.position.z > 0 ? 0.13 : 0.11);
+      const disc = new THREE.Mesh(discGeo, this.discMaterial);
+      disc.position.x = inboard;
+      const caliper = new THREE.Mesh(caliperGeo, caliperMat);
+      caliper.position.set(inboard, DISC_RADIUS - 0.02, wc.position.z > 0 ? -0.05 : 0.05);
+      steer.add(disc, caliper);
       mount.add(steer);
       this.root.add(mount);
       this.steers.push(steer);
@@ -374,13 +397,45 @@ export class GltfF1Visual implements VehicleVisual {
     let steer = 0;
     for (const w of wheels) if (Math.abs(w.steerAngle) > Math.abs(steer)) steer = w.steerAngle;
     // steerAngle > 0 turns right (see the wheel mounts above); +Z rotation would turn the wheel left.
-    this.steeringWheel.rotation.z = -steer * STEERING_RATIO;
+    this.steeringWheel.group.rotation.z = -steer * STEERING_RATIO;
     for (let i = 0; i < wheels.length; i++) {
       const w = wheels[i];
       this.steers[i].position.y = -w.suspensionLength;
       this.steers[i].rotation.y = -w.steerAngle;
       this.spins[i].rotation.x = -w.spin;
     }
+  }
+
+  /** Live steering-wheel display (player car). */
+  setDash(state: DashState): void {
+    this.steeringWheel.setDash(state);
+  }
+
+  /**
+   * Brake temperature (0 = cold, 1 = ~1000 °C): heats with brake pressure x
+   * speed, cools faster at speed (airflow). Drives the disc glow.
+   */
+  setBrake(brake: number, speed: number): void {
+    const now = performance.now() / 1000;
+    const dt = Math.min(now - (this.lastBrakeTime || now), 0.1);
+    this.lastBrakeTime = now;
+    if (dt <= 0) return;
+    // Assisted braking modulates around the grip limit (pedal ~0.25-0.5), so heat follows pressure softly.
+    const heat = Math.sqrt(brake) * Math.min(speed / 70, 1) * 1.4;
+    const cool = (0.08 + speed / 900) * this.brakeTemp;
+    this.brakeTemp = Math.max(0, Math.min(1, this.brakeTemp + (heat - cool) * dt));
+    const t = Math.max(0, (this.brakeTemp - 0.25) / 0.75);
+    if (t <= 0) {
+      if (this.discMaterial.emissiveIntensity !== 0) {
+        this.discMaterial.emissiveIntensity = 0;
+        this.rimGlow?.setRGB(0, 0, 0);
+      }
+      return;
+    }
+    // Dull red -> orange -> yellow-white as it gets hotter.
+    this.discMaterial.emissive.setRGB(1, 0.18 + 0.55 * t * t, 0.04 + 0.2 * t * t * t);
+    this.discMaterial.emissiveIntensity = 0.6 + 3.4 * t;
+    this.rimGlow?.copy(this.discMaterial.emissive).multiplyScalar(this.discMaterial.emissiveIntensity * 0.9);
   }
 
   setDetail(near: boolean): void {
@@ -410,116 +465,4 @@ export class GltfF1Visual implements VehicleVisual {
     this.materials.push(m);
     return m;
   }
-}
-
-/**
- * 2026-style F1 steering wheel: carbon body with a central display, shift
- * lights across the top, coloured buttons and rotaries (one canvas on the
- * face), rubber grips either side. Faces +Z (the driver).
- */
-function steeringWheel(textures: THREE.Texture[], own: <T extends THREE.Material>(m: T) => T): THREE.Group {
-  const group = new THREE.Group();
-  group.name = 'SteeringWheel';
-  const W = 0.27;
-  const H = 0.14;
-  const D = 0.03;
-  const face = document.createElement('canvas');
-  face.width = 540;
-  face.height = 280;
-  const g = face.getContext('2d')!;
-  g.fillStyle = '#16181c';
-  g.fillRect(0, 0, 540, 280);
-  // Weave hint.
-  g.fillStyle = 'rgba(255,255,255,0.035)';
-  for (let y = 0; y < 280; y += 6) for (let x = (y / 6) % 2 ? 0 : 6; x < 540; x += 12) g.fillRect(x, y, 6, 6);
-  // Shift lights.
-  const leds = ['#18d14a', '#18d14a', '#18d14a', '#18d14a', '#ff2a2a', '#ff2a2a', '#ff2a2a', '#ff2a2a', '#2a6bff', '#2a6bff', '#2a6bff', '#2a6bff', '#2a6bff', '#2a6bff', '#ff2a2a'];
-  leds.forEach((c, i) => {
-    g.fillStyle = c;
-    g.beginPath();
-    g.arc(110 + i * 23, 22, 8, 0, Math.PI * 2);
-    g.fill();
-  });
-  // Display.
-  g.fillStyle = '#05070a';
-  g.beginPath();
-  g.roundRect(150, 48, 240, 128, 10);
-  g.fill();
-  g.strokeStyle = '#3a3f47';
-  g.lineWidth = 4;
-  g.stroke();
-  g.fillStyle = '#f5f5f5';
-  g.font = '900 92px "Arial Black", Arial, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText('7', 270, 112);
-  g.font = '700 22px Arial, sans-serif';
-  g.fillStyle = '#18d14a';
-  g.fillText('+0.214', 198, 70);
-  g.fillStyle = '#ffd200';
-  g.fillText('BAT 72%', 340, 70);
-  g.fillStyle = '#9aa3ad';
-  g.fillText('LAP 3', 198, 158);
-  g.fillText('M 14%', 340, 158);
-  // Buttons and rotaries.
-  const button = (x: number, y: number, c: string, label: string) => {
-    g.fillStyle = c;
-    g.beginPath();
-    g.arc(x, y, 17, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = '#ffffff';
-    g.font = '700 13px Arial, sans-serif';
-    g.fillText(label, x, y + 1);
-  };
-  button(110, 80, '#d0021b', 'PIT');
-  button(110, 130, '#1f5fd6', 'BB');
-  button(430, 80, '#f5b800', 'OT');
-  button(430, 130, '#2a9d4a', 'RAD');
-  button(205, 215, '#e8e8e8', 'N');
-  button(335, 215, '#7a2cff', 'K');
-  const rotary = (x: number, y: number) => {
-    g.fillStyle = '#2c3036';
-    g.beginPath();
-    g.arc(x, y, 26, 0, Math.PI * 2);
-    g.fill();
-    g.strokeStyle = '#ffd200';
-    g.lineWidth = 4;
-    g.beginPath();
-    g.moveTo(x, y);
-    g.lineTo(x + 18, y - 14);
-    g.stroke();
-  };
-  rotary(150, 220);
-  rotary(270, 228);
-  rotary(390, 220);
-  const tex = new THREE.CanvasTexture(face);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
-  textures.push(tex);
-
-  const carbon = own(new THREE.MeshPhysicalMaterial({ color: 0x1a1c20, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.1 }));
-  const faceMat = own(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.45, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.35 }));
-  const rubber = own(new THREE.MeshStandardMaterial({ color: 0x0c0c0d, roughness: 0.95 }));
-  // Box faces: +x, -x, +y, -y, +z (driver), -z.
-  const body = new THREE.Mesh(new THREE.BoxGeometry(W, H, D), [carbon, carbon, carbon, carbon, faceMat, carbon]);
-  group.add(body);
-  for (const sx of [-1, 1]) {
-    const grip = new THREE.Mesh(new THREE.CapsuleGeometry(0.022, 0.1, 4, 10), rubber);
-    grip.position.set(sx * (W / 2 + 0.012), -0.01, -0.005);
-    grip.rotation.z = sx * 0.12;
-    group.add(grip);
-  }
-  // Paddles behind the grips.
-  for (const sx of [-1, 1]) {
-    const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.07, 0.006), carbon);
-    paddle.position.set(sx * 0.09, 0.0, -D / 2 - 0.012);
-    group.add(paddle);
-  }
-  group.traverse((o) => {
-    if (o instanceof THREE.Mesh) {
-      o.castShadow = true;
-      o.receiveShadow = true;
-    }
-  });
-  return group;
 }

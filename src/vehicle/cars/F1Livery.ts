@@ -612,14 +612,16 @@ function sidewallTexture(): THREE.CanvasTexture {
  */
 export function rimMaterial(ringColor: number): THREE.MeshStandardMaterial {
   const material = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.6, roughness: 0.4 });
-  const uniforms = { rimRing: { value: new THREE.Color(ringColor) } };
+  // rimGlow: hot brakes seen through the gap between wheel cover and rim lip (set per frame by the car).
+  const uniforms = { rimRing: { value: new THREE.Color(ringColor) }, rimGlow: { value: new THREE.Color(0, 0, 0) } };
+  material.userData.rimGlow = uniforms.rimGlow;
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vRimPos;\nvarying vec3 vRimN;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRimPos = position;\nvRimN = normal;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec3 vRimPos;\nvarying vec3 vRimN;\nuniform vec3 rimRing;\n${WEAVE_GLSL}`)
+      .replace('#include <common>', `#include <common>\nvarying vec3 vRimPos;\nvarying vec3 vRimN;\nuniform vec3 rimRing;\nuniform vec3 rimGlow;\n${WEAVE_GLSL}`)
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
@@ -638,13 +640,17 @@ export function rimMaterial(ringColor: number): THREE.MeshStandardMaterial {
         c = mix(c, vec3(0.42, 0.43, 0.45), lip);
         diffuseColor.rgb = c;
         float rimMetal = max(lip, nut);
-        float rimRough = mix(0.45, 0.28, rimMetal);`,
+        float rimRough = mix(0.45, 0.28, rimMetal);
+        // Brake glow: the open annulus between cover and lip, and faintly between the spokes.
+        float glowGap = smoothstep(0.212, 0.218, r) * (1.0 - smoothstep(0.232, 0.238, r));
+        float glowMask = (glowGap + 0.25 * (1.0 - spoke) * smoothstep(0.06, 0.08, r) * (1.0 - smoothstep(0.17, 0.19, r))) * face;`,
       )
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += rimGlow * glowMask;')
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = rimRough;')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = mix(0.1, 0.95, rimMetal);');
   };
   guardOutput(material);
-  material.customProgramCacheKey = () => 'f1-rim-v3';
+  material.customProgramCacheKey = () => 'f1-rim-v4';
   return material;
 }
 

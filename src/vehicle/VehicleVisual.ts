@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { DashState } from './cars/SteeringWheel';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { VehicleConfig } from './VehicleConfig';
 import type { WheelState } from './VehiclePhysics';
@@ -20,6 +21,10 @@ export interface VehicleVisual {
   setCompound?(color: number): void;
   /** Wing damage 0..1 (front, rear): drooping wings, detached past the limit; 0 = repaired. */
   setDamage?(front: number, rear: number): void;
+  /** Brake pedal 0..1 and speed (m/s), for glowing brake discs. */
+  setBrake?(brake: number, speed: number): void;
+  /** Live steering-wheel display (player car only). */
+  setDash?(state: DashState): void;
   dispose(): void;
 }
 
