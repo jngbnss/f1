@@ -6,4 +6,5 @@
   CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/).
   Changes: simplified (two LODs), split into body and wheels, recolored into
   paint / accent / carbon regions by `scripts/build-f1-model.ts`. No team or
-  sponsor logos.
+  sponsor logos: liveries, sponsor wordmarks and the tyre maker are invented
+  and drawn at runtime (`src/vehicle/cars/F1Livery.ts`).
