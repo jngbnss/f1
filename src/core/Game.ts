@@ -21,7 +21,8 @@ import { Vehicle } from '../vehicle/Vehicle';
 import { CARS, opponentsFor, type CarDefinition } from '../vehicle/cars';
 import { liveryFor } from '../vehicle/cars/F1Livery';
 import { COMPOUND_COLORS } from '../vehicle/cars/GltfF1Visual';
-import { COMPOUND_LABELS, COMPOUND_NAMES, COMPOUNDS, type Compound } from '../vehicle/Tyres';
+import { COMPOUND_LABELS, COMPOUND_NAMES, COMPOUNDS, TRACK_GRIP, type Compound } from '../vehicle/Tyres';
+import { readStartTyre } from '../ui/TyrePicker';
 import { PitStops } from '../race/PitStops';
 import { applyImpacts } from '../race/Impacts';
 import { AIDriver } from '../race/AIDriver';
@@ -254,13 +255,18 @@ export class Game {
     if (this.track.pit) {
       this.pitStops = new PitStops(this.track.pit, this.track, this.servicePit);
       // Starting tyres: the front of the grid on softs, the rest split soft / medium.
+      const wet = this.weather.weather === 'rain';
       this.race?.racers.forEach((r, slot) => {
         if (r.isPlayer) return;
-        const compound: Compound = slot < 6 || slot % 3 === 0 ? 'soft' : 'medium';
+        const compound: Compound = wet ? 'wet' : slot < 6 || slot % 3 === 0 ? 'soft' : 'medium';
         r.vehicle.tyres.fit(compound);
         r.vehicle.visual.setCompound?.(COMPOUND_COLORS[compound]);
       });
     }
+    // The player's starting tyre comes from the menu (or ?tyre=).
+    const startTyre = readStartTyre();
+    this.player.tyres.fit(startTyre);
+    this.player.visual.setCompound?.(COMPOUND_COLORS[startTyre]);
 
     // Surface is sampled under each wheel (two wheels on the grass pull the car around).
     const probe = new THREE.Vector3();
@@ -508,14 +514,14 @@ export class Game {
     const lapsLeft = this.race!.laps - this.race!.lapOf(r);
     const broken = r.vehicle.damage.front > 0.35 || r.vehicle.damage.rear > 0.35;
     if ((Math.max(t.wear.front, t.wear.rear) < 0.68 && !broken) || lapsLeft < 1) return;
-    const compound: Compound = lapsLeft > 4 ? 'hard' : lapsLeft > 2 ? 'medium' : 'soft';
+    const compound: Compound = TRACK_GRIP.value < 0.95 ? 'wet' : lapsLeft > 4 ? 'hard' : lapsLeft > 2 ? 'medium' : 'soft';
     this.pitStops.request(r.vehicle, compound, this.teamBox.get(this.carOf.get(r.vehicle)?.id ?? '') ?? 0);
   }
 
-  /** P: request / cancel a stop; 1-3: compound for it. */
+  /** P: request / cancel a stop; 1-5: compound for it. */
   private pitKey(code: string): void {
     if (!this.pitStops) return;
-    const pick: Record<string, Compound> = { Digit1: 'soft', Digit2: 'medium', Digit3: 'hard' };
+    const pick: Record<string, Compound> = { Digit1: 'hyper', Digit2: 'soft', Digit3: 'medium', Digit4: 'hard', Digit5: 'wet' };
     if (pick[code]) {
       this.nextCompound = pick[code];
       this.pitStops.setCompound(this.player, this.nextCompound);
@@ -525,7 +531,7 @@ export class Game {
     const was = this.pitStops.phase(this.player);
     this.pitStops.request(this.player, this.nextCompound, this.teamBox.get(this.car.id) ?? 0);
     const now = this.pitStops.phase(this.player);
-    if (now === 'requested') this.hud.toast(`피트 요청: ${COMPOUND_NAMES[this.nextCompound]} (1/2/3으로 변경)`);
+    if (now === 'requested') this.hud.toast(`피트 요청: ${COMPOUND_NAMES[this.nextCompound]} (1~5로 변경)`);
     else if (was === 'requested') this.hud.toast('피트 요청 취소');
   }
 
@@ -737,7 +743,7 @@ export class Game {
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.code === 'Escape') window.location.href = urlWith({ menu: '' });
     if (e.code === 'KeyL' && !e.repeat) this.racingLine.mesh.visible = !this.racingLine.mesh.visible;
-    if ((e.code === 'KeyP' || e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') && !e.repeat) this.pitKey(e.code);
+    if ((e.code === 'KeyP' || /^Digit[1-5]$/.test(e.code)) && !e.repeat) this.pitKey(e.code);
     if (e.code === 'KeyK' && !e.repeat) this.hud.toast(`카메라 흔들림: ${this.followCamera.cycleShake()}`);
     if (e.code === 'KeyC' && !e.repeat) {
       const mode = this.followCamera.cycleMode();

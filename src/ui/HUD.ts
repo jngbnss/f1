@@ -277,7 +277,7 @@ export class HUD {
         ? `<div class="damage"><span class="${s.damage[0] >= 0.6 ? 'bad' : s.damage[0] > 0.02 ? 'warn' : ''}">앞날개 ${Math.round(s.damage[0] * 100)}%</span><span class="${s.damage[1] >= 0.6 ? 'bad' : s.damage[1] > 0.02 ? 'warn' : ''}">뒷날개 ${Math.round(s.damage[1] * 100)}%</span></div>`
         : '') +
       `<div class="intervals"><span>앞차 <b>${gap(s.ahead, '-')}</b></span><span>뒤차 <b>${gap(s.behind, '+')}</b></span></div>` +
-      (s.pit ? `<div class="pit">${s.pit}</div>` : '<div class="pit hint">P 피트 · 1/2/3 타이어</div>');
+      (s.pit ? `<div class="pit">${s.pit}</div>` : '<div class="pit hint">P 피트 · 1~5 타이어</div>');
   }
 
   toast(text: string, now = performance.now()): void {

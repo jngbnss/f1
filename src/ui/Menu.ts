@@ -2,6 +2,7 @@ import { CLASS_INFO, type CarClass } from '../vehicle/catalog/specs';
 import type { CarInfo as CarDefinition } from '../vehicle/catalog';
 import type { TrackEntry } from '../world/tracks';
 import { mountWeatherPicker } from '../world/Weather';
+import { mountTyrePicker } from './TyrePicker';
 
 export interface MenuSelection {
   carId: string;
@@ -51,6 +52,7 @@ export function showMenu(
         <div class="menu-grid" data-group="ai"></div>
         <div class="menu-grid menu-laps" data-group="laps"></div>
         <div data-group="weather"></div>
+        <div data-group="tyre"></div>
         <button class="menu-start" type="button">출발 ▶ <small>(Enter)</small></button>
         <button class="menu-start menu-mp" type="button" style="background:#2f6fde;margin-top:10px">👥 친구와 레이스 <small>방 만들기 · 최대 20명</small></button>
         <p class="menu-note">실제 서킷 레이아웃: TUMFTM racetrack-database (LGPL-3.0) · © OpenStreetMap contributors. 스파·스즈카는 실제 높낮이(Copernicus DEM)까지 재현합니다.</p>
@@ -146,6 +148,7 @@ export function showMenu(
     });
     window.addEventListener('keydown', onKey);
     mountWeatherPicker(root.querySelector<HTMLDivElement>('[data-group="weather"]')!);
+    mountTyrePicker(root.querySelector<HTMLDivElement>('[data-group="tyre"]')!);
     render();
     document.body.append(root);
   });

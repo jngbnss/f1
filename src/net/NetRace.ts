@@ -8,7 +8,8 @@ import { INTERP_DELAY, STATE_HZ, type CarState, type RacePlan } from './protocol
 import type { Room } from './Room';
 import { VoiceOverlay } from '../ui/VoiceControls';
 
-const COMPOUND_ORDER: Compound[] = ['soft', 'medium', 'hard'];
+// Wire codes: append only (older clients know 0-2).
+const COMPOUND_ORDER: Compound[] = ['soft', 'medium', 'hard', 'hyper', 'wet'];
 /** Never extrapolate a remote car further than this past its last state (ms). */
 const MAX_EXTRAPOLATION = 300;
 /** States kept per remote car (~1.5 s at 20 Hz). */
@@ -224,7 +225,7 @@ export class NetRace {
     v.throttle = latest.throttle;
     v.gearbox?.update(forward, latest.throttle, true, dt);
 
-    if (latest.compound !== remote.compound && COMPOUND_ORDER[latest.compound]) {
+    if (latest.compound !== remote.compound && COMPOUND_ORDER[latest.compound] !== undefined) {
       remote.compound = latest.compound;
       const c = COMPOUND_ORDER[latest.compound];
       v.tyres.fit(c);
