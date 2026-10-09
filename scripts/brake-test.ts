@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { PhysicsWorld } from '../src/physics/PhysicsWorld';
 import { AIDriver } from '../src/race/AIDriver';
+import { BRAKE_GRIP } from '../src/vehicle/VehiclePhysics';
 import { findCar } from '../src/vehicle/cars';
 import { Vehicle } from '../src/vehicle/Vehicle';
 import { RacingLine } from '../src/world/RacingLine';
@@ -38,6 +39,9 @@ for (const assist of [true, false]) {
   const ai = new AIDriver(v, line, track, { pace: 1, lane: 0, aggression: 0 });
   // The AI only steers here; the pedal is a human foot (with its build-up).
   v.controller.brakeRamp = true;
+  // Human braking (the AI constructor set the AI values).
+  v.physics.brakeGrip = BRAKE_GRIP;
+  v.physics.brakeForceScale = 1.5;
   // Start 600 m before the line at 250 km/h, so 300 km/h comes on the straight.
   const pts = track.getCenterline();
   const start0 = pts[(pts.length - Math.round(600 / layout.sampleSpacing)) % pts.length];
@@ -108,8 +112,9 @@ for (const assist of [true, false]) {
     `${label}: 300->80 km/h in ${dist.toFixed(1)} m, ${time.toFixed(2)} s | peak ${peak.toFixed(2)} g, ${g(200)} g @200, ${g(100)} g @100 | front lock-up steps >200/120-200/<120 km/h: ${lockBands.join('/')}, rear wheel-steps ${locks.rear}, of ${brakeSteps} steps`,
   );
   if (assist) {
-    const ok = dist > 85 && dist < 145 && time > 1.6 && time < 2.4 && locks.front + locks.rear === 0;
-    console.log(ok ? '  ok   within real-world range, no lock-up' : '  FAIL outside 85–145 m / 1.6–2.4 s or locked');
+    // Stronger than the real ~110 m on purpose (players wanted harder braking); peak stays near 6.5 g.
+    const ok = dist > 65 && dist < 120 && time > 1.3 && time < 2.2 && locks.front + locks.rear === 0;
+    console.log(ok ? '  ok   within real-world range, no lock-up' : '  FAIL outside 65–120 m / 1.3–2.2 s or locked');
     if (!ok) failed = true;
   } else {
     // Stamping on the pedal without assist should lock the fronts at least at low speed.

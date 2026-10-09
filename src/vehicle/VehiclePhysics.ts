@@ -33,6 +33,8 @@ const _wheelFwd = new THREE.Vector3();
 const _wheelRight = new THREE.Vector3();
 const _normal = new THREE.Vector3();
 const _vel = new THREE.Vector3();
+/** Longitudinal (braking) grip relative to lateral grip. */
+export const BRAKE_GRIP = 1.2;
 const _impulse = new THREE.Vector3();
 const _linvel = new THREE.Vector3();
 const _angvel = new THREE.Vector3();
@@ -83,6 +85,13 @@ export class VehiclePhysics {
    * pedal at low downforce locks the wheels (flat spots, no steering).
    */
   brakeAssist = true;
+  /**
+   * Braking grip relative to cornering grip (friction ellipse). Human drivers get
+   * the stronger stop; AI keeps 1 (their braking points and spacing are tuned for it).
+   */
+  brakeGrip = BRAKE_GRIP;
+  /** Brake pedal force multiplier (human drivers; AI keeps 1). */
+  brakeForceScale = 1.5;
   /**
    * Keep the downforce while all four wheels are off the ground (circuits with real
    * crests: Spa, Suzuka). On flat circuits a car only takes off in a crash, where
@@ -280,27 +289,32 @@ export class VehiclePhysics {
       // braking). The assist works like an ideal (load-proportional) split + ABS instead.
       const bias = this.brakeAssist ? 0.5 : (c.brakeBias ?? 0.5);
       const axleWheels = c.wheels.length / 2;
-      let brakeF = (cmd.brake * c.brakeForce * (isFront ? bias : 1 - bias)) / axleWheels;
+      let brakeF = (cmd.brake * c.brakeForce * this.brakeForceScale * (isFront ? bias : 1 - bias)) / axleWheels;
       // Lock-up: brake torque beyond the tyre's grip stops the wheel; a sliding tyre
       // brakes less (kinetic friction) and can hardly steer. With the assist (ABS) the
       // friction circle below just trims the excess and the wheel keeps turning.
       // Tyres give ~10 % more peak grip in a straight line before they lock.
-      const locked = !this.brakeAssist && brakeF > maxForce * 1.1 && Math.abs(vLong) > 2;
+      // Under braking the tyre transmits more force along the wheel than sideways
+      // (friction ellipse): a long-stretched contact patch, like real slick tyres.
+      const maxBrake = maxForce * this.brakeGrip;
+      const locked = !this.brakeAssist && brakeF > maxBrake * 1.1 && Math.abs(vLong) > 2;
       ws.locked = locked;
       if (locked) {
         // A sliding tyre scrubs (wear, heat, screech): report the slide like a slip.
         ws.slip = Math.sign(vLat || 1) * Math.min(Math.hypot(vLat, vLong * 0.4), 12);
         maxForce *= 0.8;
         lateralF *= 0.25;
-        brakeF = maxForce;
+        brakeF = maxBrake * 0.8;
       }
       if (wc.handbrake) brakeF += (cmd.handbrake * c.handbrakeForce) / 2;
       if (!locked) ws.spin += (vLong / c.wheelRadius) * dt;
       // Friction circle: what the tyre can't transmit is lost (wheelspin / lock-up).
       const longF = driveF - brakeF * Math.sign(vLong || 1);
-      const total = Math.hypot(lateralF, longF);
-      if (total > maxForce) {
-        const k = maxForce / total;
+      // Friction ellipse: braking may use up to brakeGrip x the lateral limit.
+      const longLimit = brakeF > driveF ? maxBrake : maxForce;
+      const total = Math.hypot(lateralF / maxForce, longF / longLimit);
+      if (total > 1) {
+        const k = 1 / total;
         lateralF *= k;
         driveF *= k;
         brakeF *= k;
