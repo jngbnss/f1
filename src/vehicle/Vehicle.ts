@@ -38,6 +38,7 @@ export class Vehicle {
     gearbox?: GearboxConfig,
   ) {
     this.controller = new VehicleController(config);
+    this.tyres.wearScale = config.tyreWear ?? 1;
     this.physics = new VehiclePhysics(physicsWorld, config, spawn);
     this.gearbox = gearbox ? new Gearbox(gearbox) : null;
     this.snapshot();

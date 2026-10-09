@@ -14,6 +14,8 @@ export interface WheelConfig {
 }
 
 export interface VehicleConfig {
+  /** Tyre wear rate multiplier (team character; 1 = baseline). */
+  tyreWear?: number;
   mass: number;
   /** Chassis collider half extents. */
   halfExtents: { x: number; y: number; z: number };

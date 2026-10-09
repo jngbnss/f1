@@ -33,6 +33,21 @@ export interface CarSpec {
   accent?: number;
   /** Electronically limited top speed (power could go faster). */
   limited?: boolean;
+  /** Team character (F1): small multipliers around the shared 2026 baseline. */
+  traits?: CarTraits;
+}
+
+export interface CarTraits {
+  /** Aero load: speed through fast bends. */
+  downforce: number;
+  /** Mechanical grip: slow corners. */
+  grip: number;
+  /** Rear traction out of slow corners (less wheelspin / snap oversteer). */
+  traction: number;
+  /** Tyre wear rate (lower = kinder on tyres). */
+  tyreWear: number;
+  /** Short description for the menu. */
+  label: string;
 }
 
 type Row = [id: string, brand: string, model: string, body: BodyType, kw: number, kg: number, top: number, drive: Drive, dims: [number, number, number, number], engine: EngineType, color: number, accent?: number, limited?: boolean];
@@ -43,17 +58,32 @@ const rows = (cls: CarClass, list: Row[]): CarSpec[] =>
 // --- F1 2026: ten teams, two cars each in a race ----------------------------
 const F1_DIMS: [number, number, number, number] = [5.4, 1.9, 0.95, 3.4];
 const FORMULA = rows('formula', [
-  ['f1-ferrari', 'Ferrari', 'F1 2026', 'f1', 750, 800, 345, 'RWD', F1_DIMS, 'f1', 0xd40000, 0x1c1c1c],
-  ['f1-mercedes', 'Mercedes', 'F1 2026', 'f1', 750, 800, 345, 'RWD', F1_DIMS, 'f1', 0xc7ccd1, 0x00a19b],
-  ['f1-redbull', 'Red Bull', 'F1 2026', 'f1', 750, 800, 345, 'RWD', F1_DIMS, 'f1', 0x1e2a5a, 0xd0021b],
-  ['f1-mclaren', 'McLaren', 'F1 2026', 'f1', 750, 800, 345, 'RWD', F1_DIMS, 'f1', 0xff8000, 0x1c1c1c],
-  ['f1-aston', 'Aston Martin', 'F1 2026', 'f1', 750, 800, 345, 'RWD', F1_DIMS, 'f1', 0x00665e, 0xc4d600],
-  ['f1-alpine', 'Alpine', 'F1 2026', 'f1', 750, 800, 345, 'RWD', F1_DIMS, 'f1', 0x1f5fbf, 0xff4fa0],
-  ['f1-williams', 'Williams', 'F1 2026', 'f1', 750, 800, 345, 'RWD', F1_DIMS, 'f1', 0x00205b, 0x00a0de],
-  ['f1-racingbulls', 'Racing Bulls', 'F1 2026', 'f1', 750, 800, 345, 'RWD', F1_DIMS, 'f1', 0xf2f2f2, 0x2f5fd0],
-  ['f1-haas', 'Haas', 'F1 2026', 'f1', 750, 800, 345, 'RWD', F1_DIMS, 'f1', 0xf2f2f2, 0xd0021b],
-  ['f1-audi', 'Audi', 'F1 2026', 'f1', 750, 800, 345, 'RWD', F1_DIMS, 'f1', 0x8a8f94, 0xbb0a30],
+  ['f1-ferrari', 'Ferrari', 'F1 2026', 'f1', 760, 800, 348, 'RWD', F1_DIMS, 'f1', 0xd40000, 0x1c1c1c],
+  ['f1-mercedes', 'Mercedes', 'F1 2026', 'f1', 765, 800, 347, 'RWD', F1_DIMS, 'f1', 0xc7ccd1, 0x00a19b],
+  ['f1-redbull', 'Red Bull', 'F1 2026', 'f1', 750, 800, 343, 'RWD', F1_DIMS, 'f1', 0x1e2a5a, 0xd0021b],
+  ['f1-mclaren', 'McLaren', 'F1 2026', 'f1', 750, 800, 342, 'RWD', F1_DIMS, 'f1', 0xff8000, 0x1c1c1c],
+  ['f1-aston', 'Aston Martin', 'F1 2026', 'f1', 740, 800, 340, 'RWD', F1_DIMS, 'f1', 0x00665e, 0xc4d600],
+  ['f1-alpine', 'Alpine', 'F1 2026', 'f1', 745, 800, 343, 'RWD', F1_DIMS, 'f1', 0x1f5fbf, 0xff4fa0],
+  ['f1-williams', 'Williams', 'F1 2026', 'f1', 755, 800, 350, 'RWD', F1_DIMS, 'f1', 0x00205b, 0x00a0de],
+  ['f1-racingbulls', 'Racing Bulls', 'F1 2026', 'f1', 745, 800, 343, 'RWD', F1_DIMS, 'f1', 0xf2f2f2, 0x2f5fd0],
+  ['f1-haas', 'Haas', 'F1 2026', 'f1', 755, 800, 345, 'RWD', F1_DIMS, 'f1', 0xf2f2f2, 0xd0021b],
+  ['f1-audi', 'Audi', 'F1 2026', 'f1', 742, 808, 341, 'RWD', F1_DIMS, 'f1', 0x8a8f94, 0xbb0a30],
 ]);
+
+// Team characters (rough reading of the 2025-26 field; small on purpose so every car can win).
+const TRAITS: Record<string, CarTraits> = {
+  'f1-ferrari': { downforce: 0.98, grip: 1, traction: 1.03, tyreWear: 1.05, label: '최고속도 · 직선 강함' },
+  'f1-mercedes': { downforce: 1, grip: 1, traction: 1, tyreWear: 0.9, label: '강한 엔진 · 타이어 관리' },
+  'f1-redbull': { downforce: 1.03, grip: 1.01, traction: 0.97, tyreWear: 1, label: '예리한 회두 · 오버스티어' },
+  'f1-mclaren': { downforce: 1.04, grip: 1.02, traction: 1.02, tyreWear: 0.92, label: '코너 최강 · 타이어 관리' },
+  'f1-aston': { downforce: 1.03, grip: 1, traction: 1, tyreWear: 1, label: '높은 다운포스 · 엔진 약함' },
+  'f1-alpine': { downforce: 0.99, grip: 1, traction: 1, tyreWear: 1, label: '균형형' },
+  'f1-williams': { downforce: 0.96, grip: 0.98, traction: 0.99, tyreWear: 1.03, label: '낮은 드래그 · 직선 최강' },
+  'f1-racingbulls': { downforce: 1.01, grip: 1, traction: 0.98, tyreWear: 1.04, label: '민첩함 · 타이어 마모 큼' },
+  'f1-haas': { downforce: 0.97, grip: 0.99, traction: 1.01, tyreWear: 1.1, label: '파워 · 타이어 마모 큼' },
+  'f1-audi': { downforce: 0.98, grip: 0.99, traction: 1, tyreWear: 0.95, label: '안정적 · 무거운 차' },
+};
+for (const spec of FORMULA) spec.traits = TRAITS[spec.id];
 
 export const CAR_SPECS: CarSpec[] = FORMULA;
 

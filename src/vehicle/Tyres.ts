@@ -68,6 +68,8 @@ export class TyreSet {
   temp = { front: BLANKET, rear: BLANKET };
   /** Distance on this set (m). */
   distance = 0;
+  /** Car-specific wear rate (team character). */
+  wearScale = 1;
 
   constructor(compound: Compound = 'medium') {
     this.compound = compound;
@@ -130,7 +132,7 @@ export class TyreSet {
       this.temp[axle] += (heat - cool) * dt;
       // Wear: base per km, more when sliding and when overheated.
       const over = Math.max(0, this.temp[axle] - spec.window[1]) / 20;
-      const rate = spec.wearPerKm * WEAR_MULTIPLIER * (1 + 1.6 * Math.min(slip, 3) + over);
+      const rate = spec.wearPerKm * WEAR_MULTIPLIER * this.wearScale * (1 + 1.6 * Math.min(slip, 3) + over);
       this.wear[axle] = Math.min(1, this.wear[axle] + (rate * step) / 1000);
     }
   }

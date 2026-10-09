@@ -64,6 +64,11 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
   }
   // Track-focused road cars carry more aero (Senna, Valkyrie, GT3 RS...).
   if (spec.body === 'supercar' && spec.kg < 1400) t.downforce = 0.7;
+  const tr = spec.traits;
+  if (tr) {
+    t.downforce *= tr.downforce;
+    t.mu *= tr.grip;
+  }
   const [length, width, , wheelbase] = spec.dims;
   const mass = spec.kg;
 
@@ -72,7 +77,9 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
   const vTop = spec.top / 3.6;
   const vDrag = spec.limited ? vTop * 1.12 : vTop;
   const power = spec.kw * 1000 * DRIVETRAIN;
-  const drag = Math.max((power / vDrag - CRR * mass * G) / (vDrag * vDrag), 0.15);
+  let drag = Math.max((power / vDrag - CRR * mass * G) / (vDrag * vDrag), 0.15);
+  // More wing = more drag: high-downforce cars give a little away on the straights.
+  if (tr) drag *= 1 + 1.2 * (tr.downforce - 1);
 
   const wx = width / 2 - 0.15;
   const front = { steerable: true, driven: spec.drive !== 'RWD', handbrake: false };
@@ -108,7 +115,8 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
     frontGrip: t.grip[0],
     rearGrip: t.grip[1],
     frontFriction: t.mu,
-    rearFriction: t.mu * 1.03,
+    rearFriction: t.mu * 1.03 * (tr?.traction ?? 1),
+    tyreWear: tr?.tyreWear ?? 1,
     handbrakeGripFactor: 0.3,
     maxSteerLowSpeed: t.steer[0],
     maxSteerHighSpeed: t.steer[1],

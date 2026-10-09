@@ -20,7 +20,7 @@ export function carInfo(spec: CarSpec): CarInfo {
   return {
     id: spec.id,
     name: `${spec.brand} ${spec.model}`,
-    description: `${hp} hp · ${spec.kg} kg · ${spec.top} km/h · ${spec.drive}`,
+    description: spec.traits ? `${spec.traits.label} · ${hp} hp · ${spec.top} km/h` : `${hp} hp · ${spec.kg} kg · ${spec.top} km/h · ${spec.drive}`,
     cls: spec.cls,
     spec,
     stats: rateCar(spec, buildPhysics(spec)),
