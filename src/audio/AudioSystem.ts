@@ -9,6 +9,39 @@ import { makeNoiseBuffer, makeReverbBuffer, type AudioAssets } from './EngineSou
 /** Live game audio systems (normally one), for ducking under voice chat. */
 const live = new Set<AudioSystem>();
 
+const VOLUME_KEY = 'f1:volume';
+/** Game sound volume 0..1, remembered in the browser (default 0.6). */
+let gameVolume = (() => {
+  try {
+    const v = Number(localStorage.getItem(VOLUME_KEY));
+    return localStorage.getItem(VOLUME_KEY) !== null && Number.isFinite(v) ? Math.min(Math.max(v, 0), 1) : 0.6;
+  } catch {
+    return 0.6;
+  }
+})();
+const volumeListeners = new Set<(v: number) => void>();
+
+export function getGameVolume(): number {
+  return gameVolume;
+}
+
+/** Sets the game sound volume (0..1) for every live audio system and remembers it. */
+export function setGameVolume(v: number): void {
+  gameVolume = Math.min(Math.max(v, 0), 1);
+  try {
+    localStorage.setItem(VOLUME_KEY, String(gameVolume));
+  } catch {
+    /* not remembered */
+  }
+  for (const a of live) a.applyVolume();
+  for (const l of volumeListeners) l(gameVolume);
+}
+
+export function onGameVolume(l: (v: number) => void): () => void {
+  volumeListeners.add(l);
+  return () => volumeListeners.delete(l);
+}
+
 /** Lowers game sound (engines, tyres) while a teammate talks on voice chat. */
 export function duckGameAudio(on: boolean): void {
   for (const a of live) a.setDuck(on);
@@ -18,7 +51,6 @@ export class AudioSystem {
   ctx: AudioContext | null = null;
   master: GainNode | null = null;
   muted = false;
-  private readonly volume = 0.8;
   assets: AudioAssets | null = null;
   private duckNode: GainNode | null = null;
   private ducked = false;
@@ -49,7 +81,11 @@ export class AudioSystem {
 
   toggleMute(): void {
     this.muted = !this.muted;
-    if (this.master && this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : this.volume, this.ctx.currentTime, 0.05);
+    this.applyVolume();
+  }
+
+  applyVolume(): void {
+    if (this.master && this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : gameVolume, this.ctx.currentTime, 0.05);
   }
 
   dispose(): void {
@@ -70,7 +106,7 @@ export class AudioSystem {
     compressor.threshold.value = -12;
     compressor.ratio.value = 4;
     const master = ctx.createGain();
-    master.gain.value = this.muted ? 0 : this.volume;
+    master.gain.value = this.muted ? 0 : gameVolume;
     const duck = (this.duckNode = ctx.createGain());
     duck.gain.value = this.ducked ? 0.45 : 1;
     master.connect(duck).connect(compressor).connect(ctx.destination);

@@ -2,12 +2,40 @@ import './style.css';
 import './ui/responsive.css';
 import { installDiagnostics } from './ui/Diagnostics';
 import { driveSettings } from './ui/DriveSettings';
+import { mountVolumeControl } from './ui/VolumeControl';
 import { readConfig, urlWith } from './config';
 import { clearBenchResults } from './performance/Benchmark';
 import { runLobby, type LobbyResult } from './ui/Lobby';
 import { showMenu, type MenuSelection } from './ui/Menu';
 import { CAR_LIST, resolveCarId } from './vehicle/catalog';
 import { FEATURED_TRACKS, findTrack, TRACKS } from './world/tracks';
+
+/**
+ * After a new deploy, a page loaded earlier still asks for the old hashed
+ * chunks, which no longer exist ("Failed to fetch dynamically imported
+ * module"). Reload once to pick up the new build instead of failing.
+ */
+const RELOAD_KEY = 'f1:chunk-reload';
+function reloadForNewBuild(): boolean {
+  try {
+    if (sessionStorage.getItem(RELOAD_KEY)) return false;
+    sessionStorage.setItem(RELOAD_KEY, '1');
+  } catch {
+    return false;
+  }
+  window.location.reload();
+  return true;
+}
+window.addEventListener('vite:preloadError', (e) => {
+  if (reloadForNewBuild()) e.preventDefault();
+});
+window.addEventListener('load', () => setTimeout(() => {
+  try {
+    sessionStorage.removeItem(RELOAD_KEY);
+  } catch {
+    /* ignore */
+  }
+}, 15000));
 
 async function main(): Promise<void> {
   installDiagnostics();
@@ -76,6 +104,7 @@ async function main(): Promise<void> {
     }
   } catch (err) {
     console.error(err);
+    if (err instanceof Error && /dynamically imported module|Importing a module script failed/i.test(err.message) && reloadForNewBuild()) return;
     if (loading) {
       loading.classList.remove('hidden');
       loading.classList.add('error');
@@ -106,7 +135,10 @@ async function setupDriving(game: import('./core/Game').Game, touch: boolean, au
     clearTimeout(hide);
     hide = window.setTimeout(() => toast.classList.remove('show'), 1600);
   });
-  if (!touch) return;
+  if (!touch) {
+    mountVolumeControl();
+    return;
+  }
   const { TouchControls } = await import('./ui/TouchControls');
   const controls = new TouchControls({
     setPaused: (p) => game.setPaused(p),

@@ -57,6 +57,8 @@ export interface AudioAssets {
 export const LOOP_BASE_HZ = 43;
 
 const SMOOTH = 0.03; // s, parameter smoothing
+/** Overall engine loudness (players found it too loud next to the rest of the mix). */
+const ENGINE_LEVEL = 0.7;
 
 function softClipCurve(drive: number): Float32Array<ArrayBuffer> {
   const n = 1024;
@@ -209,7 +211,7 @@ export class CarAudio {
     const cutoff = p.filterMin + (p.filterMax - p.filterMin) * (0.25 * r + 0.75 * r * this.load);
     this.lowpass.frequency.setTargetAtTime(cutoff, t, SMOOTH);
 
-    let volume = p.volume * (0.4 + 0.6 * this.load) * (0.7 + 0.3 * r);
+    let volume = ENGINE_LEVEL * p.volume * (0.4 + 0.6 * this.load) * (0.7 + 0.3 * r);
     if (s.shifting) volume *= 0.35;
     this.engineGain.gain.setTargetAtTime(volume, t, s.shifting ? 0.01 : SMOOTH);
 
@@ -276,7 +278,7 @@ export class EngineVoice {
     this.panner.positionZ.setTargetAtTime(z, t, SMOOTH);
     this.source.playbackRate.setTargetAtTime(firingHz(this.profile, rpmRatio) / LOOP_BASE_HZ, t, SMOOTH);
     this.filter.frequency.setTargetAtTime(900 + 2500 * throttle, t, SMOOTH);
-    this.gain.gain.setTargetAtTime(this.profile.volume * (0.45 + 0.55 * throttle) * 0.9, t, SMOOTH);
+    this.gain.gain.setTargetAtTime(ENGINE_LEVEL * this.profile.volume * (0.45 + 0.55 * throttle) * 0.9, t, SMOOTH);
   }
 
   dispose(): void {

@@ -1,6 +1,7 @@
 import './responsive.css';
 import { TouchInput } from '../input/TouchInput';
 import { driveSettings, type DriveSettingsState } from './DriveSettings';
+import { volumeRow } from './VolumeControl';
 
 /** What the touch UI needs from the running game (kept small on purpose). */
 export interface TouchHost {
@@ -152,6 +153,7 @@ export class TouchControls {
       this.openSettings();
     });
     row('가속', [['auto', '자동'], ['manual', '페달']], s.throttle, (v) => driveSettings.set({ throttle: v as DriveSettingsState['throttle'] }));
+    panel.append(volumeRow());
     row('브레이크 보조', [['on', '켬'], ['off', '끔']], s.brakeAssist ? 'on' : 'off', (v) => driveSettings.set({ brakeAssist: v === 'on' }));
     if (s.steer === 'tilt') {
       row('기울기 감도', [['40', '낮음'], ['28', '보통'], ['18', '높음']], String(s.tiltRange), (v) => driveSettings.set({ tiltRange: Number(v) }));
