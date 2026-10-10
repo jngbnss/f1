@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { VehicleConfig } from '../vehicle/VehicleConfig';
 import { smooth } from '../vehicle/cars/shapes';
+import { powerAt } from '../vehicle/Ers';
 
 const G = 9.81;
 /** Share of the tyre limit the line plans with in corners / under braking (measured skidpad ≈ 0.8–0.95). */
@@ -117,7 +118,7 @@ export class RacingLine {
     const accelAt = (speed: number) => {
       const vv = Math.max(speed, 1);
       const traction = mu * G * car.mass * 0.6; // rear-axle share
-      const drive = Math.min(car.engineForce, car.enginePower / vv, traction);
+      const drive = Math.min(car.engineForce, powerAt(car, vv) / vv, traction);
       return Math.max((drive - car.dragCoefficient * vv * vv) / car.mass - car.rollingResistance * G, 0.05);
     };
     // Elevation: gradient (gravity along the road) and vertical curvature (a crest

@@ -8,9 +8,15 @@ import { VehiclePhysics, type Pose } from './VehiclePhysics';
 import type { VehicleVisual } from './VehicleVisual';
 import { TyreSet } from './Tyres';
 import { DamageState } from './Damage';
+import { Ers } from './Ers';
 
 /** Grip left on a tyre rolling over carbon debris (it skates on the shards). */
 const DEBRIS_SLIDE_GRIP = 0.5;
+/** Active aero: seconds to open the flaps (straight mode) and to close them (braking). */
+const AERO_OPEN_TIME = 0.5;
+const AERO_CLOSE_TIME = 0.15;
+/** Straight mode only with the wheel nearly straight (front wheel angle, rad). */
+const AERO_MAX_STEER = 0.03;
 
 /**
  * One car = controller (intent -> commands) + physics (rigid body) + visual (meshes).
@@ -29,6 +35,12 @@ export class Vehicle {
   readonly damage = new DamageState();
   /** Seconds of debris slide left per wheel (a carbon shard under the tyre). */
   readonly debrisSlide = [0, 0, 0, 0];
+  /** 2026 hybrid: battery, deployment, overtake mode. */
+  readonly ers: Ers;
+  /** Inside an active-aero straight zone (set by the race rules each step). */
+  straightZone = false;
+  /** Active aero position: 0 = corner mode (flaps closed), 1 = straight mode. */
+  aeroMode = 0;
 
   private readonly prevPos = new THREE.Vector3();
   private readonly prevQuat = new THREE.Quaternion();
@@ -43,6 +55,7 @@ export class Vehicle {
     gearbox?: GearboxConfig,
   ) {
     this.controller = new VehicleController(config);
+    this.ers = new Ers(config);
     this.tyres.wearScale = config.tyreWear ?? 1;
     this.physics = new VehiclePhysics(physicsWorld, config, spawn);
     this.gearbox = gearbox ? new Gearbox(gearbox) : null;
@@ -71,7 +84,11 @@ export class Vehicle {
   /** Before world.step(): turn input into forces. */
   fixedUpdate(input: Readonly<VehicleInput>, dt: number): void {
     const cmd = this.controller.update(input, this.physics.forwardSpeed, dt);
+    const speed = Math.max(this.physics.forwardSpeed, 0);
+    this.physics.availablePower = this.ers.available(speed, cmd.drive);
+    this.updateActiveAero(cmd.brake, cmd.steerAngle, dt);
     this.physics.step(cmd, dt);
+    this.ers.step(dt, speed, this.physics.drivePower - (this.config.enginePower - this.config.mgukPower), cmd.drive, cmd.brake);
     this.tyres.update(this.physics, dt);
     const grip = this.physics.tyreGrip;
     for (let i = 0; i < grip.length; i++) {
@@ -87,6 +104,19 @@ export class Vehicle {
     this.physics.bodyDrag = this.damage.drag();
     this.throttle = Math.abs(cmd.drive);
     this.gearbox?.update(this.physics.forwardSpeed, this.throttle, this.physics.groundedWheels > 0, dt);
+  }
+
+  /**
+   * 2026 active aero: flaps open in a straight zone when the driver is flat out and
+   * straight, close at once on the brakes or with steering.
+   */
+  private updateActiveAero(brake: number, steer: number, dt: number): void {
+    const aa = this.config.activeAero;
+    if (!aa) return;
+    const open = this.straightZone && brake < 0.05 && Math.abs(steer) < AERO_MAX_STEER;
+    this.aeroMode = open ? Math.min(1, this.aeroMode + dt / AERO_OPEN_TIME) : Math.max(0, this.aeroMode - dt / AERO_CLOSE_TIME);
+    this.physics.activeAero.drag = 1 + (aa.drag - 1) * this.aeroMode;
+    this.physics.activeAero.downforce = 1 + (aa.downforce - 1) * this.aeroMode;
   }
 
   /** After world.step(): record state for interpolation. */

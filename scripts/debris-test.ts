@@ -69,16 +69,18 @@ async function skidpad(prepare: (v: Vehicle) => void, kmh = 120, steer = 0.5): P
   return g / n;
 }
 
-async function topSpeed(prepare: (v: Vehicle) => void): Promise<number> {
+/** Seconds to cover 2 km from a standing start, flat out on a straight (straight-mode aero). */
+async function twoKm(prepare: (v: Vehicle) => void): Promise<number> {
   const { v, tick } = await runway();
   prepare(v);
-  v.teleport({ position: new Vector3(-150, 1, 9800), quaternion: new Quaternion() });
-  let top = 0;
-  for (let i = 0; i < 60 * 60 && v.position.z > -9800; i++) {
+  v.teleport({ position: new Vector3(4000, 1, 9000), quaternion: new Quaternion() });
+  v.straightZone = true;
+  let t = 0;
+  while (9000 - v.position.z < 2000 && t < 60) {
     tick({ throttle: 1 });
-    top = Math.max(top, v.speedKmh);
+    t += dt;
   }
-  return top;
+  return t;
 }
 
 // --- 1. crash debris ----------------------------------------------------------
@@ -172,13 +174,13 @@ console.log('Bodywork damage');
   const intact = await skidpad(() => {}, 230, 0.4);
   const floor = await skidpad((v) => (v.damage.floor = 1), 230, 0.4);
   check(floor < intact * 0.92, `230 km/h corner: ${intact.toFixed(2)} g intact, ${floor.toFixed(2)} g with a broken floor`);
-  const top0 = await topSpeed(() => {});
-  const top1 = await topSpeed((v) => {
+  // 2026 power fades out above 290 km/h, so the extra drag shows over a run more than at the very top.
+  const t0 = await twoKm(() => {});
+  const t1 = await twoKm((v) => {
     v.damage.front = 0.5;
     v.damage.floor = 0.6;
   });
-  // A ratio, not km/h: floor damage also takes downforce, and with it some rolling resistance.
-  check(top1 < top0 * 0.99, `top speed ${top0.toFixed(0)} km/h intact, ${top1.toFixed(0)} km/h with a bent wing and torn floor`);
+  check(t1 > t0 + 0.05, `2 km from a standstill: ${t0.toFixed(2)} s intact, ${t1.toFixed(2)} s with a bent wing and torn floor`);
 }
 
 // --- 5. running over a wing ----------------------------------------------------------
