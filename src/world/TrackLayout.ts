@@ -81,6 +81,14 @@ export const FAMOUS_STANDS: Record<string, StandSpec[]> = {
     { at: 4120, length: 110, depth: 16, height: 10, side: -1 },
     { at: 4380, length: 100, depth: 14, height: 9, side: -1 },
   ],
+  // Shanghai: the main grandstand across from the pits (under the 'wing' bridges), T1-T2 snail, T6 hairpin, T11-T13, T14 hairpin.
+  shanghai: [
+    { at: 170, length: 340, depth: 30, height: 20, side: -1 },
+    { at: 660, length: 160, depth: 20, height: 12, side: -1 },
+    { at: 2560, length: 120, depth: 16, height: 10, side: 1 },
+    { at: 3380, length: 140, depth: 16, height: 10, side: -1 },
+    { at: 4800, length: 160, depth: 20, height: 12, side: -1 },
+  ],
   suzuka: [
     { at: 120, length: 260, depth: 28, height: 16, side: -1 },
     { at: 720, length: 140, depth: 22, height: 12, side: -1 },
@@ -98,7 +106,7 @@ export const FERRIS_WHEELS: Record<string, { at: number; side: number; distance:
 };
 
 /** Side of the pit lane on the start/finish straight (+1 right), where the real one is. */
-export const PIT_SIDE: Record<string, number> = { monza: 1, spa: 1, suzuka: 1, monaco: 1, melbourne: 1 };
+export const PIT_SIDE: Record<string, number> = { monza: 1, spa: 1, suzuka: 1, monaco: 1, melbourne: 1, shanghai: 1 };
 
 /**
  * Pit lanes that don't fit the default (330 m before the line to 230 m after,
@@ -112,6 +120,8 @@ export const PIT_LANE: Record<string, { entry: number; exit: number; boxes: numb
   monaco: { entry: 190, exit: 150, boxes: 20 },
   // Albert Park: the real lane leaves inside T16 (OSM); here from the T16 exit, along the garages behind the line, out before T1.
   melbourne: { entry: 400, exit: 170, boxes: -150 },
+  // Shanghai: in from the inside of T16 (OSM), out on the straight well before the T1 snail.
+  shanghai: { entry: 270, exit: 230, boxes: 0 },
 };
 
 /** Per-circuit layout overrides that the CSV can't carry. */
