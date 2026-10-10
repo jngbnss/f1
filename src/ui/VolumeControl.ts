@@ -4,7 +4,7 @@ import { onRadioSettings, readRadioSettings, saveRadioSettings, type RadioSettin
 /**
  * Sound settings: a small 🔊 button (bottom centre on desktop) that opens a
  * panel with the engine / effects volume and the team radio (on/off, its own
- * volume, voice language, subtitles). Touch screens get the same rows inside
+ * volume, subtitles; the engineer speaks English). Touch screens get the same rows inside
  * the settings panel instead (see TouchControls). M still mutes.
  */
 export function mountVolumeControl(): () => void {
@@ -78,19 +78,13 @@ function soundRows(rowClass = 'vp-row', alive: () => boolean = () => true): { el
   const radioOn = toggle('무전 켜기/끄기');
   const radioVol = slider('무전 크기');
   const radioPct = percent();
-  const langKo = toggle('무전 음성 한국어');
-  langKo.textContent = '한국어';
-  const langEn = toggle('무전 음성 영어');
-  langEn.textContent = 'English';
   const subs = toggle('자막 켜기/끄기');
 
   const update = (patch: Partial<RadioSettings>) => saveRadioSettings({ ...readRadioSettings(), ...patch });
   radioOn.addEventListener('click', () => update({ on: !readRadioSettings().on }));
   radioVol.addEventListener('input', () => update({ volume: Number(radioVol.value) / 100 }));
-  langKo.addEventListener('click', () => update({ lang: 'ko' }));
-  langEn.addEventListener('click', () => update({ lang: 'en' }));
   subs.addEventListener('click', () => update({ subtitles: !readRadioSettings().subtitles }));
-  for (const b of [radioOn, langKo, langEn, subs]) b.addEventListener('click', () => b.blur());
+  for (const b of [radioOn, subs]) b.addEventListener('click', () => b.blur());
 
   const showEngine = (v: number) => {
     engine.value = String(Math.round(v * 100));
@@ -102,8 +96,6 @@ function soundRows(rowClass = 'vp-row', alive: () => boolean = () => true): { el
     radioVol.value = String(Math.round(s.volume * 100));
     radioVol.disabled = !s.on;
     radioPct.textContent = `${Math.round(s.volume * 100)}%`;
-    langKo.classList.toggle('on', s.lang === 'ko');
-    langEn.classList.toggle('on', s.lang === 'en');
     subs.textContent = s.subtitles ? '켜짐' : '꺼짐';
     subs.classList.toggle('on', s.subtitles);
   };
@@ -119,7 +111,6 @@ function soundRows(rowClass = 'vp-row', alive: () => boolean = () => true): { el
     elements: [
       row('엔진·효과음', engine, enginePct),
       row('팀 라디오', radioOn, radioVol, radioPct),
-      row('무전 음성', langKo, langEn),
       row('무전 자막', subs),
     ],
     dispose,

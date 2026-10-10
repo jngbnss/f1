@@ -835,7 +835,7 @@ export class Game {
     this.stuckTime = stuck ? this.stuckTime + dt : Math.max(0, this.stuckTime - dt * 3);
     if (actions.includes('reset')) this.stuckTime = 0;
     this.hud.setHint(
-      this.stuckTime > 2.5
+      this.stuckTime > 2.5 && this.race?.state !== 'finished'
         ? this.config.touch
           ? '<kbd>↺</kbd> 버튼을 눌러 트랙으로 복귀<small>위치를 트랙 위로 되돌립니다</small>'
           : '<kbd>R</kbd> 키를 눌러 트랙으로 복귀<small>위치를 트랙 위로 되돌립니다</small>'
