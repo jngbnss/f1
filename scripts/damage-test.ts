@@ -13,7 +13,8 @@ import { ProceduralTrack } from '../src/world/Track';
 import { loadLayout } from './tracks-node';
 
 const dt = 1 / 60;
-const car = findCar('f1-ferrari');
+// Baseline team car: this checks the damage model, not a team's handling after the hit.
+const car = findCar('f1-haas');
 const IDLE = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
 let failures = 0;
 

@@ -265,6 +265,9 @@ export class VehiclePhysics {
     const maxRay = c.suspensionRestLength + c.wheelRadius;
     let grounded = 0;
     let gripSum = 0;
+    // Mechanical grip (team trait) scales only the weight-borne share of the grip.
+    const weight = c.mass * 9.81;
+    const mech = 1 + ((c.mechGrip ?? 1) - 1) * (weight / (weight + c.downforce * speed * speed));
     // Brake assist: an ideal split follows the axle loads (last step's), so under braking,
     // with the weight on the nose, the light rear is never asked for more than it can take.
     let frontLoad = 0;
@@ -368,7 +371,7 @@ export class VehiclePhysics {
       const isFront = wc.steerable;
       const tyre = this.tyreGrip[i];
       let grip = (isFront ? c.frontGrip : c.rearGrip) * Math.min(1, 0.35 + 0.65 * surfGrip) * Math.min(1, tyre);
-      let mu = (isFront ? c.frontFriction * this.frontGripScale : c.rearFriction) * surfGrip * tyre;
+      let mu = (isFront ? c.frontFriction * this.frontGripScale : c.rearFriction) * surfGrip * tyre * mech;
       if (wc.handbrake && cmd.handbrake > 0) {
         const f = 1 - (1 - c.handbrakeGripFactor) * cmd.handbrake;
         grip *= f;
@@ -400,7 +403,7 @@ export class VehiclePhysics {
       // Tyres give ~10 % more peak grip in a straight line before they lock.
       // Under braking the tyre transmits more force along the wheel than sideways
       // (friction ellipse): a long-stretched contact patch, like real slick tyres.
-      const maxBrake = maxForce * this.brakeGrip;
+      const maxBrake = maxForce * this.brakeGrip * (c.braking ?? 1);
       const locked = !this.brakeAssist && brakeF > maxBrake * 1.1 && Math.abs(vLong) > 2;
       ws.locked = locked;
       if (locked) {
@@ -415,7 +418,8 @@ export class VehiclePhysics {
       // Friction circle: what the tyre can't transmit is lost (wheelspin / lock-up).
       const longF = driveF - brakeF * Math.sign(vLong || 1);
       // Friction ellipse: braking may use up to brakeGrip x the lateral limit.
-      const longLimit = brakeF > driveF ? maxBrake : maxForce;
+      // Traction (team trait) only limits the drive force (wheelspin), never cornering grip.
+      const longLimit = brakeF > driveF ? maxBrake : maxForce * (c.traction ?? 1);
       const total = Math.hypot(lateralF / maxForce, longF / longLimit);
       if (total > 1) {
         const k = 1 / total;

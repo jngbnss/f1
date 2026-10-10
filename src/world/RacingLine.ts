@@ -110,8 +110,10 @@ export class RacingLine {
     // Tyre limit grows with aero load: a(v) = k·μ·(g + downforce·v²/m).
     const mu = Math.min(car.frontFriction, car.rearFriction);
     const aero = car.downforce / car.mass;
+    /** Mechanical grip (team trait): scales the weight-borne share only. */
+    const mech = car.mechGrip ?? 1;
     const km = CORNER_MARGIN;
-    this.brakeAt = (speed) => BRAKE_MARGIN * mu * (G + aero * speed * speed);
+    this.brakeAt = (speed) => BRAKE_MARGIN * mu * (car.braking ?? 1) * (G * mech + aero * speed * speed);
     const accelAt = (speed: number) => {
       const vv = Math.max(speed, 1);
       const traction = mu * G * car.mass * 0.6; // rear-axle share
@@ -145,9 +147,9 @@ export class RacingLine {
     const vMax = car.maxSpeed;
     const v = new Float32Array(count);
     for (let i = 0; i < count; i++) {
-      // v² = kμg / (κ − kμ·(aero + κ_vertical)); if the aero term wins, the corner is flat out.
+      // v² = kμ·g·mech / (κ − kμ·(aero + κ_vertical)); if the aero term wins, the corner is flat out.
       const denom = curvature[i] - km * mu * (aero + vertical[i]);
-      v[i] = denom > 1e-6 ? Math.min(vMax, Math.sqrt((km * mu * G) / denom)) : vMax;
+      v[i] = denom > 1e-6 ? Math.min(vMax, Math.sqrt((km * mu * G * mech) / denom)) : vMax;
     }
     const limits = v.slice();
     for (let lap = 0; lap < 2; lap++) {
