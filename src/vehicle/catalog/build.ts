@@ -21,6 +21,9 @@ interface BodyTemplate {
   damperPerKg: number;
   grip: [number, number];
   steer: [low: number, high: number, fadeSpeed: number];
+  /** Real centre-of-mass height (m) and anti-roll bars per kg of car (front, rear). */
+  cgHeight?: number;
+  antiRollPerKg?: [number, number];
 }
 
 const ROAD: BodyTemplate = { mu: 1.02, downforce: 0.04, wheelRadius: 0.33, halfY: 0.3, wheelY: -0.15, rest: 0.45, springPerKg: 18.5, damperPerKg: 1.85, grip: [0.85, 0.9], steer: [0.6, 0.12, 42] };
@@ -35,7 +38,8 @@ const BODY: Record<BodyType, BodyTemplate> = {
   gt3: { mu: 1.45, downforce: 0.95, wheelRadius: 0.35, halfY: 0.26, wheelY: -0.12, rest: 0.38, springPerKg: 26, damperPerKg: 2.2, grip: [0.88, 0.92], steer: [0.55, 0.085, 55] },
   supercar: { mu: 1.28, downforce: 0.35, wheelRadius: 0.355, halfY: 0.25, wheelY: -0.11, rest: 0.36, springPerKg: 26, damperPerKg: 2.2, grip: [0.88, 0.92], steer: [0.54, 0.085, 58] },
   lmp: { mu: 1.6, downforce: 2.0, wheelRadius: 0.36, halfY: 0.22, wheelY: -0.04, rest: 0.32, springPerKg: 45, damperPerKg: 3, grip: [0.9, 0.95], steer: [0.5, 0.072, 66] },
-  f1: { mu: 1.75, downforce: 2.9, wheelRadius: 0.36, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 56, damperPerKg: 3.25, grip: [0.9, 0.95], steer: [0.5, 0.07, 70] },
+  // CoG ~0.3 m; very stiff anti-roll bars (front a little stiffer): ~1° of roll at 4 g.
+  f1: { mu: 1.75, downforce: 2.9, wheelRadius: 0.36, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 56, damperPerKg: 3.25, grip: [0.9, 0.95], steer: [0.5, 0.07, 70], cgHeight: 0.3, antiRollPerKg: [120, 95] },
   openwheel: { mu: 1.6, downforce: 2.0, wheelRadius: 0.33, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 50, damperPerKg: 3.1, grip: [0.9, 0.95], steer: [0.5, 0.075, 66] },
   indy: { mu: 1.62, downforce: 2.3, wheelRadius: 0.34, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 52, damperPerKg: 3.2, grip: [0.9, 0.95], steer: [0.5, 0.07, 70] },
   fe: { mu: 1.38, downforce: 1.0, wheelRadius: 0.34, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 45, damperPerKg: 3, grip: [0.9, 0.95], steer: [0.52, 0.08, 62] },
@@ -100,6 +104,9 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
     suspensionRestLength: t.rest,
     suspensionStiffness: mass * t.springPerKg,
     suspensionDamping: mass * t.damperPerKg,
+    antiRollFront: mass * (t.antiRollPerKg?.[0] ?? 15),
+    antiRollRear: mass * (t.antiRollPerKg?.[1] ?? 12),
+    cgHeight: t.cgHeight ?? 0.45,
     enginePower: power,
     engineForce: mass * G * 1.4,
     reverseForce: mass * 5,
