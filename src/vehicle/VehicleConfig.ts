@@ -69,6 +69,8 @@ export interface VehicleConfig {
   rollingResistance: number;
   /** Aerodynamic downforce ½ρ·Cl·A (F = c·v²); adds tyre load, so grip grows with speed. */
   downforce: number;
+  /** Front axle share of the downforce (aero balance, 0..1). */
+  aeroBalance: number;
 
   /** Fraction of lateral slip cancelled per step (0..1). <1 = some slide. */
   frontGrip: number;

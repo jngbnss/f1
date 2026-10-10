@@ -5,7 +5,8 @@ import { smooth } from '../vehicle/cars/shapes';
 const G = 9.81;
 /** Share of the tyre limit the line plans with in corners / under braking (measured skidpad ≈ 0.8–0.95). */
 const CORNER_MARGIN = 0.8;
-const BRAKE_MARGIN = 0.8;
+/** Braking planned at 70 % of the grip: with the Pacejka tyres braking at 80 % into a corner spun AI cars. */
+const BRAKE_MARGIN = 0.7;
 /** How far ahead of the car the line reacts to the current speed (m). */
 const LOOKAHEAD = 400;
 

@@ -4,17 +4,26 @@ import type { Vehicle } from '../vehicle/Vehicle';
 
 const _force = new THREE.Vector3();
 
+export interface DamageSnapshot {
+  front: number;
+  rear: number;
+  floor: number;
+}
+
+const snapshot = (v: Vehicle): DamageSnapshot => ({ front: v.damage.front, rear: v.damage.rear, floor: v.damage.floor });
+
 /**
- * Turns the last physics step's contact-force events into wing damage.
+ * Turns the last physics step's contact-force events into bodywork damage.
  * Only barriers / pit wall and other cars count (the chassis touching the
  * ground on a kerb or landing is not an impact). Calls `onChange` for every
- * car whose damage changed.
+ * car whose damage changed, with its damage before the hit (debris is shed
+ * for what broke).
  */
 export function applyImpacts(
   physics: PhysicsWorld,
   byCollider: ReadonlyMap<number, Vehicle>,
   dt: number,
-  onChange: (v: Vehicle, hit: 'car' | 'barrier') => void,
+  onChange: (v: Vehicle, hit: 'car' | 'barrier', before: DamageSnapshot) => void,
 ): void {
   physics.drainContactForces((h1, h2, force) => {
     const v1 = byCollider.get(h1);
@@ -29,11 +38,13 @@ export function applyImpacts(
     // collider 1 gets the opposite. Impulse = force x step.
     if (v1 && counts(h2)) {
       _force.set(-force.x, -force.y, -force.z).multiplyScalar(dt);
-      if (v1.damage.hit(_force, v1.quaternion)) onChange(v1, other(h2) === BARRIER_GROUPS ? 'barrier' : 'car');
+      const before = snapshot(v1);
+      if (v1.damage.hit(_force, v1.quaternion)) onChange(v1, other(h2) === BARRIER_GROUPS ? 'barrier' : 'car', before);
     }
     if (v2 && counts(h1)) {
       _force.set(force.x, force.y, force.z).multiplyScalar(dt);
-      if (v2.damage.hit(_force, v2.quaternion)) onChange(v2, other(h1) === BARRIER_GROUPS ? 'barrier' : 'car');
+      const before = snapshot(v2);
+      if (v2.damage.hit(_force, v2.quaternion)) onChange(v2, other(h1) === BARRIER_GROUPS ? 'barrier' : 'car', before);
     }
   });
 }

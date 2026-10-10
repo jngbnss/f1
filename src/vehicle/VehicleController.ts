@@ -71,13 +71,18 @@ export class VehicleController {
     const maxDelta = rate * dt;
     this.steer += Math.max(-maxDelta, Math.min(maxDelta, target - this.steer));
 
+    cmd.steerAngle = this.steer * this.maxSteer(forwardSpeed);
+
+    return cmd;
+  }
+
+  /** Front wheel angle (rad) at full steering input for this speed. */
+  maxSteer(forwardSpeed: number): number {
+    const c = this.config;
     const t = Math.min(Math.abs(forwardSpeed) / c.steerFadeSpeed, 1);
     const ease = t * (2 - t); // ease-out: range drops quickly at first
     const high = c.maxSteerHighSpeed * (this.agileSteering ? AGILE.highSpeedLock : 1);
-    const maxSteer = c.maxSteerLowSpeed + (high - c.maxSteerLowSpeed) * ease;
-    cmd.steerAngle = this.steer * maxSteer;
-
-    return cmd;
+    return c.maxSteerLowSpeed + (high - c.maxSteerLowSpeed) * ease;
   }
 
   reset(): void {

@@ -84,6 +84,19 @@ async function manoeuvres(car: CarDefinition): Promise<void> {
   check(yawDeg(vehicle) - y1 < -5, `steer right turns right (${(yawDeg(vehicle) - y1).toFixed(1)}°)`);
 }
 
+/** Unsigned curvature (1/m) of a closed polyline at index i, from points ~10 m either side. */
+function curvatureAt(line: readonly Vector3[], i: number, n: number): number {
+  const step = 5;
+  const a = line[(((i - step) % n) + n) % n];
+  const b = line[((i % n) + n) % n];
+  const c = line[(i + step) % n];
+  const ab = Math.hypot(b.x - a.x, b.z - a.z);
+  const bc = Math.hypot(c.x - b.x, c.z - b.z);
+  const ca = Math.hypot(a.x - c.x, a.z - c.z);
+  const cross = Math.abs((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x));
+  return ab * bc * ca > 1e-6 ? (2 * cross) / (ab * bc * ca) : 0;
+}
+
 async function botLap(car: CarDefinition, layout: TrackLayout): Promise<void> {
   const { track, vehicle, tick } = await setup(car, layout);
   const line = track.getCenterline();
@@ -114,7 +127,20 @@ async function botLap(car: CarDefinition, layout: TrackLayout): Promise<void> {
     // Corner severity from heading change over the next ~4 s of track.
     far.copy(line[(idx + Math.round((20 + speed * 2.2) / layout.sampleSpacing)) % n]).sub(vehicle.position).setY(0).normalize();
     const cornering = 1 - Math.max(0, fwd.x * far.x + fwd.z * far.z);
-    const targetSpeed = Math.max(14, car.physics.maxSpeed * 0.8 - cornering * 160);
+    let targetSpeed = Math.max(14, car.physics.maxSpeed * 0.8 - cornering * 160);
+    // ...but never faster than the tightest bend within braking distance allows
+    // (v² = a·μ(g + D·v²/m) / κ, centreline curvature, braking at 0.6 μg): the heading
+    // heuristic alone came into Monaco's hairpins too fast with the slip-angle tyres.
+    const mu = car.physics.frontFriction;
+    const aero = car.physics.downforce / car.physics.mass;
+    const reach = (speed * speed) / (2 * 0.6 * mu * 9.81) + 30;
+    for (let d = 0; d < reach; d += layout.sampleSpacing) {
+      const j = idx + Math.round(d / layout.sampleSpacing);
+      const kappa = curvatureAt(line, j, n);
+      const denom = kappa - 0.6 * mu * aero;
+      const corner = denom > 1e-6 ? Math.sqrt((0.6 * mu * 9.81) / denom) : Infinity;
+      targetSpeed = Math.min(targetSpeed, Math.sqrt(corner * corner + 2 * 0.6 * mu * 9.81 * d));
+    }
     tick({
       steer: Math.max(-1, Math.min(1, side * 4)),
       throttle: speed < targetSpeed ? 1 : 0,

@@ -82,6 +82,10 @@ export interface CarState {
   rpm: number;
   damageFront: number;
   damageRear: number;
+  /** Floor damage, coarse (0, 1/3, 2/3, 1: two spare flag bits). */
+  damageFloor: number;
+  /** Punctured tyres, one bit per wheel (FL, FR, RL, RR). */
+  punctures: number;
   /** Index into COMPOUND order (soft, medium, hard). */
   compound: number;
   inPit: boolean;
@@ -96,7 +100,9 @@ const u8 = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255)));
 
 export function writeState(view: DataView, offset: number, s: CarState): void {
   view.setUint8(offset, s.slot);
-  view.setUint8(offset + 1, (s.inPit ? 1 : 0) | (s.lights ? 2 : 0));
+  // Flags: pit, lights, 4 puncture bits, 2 floor-damage bits (older clients ignore the extra bits).
+  const floor = Math.max(0, Math.min(3, Math.round(s.damageFloor * 3)));
+  view.setUint8(offset + 1, (s.inPit ? 1 : 0) | (s.lights ? 2 : 0) | ((s.punctures & 15) << 2) | (floor << 6));
   view.setUint8(offset + 2, u8(s.damageFront));
   view.setUint8(offset + 3, u8(s.damageRear));
   view.setUint8(offset + 4, s.compound);
@@ -115,6 +121,8 @@ export function readState(view: DataView, offset: number): CarState {
     slot: view.getUint8(offset),
     inPit: (flags & 1) !== 0,
     lights: (flags & 2) !== 0,
+    punctures: (flags >> 2) & 15,
+    damageFloor: ((flags >> 6) & 3) / 3,
     damageFront: view.getUint8(offset + 2) / 255,
     damageRear: view.getUint8(offset + 3) / 255,
     compound: view.getUint8(offset + 4),

@@ -19,6 +19,7 @@
     "team:sensitivity": "tsx scripts/team-sensitivity.ts",
     "pit:queue": "tsx scripts/pit-queue-test.ts monza && tsx scripts/pit-queue-test.ts monaco",
     "damage:test": "tsx scripts/damage-test.ts",
+    "debris:test": "tsx scripts/debris-test.ts",
     "tyre:test": "tsx scripts/tyre-test.ts",
     "brake:test": "tsx scripts/brake-test.ts",
     "load:test": "tsx scripts/load-test.ts",
@@ -26,7 +27,7 @@
     "voice:test": "tsx scripts/voice-test.ts",
     "bench": "tsx scripts/bench.ts",
     "raceline:bake": "tsx scripts/bake-raceline.ts",
-    "elevation:bake": "tsx scripts/bake-elevation.ts spa Spa && tsx scripts/bake-elevation.ts suzuka Suzuka && tsx scripts/bake-elevation.ts monaco Monaco",
+    "elevation:bake": "tsx scripts/bake-elevation.ts spa Spa && tsx scripts/bake-elevation.ts suzuka Suzuka && tsx scripts/bake-elevation.ts monaco Monaco && tsx scripts/bake-elevation.ts sakhir Sakhir && tsx scripts/bake-elevation.ts catalunya Catalunya 0.08 && tsx scripts/bake-elevation.ts spielberg Spielberg && tsx scripts/bake-elevation.ts silverstone Silverstone && tsx scripts/bake-elevation.ts budapest Budapest && tsx scripts/bake-elevation.ts austin Austin && tsx scripts/bake-elevation.ts mexicocity MexicoCity && tsx scripts/bake-elevation.ts saopaulo SaoPaulo",
     "model:f1": "tsx scripts/build-f1-model.ts"
   },
   "dependencies": {
