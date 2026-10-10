@@ -33,6 +33,9 @@ export interface VehicleHudState {
   /** 0..1 engine speed between idle and redline. */
   rpmRatio: number;
   input: string;
+  /** Slipstream: share of drag removed (0..1) and of downforce lost (0..1). */
+  tow?: number;
+  dirty?: number;
 }
 
 const fmt = (v: number, digits = 1) => v.toFixed(digits);
@@ -47,6 +50,7 @@ export class HUD {
   private readonly speedEl: HTMLDivElement;
   private readonly gearEl: HTMLDivElement;
   private readonly rpmEl: HTMLDivElement;
+  private readonly slipEl: HTMLDivElement;
   private readonly helpEl: HTMLDivElement;
   private readonly lapEl: HTMLDivElement;
   private readonly lapFields: Record<'lap' | 'cur' | 'last' | 'best', HTMLSpanElement>;
@@ -101,7 +105,9 @@ export class HUD {
     rpm.className = 'rpm';
     this.rpmEl = document.createElement('div');
     rpm.append(this.rpmEl);
-    speedo.append(this.gearEl, rpm, this.speedEl, unit);
+    this.slipEl = document.createElement('div');
+    this.slipEl.className = 'slip';
+    speedo.append(this.slipEl, this.gearEl, rpm, this.speedEl, unit);
 
     this.helpEl = document.createElement('div');
     this.helpEl.className = 'help';
@@ -148,6 +154,14 @@ export class HUD {
       const r = Math.min(Math.max(vehicle.rpmRatio, 0), 1);
       this.rpmEl.style.width = `${(r * 100).toFixed(1)}%`;
       this.rpmEl.className = r > 0.9 ? 'high' : '';
+      // Slipstream: chevrons light up with the tow; dirty air shown as the downforce lost.
+      const tow = vehicle.tow ?? 0;
+      const dirty = vehicle.dirty ?? 0;
+      const bars = tow > 0.25 ? 3 : tow > 0.15 ? 2 : tow > 0.06 ? 1 : 0;
+      const html = bars
+        ? `<b>${'›'.repeat(bars)}<i>${'›'.repeat(3 - bars)}</i></b> 슬립스트림${dirty > 0.1 ? ` <em>다운포스 -${Math.round(dirty * 100)}%</em>` : ''}`
+        : '';
+      if (this.slipEl.innerHTML !== html) this.slipEl.innerHTML = html;
     }
     if (!this.visible || now - this.lastPerfUpdate < 250) return;
     this.lastPerfUpdate = now;

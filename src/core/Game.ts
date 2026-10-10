@@ -24,6 +24,7 @@ import { COMPOUND_COLORS } from '../vehicle/cars/GltfF1Visual';
 import { COMPOUND_LABELS, COMPOUND_NAMES, COMPOUNDS, TRACK_GRIP, type Compound } from '../vehicle/Tyres';
 import { readStartTyre } from '../ui/TyrePicker';
 import { PitStops } from '../race/PitStops';
+import { updateSlipstream } from '../race/Slipstream';
 import { PitCrew } from '../world/PitCrew';
 import { applyImpacts } from '../race/Impacts';
 import { AIDriver } from '../race/AIDriver';
@@ -607,6 +608,7 @@ export class Game {
     }
 
     this.net?.beforeStep(dt);
+    updateSlipstream(this.vehicles);
     const frozen = this.race?.frozen ?? false;
     // The pit controller drives cars in the pit lane (player included).
     const pitPlayer = frozen ? null : (this.pitStops?.update(this.player, dt) ?? null);
@@ -715,6 +717,8 @@ export class Game {
       gear: gearbox ? gearbox.label : '',
       rpmRatio: gearbox ? gearbox.rpmRatio : 0,
       input: this.input.activeSource,
+      tow: 1 - this.player.physics.wake.drag,
+      dirty: 1 - (this.player.physics.wake.front + this.player.physics.wake.rear) / 2,
     });
     if (this.carAudio && gearbox && this.audio?.running) {
       this.carAudio.update(

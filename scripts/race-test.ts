@@ -10,6 +10,7 @@ import { AIDriver } from '../src/race/AIDriver';
 import { RaceManager, type Racer } from '../src/race/RaceManager';
 import { findCar } from '../src/vehicle/cars';
 import { applyImpacts } from '../src/race/Impacts';
+import { updateSlipstream } from '../src/race/Slipstream';
 import { Vehicle } from '../src/vehicle/Vehicle';
 import { racingLineFor } from '../src/world/RacingLineOptimizer';
 import { RacingLine } from '../src/world/RacingLine';
@@ -32,7 +33,8 @@ const vehicles: Vehicle[] = [];
 for (let slot = 0; slot < total; slot++) {
   const v = new Vehicle(physics, car.physics, car.createVisual(), track.gridPose(slot), car.gearbox);
   v.physics.aeroInAir = track.elevated;
-  const r = Math.sin(slot * 12.9898) * 43758.5453;
+  // SEED=n reshuffles the drivers (race outcomes are chaotic: compare several seeds).
+  const r = Math.sin((slot + Number(process.env.SEED ?? 0) * 7.31) * 12.9898) * 43758.5453;
   const rand = r - Math.floor(r);
   const ai = new AIDriver(v, line, track, { pace: 0.97 - (slot / total) * 0.07 + (rand - 0.5) * 0.04, lane: (rand - 0.5) * 2.4, aggression: rand });
   vehicles.push(v);
@@ -49,6 +51,7 @@ const limit = (track.length * Number(lapsArg)) / 12 + 60; // avg ≥ 12 m/s
 let t = 0;
 while (t < limit && !racers.every((r) => r.finished)) {
   const t0 = performance.now();
+  if (!process.env.NO_SLIP) updateSlipstream(vehicles);
   for (const r of racers) r.vehicle.fixedUpdate(race.frozen ? HOLD : r.ai!.update(dt, vehicles), dt);
   physics.step();
   for (const v of vehicles) v.snapshot();

@@ -79,6 +79,11 @@ export class VehiclePhysics {
   surfaceGrip = 1;
   /** Tyre state (compound, wear, temperature) per wheel, multiplies tyre friction. */
   readonly tyreGrip: number[];
+  /**
+   * Another car's wake (Slipstream): drag multiplier (< 1 = towed along) and downforce
+   * multiplier per axle (< 1 = dirty air, the front wing suffers most).
+   */
+  readonly wake = { drag: 1, front: 1, rear: 1 };
   /** Aero efficiency per axle (1 = intact; damaged wings lose downforce on their end). */
   readonly aero = { front: 1, rear: 1 };
   /**
@@ -345,7 +350,7 @@ export class VehiclePhysics {
     // --- body forces -----------------------------------------------
     if (speed > 0.01) {
       // Aerodynamic drag opposing velocity: F = -c * |v| * v.
-      _impulse.copy(_linvel).multiplyScalar(-c.dragCoefficient * speed * dt);
+      _impulse.copy(_linvel).multiplyScalar(-c.dragCoefficient * this.wake.drag * speed * dt);
       body.applyImpulse(_impulse, true);
     }
     if (surfaceDrag > 0 && speed > 0.1) {
@@ -361,9 +366,9 @@ export class VehiclePhysics {
       const down = c.downforce * speed * speed * dt;
       _impulse.copy(_up).multiplyScalar(-down);
       body.applyImpulse(_impulse, true);
-      // Wing damage: half of the downforce works on each axle; give back the lost share there.
+      // Wing damage and dirty air: half of the downforce works on each axle; give back the lost share there.
       for (const [axle, z] of [['front', -1], ['rear', 1]] as const) {
-        const lost = 1 - this.aero[axle];
+        const lost = 1 - this.aero[axle] * this.wake[axle];
         if (lost <= 0) continue;
         const mount = c.wheels[z < 0 ? 0 : c.wheels.length - 1].position;
         _origin.set(0, mount.y, mount.z);
