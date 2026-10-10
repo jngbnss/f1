@@ -26,7 +26,7 @@ import type { Track } from './Track';
  *   light on the track from a baked light map, lit windows and garages,
  *   rear lights glowing, stronger bloom.
  */
-export type WeatherKind = 'clear' | 'cloudy' | 'rain';
+export type WeatherKind = 'clear' | 'cloudy' | 'drizzle' | 'rain';
 export type TimeOfDay = 'day' | 'dusk' | 'night';
 export interface WeatherState {
   weather: WeatherKind;
@@ -36,6 +36,7 @@ export interface WeatherState {
 const KINDS: [WeatherKind, string, string][] = [
   ['clear', '☀️ 맑음', '건조한 노면'],
   ['cloudy', '☁️ 흐림', '부드러운 빛'],
+  ['drizzle', '🌦️ 약한 비', '접지력 −12% · 인터미디어트'],
   ['rain', '🌧️ 비', '접지력 −22% · 물보라'],
 ];
 const TIMES: [TimeOfDay, string, string][] = [
@@ -44,8 +45,16 @@ const TIMES: [TimeOfDay, string, string][] = [
   ['night', '밤', '조명탑 야간 레이스'],
 ];
 
-/** Wet track grip (vs dry). */
+/** Track grip (vs dry) at full wetness (heavy rain). */
 const WET_GRIP = 0.78;
+
+/**
+ * How wet the track is: 0 dry, 1 heavy rain. Light rain is a damp track, where the
+ * intermediates are the tyre (full wets for the heavy rain), as in the F1 games.
+ */
+export function wetness(w: WeatherState): number {
+  return w.weather === 'rain' ? 1 : w.weather === 'drizzle' ? 0.55 : 0;
+}
 
 function stored(key: string): string | null {
   try {
@@ -98,17 +107,18 @@ export function weatherTheme(theme: WorldTheme, w: WeatherState): WorldTheme {
   }
   if (w.weather !== 'clear') {
     const rain = w.weather === 'rain';
+    const drizzle = w.weather === 'drizzle';
     if (w.time !== 'night') {
       t.hdri = 'kloofendal_overcast_puresky_2k.hdr';
       t.sunColor = w.time === 'dusk' ? 0xffc8a0 : 0xeef0f2;
-      t.sunIntensity *= rain ? 0.22 : 0.35;
+      t.sunIntensity *= rain ? 0.22 : drizzle ? 0.28 : 0.35;
       t.hemiIntensity = 0.3;
       t.envIntensity = rain ? 0.95 : 1.1;
       t.exposure *= w.time === 'dusk' ? 0.75 : rain ? 0.92 : 1;
       t.skyTop = 0x7d858f;
       t.skyHorizon = 0xa9b0b8;
     }
-    t.fogDensity *= rain ? 2.1 : 1.4;
+    t.fogDensity *= rain ? 2.1 : drizzle ? 1.7 : 1.4;
   }
   return t;
 }
@@ -118,7 +128,7 @@ export function weatherPostFx(w: WeatherState): PostFxOptions & { lens: RainLens
   return {
     bloom: w.time === 'night' ? 0.9 : w.time === 'dusk' ? 0.5 : 0.35,
     bloomThreshold: w.time === 'night' ? 0.62 : 0.9,
-    lens: w.weather === 'rain' ? new RainLens() : null,
+    lens: wetness(w) > 0 ? new RainLens() : null,
   };
 }
 
@@ -212,13 +222,14 @@ export class WeatherFx {
     // Profiling switch: ?wxoff=refl,streaks,spray turns parts of the rain off.
     const off = new URLSearchParams(window.location.search).get('wxoff') ?? '';
     scene.add(this.group);
-    const wet = state.weather === 'rain';
+    const wetLevel = wetness(state);
+    const wet = wetLevel > 0;
     const night = state.time === 'night';
-    TRACK_GRIP.value = wet ? WET_GRIP : 1;
-    GROUND_FX.uWet.value = wet ? 1 : 0;
+    TRACK_GRIP.value = 1 - (1 - WET_GRIP) * wetLevel;
+    GROUND_FX.uWet.value = wetLevel;
     GROUND_FX.uNight.value = night ? 1 : 0;
     BUILDING_NIGHT.value = night ? 1 : 0;
-    this.lightLevel = wet ? 3.5 : night ? 2.2 : 0;
+    this.lightLevel = wet ? 3.5 * wetLevel : night ? 2.2 : 0;
     this.treeShade = night ? 0.22 : state.time === 'dusk' ? 0.72 : wet ? 0.7 : state.weather === 'cloudy' ? 0.82 : 1;
     if (wet && !off.includes('streaks')) {
       this.rain = new RainStreaks(night ? 0xd4dbe6 : 0xa9b1ba);
@@ -250,7 +261,7 @@ export class WeatherFx {
 
   /** Mixes a rain noise loop into the game audio (synthesised: no recording needed). */
   attachAudio(ctx: AudioContext, master: GainNode): void {
-    if (this.state.weather !== 'rain' || this.noise) return;
+    if (wetness(this.state) === 0 || this.noise) return;
     const len = ctx.sampleRate * 2;
     const buffer = ctx.createBuffer(2, len, ctx.sampleRate);
     for (let c = 0; c < 2; c++) {
@@ -272,7 +283,7 @@ export class WeatherFx {
     lp.type = 'lowpass';
     lp.frequency.value = 6500;
     const gain = ctx.createGain();
-    gain.gain.value = 0.16;
+    gain.gain.value = 0.16 * wetness(this.state);
     src.connect(hp).connect(lp).connect(gain).connect(master);
     src.start();
     this.noise = src;
