@@ -24,6 +24,7 @@ import { COMPOUND_COLORS } from '../vehicle/cars/GltfF1Visual';
 import { COMPOUND_LABELS, COMPOUND_NAMES, COMPOUNDS, TRACK_GRIP, type Compound } from '../vehicle/Tyres';
 import { readStartTyre } from '../ui/TyrePicker';
 import { PitStops } from '../race/PitStops';
+import { PitCrew } from '../world/PitCrew';
 import { applyImpacts } from '../race/Impacts';
 import { AIDriver } from '../race/AIDriver';
 import { LapTimer } from '../race/LapTimer';
@@ -103,6 +104,7 @@ export class Game {
   private disposeForest: (() => void) | null = null;
   /** Automatic pit stops (circuits with a pit lane). */
   private pitStops: PitStops | null = null;
+  private pitCrew: PitCrew | null = null;
   private readonly teamBox: Map<string, number>;
   /** Compound the player will get at the next stop. */
   private nextCompound: Compound = 'hard';
@@ -172,10 +174,11 @@ export class Game {
     this.environment = new Environment(this.scene, { shadows: config.shadows, shadowMapSize: config.shadowMapSize, theme: this.theme });
     // Pit boxes in team order, marked in each team's colour.
     const teams = CARS.filter((c) => c.cls === car.cls);
+    const teamColors = teams.map((c) => liveryFor(c.id, c.spec.color, c.spec.accent ?? 0xffffff).primary);
     this.track = new ProceduralTrack(physics, layout, {
       treesPerKm: config.treesPerKm,
       scenery: layout.scenery,
-      pitBoxColors: teams.map((c) => liveryFor(c.id, c.spec.color, c.spec.accent ?? 0xffffff).primary),
+      pitBoxColors: teamColors,
       realTerrain,
     });
     this.teamBox = new Map(teams.map((c, i) => [c.id, i]));
@@ -254,6 +257,11 @@ export class Game {
     }
     if (this.track.pit) {
       this.pitStops = new PitStops(this.track.pit, this.track, this.servicePit);
+      this.pitCrew = new PitCrew(this.track.pit, teamColors);
+      this.pitCrew.onRelease = (v, seconds) => {
+        if (v === this.player) this.hud.toast(`피트스톱 ${seconds.toFixed(1)}초`);
+      };
+      this.scene.add(this.pitCrew.group);
       // Starting tyres: the front of the grid on softs, the rest split soft / medium.
       const wet = this.weather.weather === 'rain';
       this.race?.racers.forEach((r, slot) => {
@@ -565,6 +573,7 @@ export class Game {
     for (const voice of this.voices.values()) voice.dispose();
     this.audio?.dispose();
     this.tyreSmoke.dispose();
+    this.pitCrew?.dispose();
     this.drivingFx?.dispose();
     this.weatherFx?.dispose();
     this.landmarks?.dispose();
@@ -657,6 +666,7 @@ export class Game {
     this.dynamicResolution?.update(this.perf.snapshot);
     this.perf.snapshot.pixelRatio = this.renderer.getPixelRatio();
     for (const v of this.vehicles) v.render(alpha);
+    if (this.pitStops) this.pitCrew?.update(frameDt, this.pitStops);
     // Car LOD: beyond ~70 m wheel rims and brake discs are a few pixels; hide them.
     const cam = this.followCamera.camera.position;
     for (const v of this.vehicles) v.visual.setDetail?.(v.object3D.position.distanceToSquared(cam) < 70 * 70);

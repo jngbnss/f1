@@ -57,6 +57,7 @@ export class PitStops {
   private readonly ghosts = new Set<Vehicle>();
   /** Every car that is stepped (to check the exit is clear before a ghost turns solid). */
   private readonly all = new Set<Vehicle>();
+  private readonly released = new Map<number, { vehicle: Vehicle; seconds: number }>();
 
   constructor(
     private readonly pit: PitLaneData,
@@ -86,6 +87,16 @@ export class PitStops {
 
   state(v: Vehicle): Readonly<PitState> | null {
     return this.states.get(v) ?? null;
+  }
+
+  /** Cars in the pit lane (for the pit crews). */
+  *snapshots(): Generator<{ vehicle: Vehicle; phase: 'in' | 'stopped' | 'out'; box: number; k: number; timer: number; service: number }> {
+    for (const [vehicle, s] of this.states) if (s.phase !== 'requested') yield { vehicle, phase: s.phase, box: s.box, k: s.k, timer: s.timer, service: s.service };
+  }
+
+  /** The last car released from a box and how long it stood there (s). */
+  lastService(box: number): { vehicle: Vehicle; seconds: number } | null {
+    return this.released.get(box) ?? null;
   }
 
   /** True while the pit controller drives this car (ignore driver / AI input). */
@@ -186,7 +197,10 @@ export class PitStops {
       this.input.steer = 0;
       this.input.handbrake = 1;
       // Lollipop up only when the fast lane behind is clear.
-      if (s.timer >= s.service && !this.laneBusy(v, s)) s.phase = 'out';
+      if (s.timer >= s.service && !this.laneBusy(v, s)) {
+        s.phase = 'out';
+        this.released.set(s.box, { vehicle: v, seconds: s.timer });
+      }
       return this.input;
     }
     if (s.phase === 'in') {
