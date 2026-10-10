@@ -2,7 +2,7 @@
  * Tyre model check: an AI-driven F1 car laps a circuit on each compound and
  * reports wear, temperatures, grip and lap time per lap.
  *
- *   npx tsx scripts/tyre-test.ts [track=monza] [laps=3] [wet]
+ *   npx tsx scripts/tyre-test.ts [track=monza] [laps=3] [wet|damp]
  */
 import { PhysicsWorld } from '../src/physics/PhysicsWorld';
 import { AIDriver } from '../src/race/AIDriver';
@@ -17,6 +17,8 @@ import { loadLayout } from './tracks-node';
 const [trackId = 'monza', lapsArg = '3', wetArg] = process.argv.slice(2);
 // `wet`: the rain's track grip (as Weather sets it).
 if (wetArg === 'wet') TRACK_GRIP.value = 0.78;
+// `damp`: light rain (wetness 0.55).
+if (wetArg === 'damp') TRACK_GRIP.value = 1 - 0.22 * 0.55;
 const dt = 1 / 60;
 const car = findCar('f1-ferrari');
 for (const compound of Object.keys(COMPOUNDS) as Compound[]) {

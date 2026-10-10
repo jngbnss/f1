@@ -343,7 +343,7 @@ export class HUD {
       `<div class="tyre"><b style="color:${s.compoundColor};border-color:${s.compoundColor}">${s.compound}</b><div class="corners">${corner(0)}${car}${corner(1)}${corner(2)}${corner(3)}</div></div>` +
       (s.damage.some((d) => d > 0.02) ? `<div class="damage">${part('앞날개', s.damage[0], 0.6)}${part('뒷날개', s.damage[1], 0.6)}${part('바닥', s.damage[2], 0.4)}</div>` : '') +
       `<div class="intervals"><span>앞차 <b>${gap(s.ahead, '-')}</b></span><span>뒤차 <b>${gap(s.behind, '+')}</b></span></div>` +
-      (s.pit ? `<div class="pit">${s.pit}</div>` : '<div class="pit hint">P 피트 · 1~5 타이어</div>');
+      (s.pit ? `<div class="pit">${s.pit}</div>` : '<div class="pit hint">P 피트 · 1~6 타이어</div>');
   }
 
   /** Large message in the middle of the screen until cleared (null), e.g. how to get back on track. */

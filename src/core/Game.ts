@@ -328,9 +328,10 @@ export class Game {
       this.scene.add(this.pitCrew.group);
       // Starting tyres: the front of the grid on softs, the rest split soft / medium.
       const wet = this.weather.weather === 'rain';
+      const damp = this.weather.weather === 'drizzle';
       this.race?.racers.forEach((r, slot) => {
         if (r.isPlayer) return;
-        const compound: Compound = wet ? 'wet' : slot < 6 || slot % 3 === 0 ? 'soft' : 'medium';
+        const compound: Compound = wet ? 'wet' : damp ? 'inter' : slot < 6 || slot % 3 === 0 ? 'soft' : 'medium';
         r.vehicle.tyres.fit(compound);
         r.vehicle.visual.setCompound?.(COMPOUND_COLORS[compound]);
       });
@@ -632,14 +633,14 @@ export class Game {
     // Under the VSC a stop costs less (the field is slow too): pit earlier, as the teams do.
     const pitWear = this.raceControl && this.raceControl.flag !== 'green' ? 0.4 : 0.68;
     if ((t.maxWear < pitWear && !broken) || lapsLeft < 1) return;
-    const compound: Compound = TRACK_GRIP.value < 0.95 ? 'wet' : lapsLeft > 4 ? 'hard' : lapsLeft > 2 ? 'medium' : 'soft';
+    const compound: Compound = TRACK_GRIP.value < 0.83 ? 'wet' : TRACK_GRIP.value < 0.95 ? 'inter' : lapsLeft > 4 ? 'hard' : lapsLeft > 2 ? 'medium' : 'soft';
     this.pitStops.request(r.vehicle, compound, this.teamBox.get(this.carOf.get(r.vehicle)?.id ?? '') ?? 0);
   }
 
-  /** P: request / cancel a stop; 1-5: compound for it. */
+  /** P: request / cancel a stop; 1-6: compound for it. */
   private pitKey(code: string): void {
     if (!this.pitStops) return;
-    const pick: Record<string, Compound> = { Digit1: 'hyper', Digit2: 'soft', Digit3: 'medium', Digit4: 'hard', Digit5: 'wet' };
+    const pick: Record<string, Compound> = { Digit1: 'hyper', Digit2: 'soft', Digit3: 'medium', Digit4: 'hard', Digit5: 'inter', Digit6: 'wet' };
     if (pick[code]) {
       this.nextCompound = pick[code];
       this.pitStops.setCompound(this.player, this.nextCompound);
@@ -649,7 +650,7 @@ export class Game {
     const was = this.pitStops.phase(this.player);
     this.pitStops.request(this.player, this.nextCompound, this.teamBox.get(this.car.id) ?? 0);
     const now = this.pitStops.phase(this.player);
-    if (now === 'requested') this.hud.toast(`피트 요청: ${COMPOUND_NAMES[this.nextCompound]} (1~5로 변경)`);
+    if (now === 'requested') this.hud.toast(`피트 요청: ${COMPOUND_NAMES[this.nextCompound]} (1~6으로 변경)`);
     else if (was === 'requested') this.hud.toast('피트 요청 취소');
   }
 
@@ -963,7 +964,7 @@ export class Game {
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.code === 'Escape') window.location.href = urlWith({ menu: '' });
     if (e.code === 'KeyL' && !e.repeat) this.racingLine.mesh.visible = !this.racingLine.mesh.visible;
-    if ((e.code === 'KeyP' || /^Digit[1-5]$/.test(e.code)) && !e.repeat) this.pitKey(e.code);
+    if ((e.code === 'KeyP' || /^Digit[1-6]$/.test(e.code)) && !e.repeat) this.pitKey(e.code);
     if (e.code === 'KeyK' && !e.repeat) this.hud.toast(`카메라 흔들림: ${this.followCamera.cycleShake()}`);
     if (e.code === 'KeyC' && !e.repeat) {
       const mode = this.followCamera.cycleMode();
