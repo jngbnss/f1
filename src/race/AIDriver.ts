@@ -3,6 +3,7 @@ import type { VehicleInput } from '../input/VehicleInput';
 import type { Vehicle } from '../vehicle/Vehicle';
 import type { RacingLine } from '../world/RacingLine';
 import type { Track } from '../world/Track';
+import type { DebrisField } from './Debris';
 
 export interface AIProfile {
   /** Fraction of the racing-line target speed this driver dares (0.8–1). */
@@ -33,6 +34,8 @@ const CROSS_GAIN = 2;
 /** Seconds of travel ahead at which the line curvature is read. */
 const PREVIEW = 0.25;
 const OVERLAP = 2.6;
+/** Gap kept from a wing lying on the track, centre to centre (m): half a wing + half a car + margin. */
+const DEBRIS_CLEARANCE = 2.8;
 
 /** A car's place on the track: distance along the centreline and offset across it (shared by all AI, once per step). */
 interface TrackPos {
@@ -182,6 +185,9 @@ export class AIDriver {
       }
     }
     desiredOffset = (desiredOffset + sideNudge) * laneScale;
+    // Debris: a wing lying in our path ahead -> go round it on the side with more room.
+    const dodge = this.debrisDodge(me, lineLateral + desiredOffset, speed);
+    if (dodge !== null) desiredOffset = dodge - lineLateral;
     // Never aim off the asphalt (passing on the outside of a corner used to run cars into the barrier).
     const edge = this.track.halfWidth - 1.8;
     desiredOffset = THREE.MathUtils.clamp(lineLateral + desiredOffset, -edge, edge) - lineLateral;
@@ -258,6 +264,40 @@ export class AIDriver {
     c = { x: p.x, z: p.z, s, lat: this.track.lateral(p, i) };
     trackPosCache.set(o, c);
     return c;
+  }
+
+  /** Debris on the track to steer round (wings; shards are too small to see in time). */
+  debris: DebrisField | null = null;
+
+  /**
+   * Lateral position (track offset) that clears the nearest wing lying within
+   * reach ahead of our planned path, or null when the path is clear.
+   */
+  private debrisDodge(me: TrackPos, plannedLat: number, speed: number): number | null {
+    if (!this.debris) return null;
+    const length = this.track.length;
+    const samples = this.track.getCenterline().length;
+    const reach = Math.max(60, speed * 3);
+    const half = this.track.halfWidth - 1.6;
+    let best: number | null = null;
+    let nearest = Infinity;
+    for (const p of this.debris.pieces) {
+      if (p.kind !== 'wing') continue;
+      const i = this.track.nearestIndex(p.position);
+      let ahead = (i / samples) * length - me.s;
+      if (ahead < -length / 2) ahead += length;
+      if (ahead < 0 || ahead > reach || ahead > nearest) continue;
+      const lat = this.track.lateral(p.position, i);
+      if (Math.abs(lat - plannedLat) > DEBRIS_CLEARANCE) continue;
+      nearest = ahead;
+      const right = lat + DEBRIS_CLEARANCE;
+      const left = lat - DEBRIS_CLEARANCE;
+      // The side with more room; the closer one to the plan if both fit.
+      const fitsRight = right <= half;
+      const fitsLeft = left >= -half;
+      best = fitsRight && fitsLeft ? (Math.abs(right - plannedLat) < Math.abs(left - plannedLat) ? right : left) : fitsRight ? right : fitsLeft ? left : null;
+    }
+    return best;
   }
 
   /** Times it had to back out; the race manager resets cars that keep failing. */
