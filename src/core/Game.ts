@@ -3,6 +3,7 @@ import { watchRenderer } from '../ui/Diagnostics';
 import { CAMERA_LABELS, CAMERA_MODES, FollowCamera, type CameraMode } from '../camera/FollowCamera';
 import { CarAudio, EngineVoice } from '../audio/EngineSound';
 import { AudioSystem } from '../audio/AudioSystem';
+import { TeamRadio } from '../audio/TeamRadio';
 import { urlWith, type SimConfig } from '../config';
 import { GamepadInput } from '../input/GamepadInput';
 import { InputManager } from '../input/InputManager';
@@ -34,6 +35,7 @@ import { DebrisMesh } from '../render/DebrisMesh';
 import { AIDriver } from '../race/AIDriver';
 import { LapTimer } from '../race/LapTimer';
 import { RaceManager, type Racer } from '../race/RaceManager';
+import { RaceEngineer } from '../race/RaceEngineer';
 import type { VehicleInput } from '../input/VehicleInput';
 import { Environment } from '../world/Environment';
 import { buildLandmarks, landmarkClear } from '../world/Landmarks';
@@ -134,6 +136,9 @@ export class Game {
   private drivingFx!: DrivingFx;
   /** Latched lap event from fixed steps, consumed by the next rendered frame. */
   private lapEvent: 'lap' | 'best' | null = null;
+  /** Engineer on the team radio (race only; subtitles even with the sound off). */
+  private readonly radio: TeamRadio;
+  private engineer: RaceEngineer | null = null;
   readonly racingLine: RacingLine;
   readonly lapTimer: LapTimer;
   private readonly audio: AudioSystem | null = null;
@@ -369,8 +374,14 @@ export class Game {
     this.hud = new HUD(layout.name, credits.filter(Boolean).join(' · '));
     this.minimap = new Minimap(this.track.getCenterline());
 
+    this.radio = new TeamRadio(
+      (on) => this.audio?.setDuck(on),
+      () => this.audio?.muted ?? true,
+    );
+    if (this.race) this.engineer = new RaceEngineer(this.radio, this.race, this.player, this.track, this.racingLine, this.pitStops);
     if (config.sound) {
       this.audio = new AudioSystem();
+      this.audio.onReady((ctx) => this.radio.attach(ctx));
       this.audio.onReady((ctx, master) => this.weatherFx?.attachAudio(ctx, master));
       this.audio.onReady((ctx, master, assets) => {
         this.carAudio = new CarAudio(ctx, master, car.engine, assets);
@@ -626,6 +637,7 @@ export class Game {
     this.carAudio?.dispose();
     for (const voice of this.voices.values()) voice.dispose();
     this.audio?.dispose();
+    this.radio.dispose();
     this.tyreSmoke.dispose();
     this.debrisMesh.dispose();
     this.pitCrew?.dispose();
@@ -680,6 +692,7 @@ export class Game {
     if (!this.byCollider.size) for (const v of this.vehicles) this.byCollider.set(v.physics.collider.handle, v);
     applyImpacts(this.physics, this.byCollider, dt, (v, _hit, before) => {
       v.visual.setDamage?.(v.damage.front, v.damage.rear);
+      this.engineer?.onDamage(v);
       // Shards for what broke; a wing that came off lies on the track (its own mesh).
       const color = this.race?.racers.find((r) => r.vehicle === v)?.color ?? 0x222222;
       for (const piece of this.debris.onDamage(v, before, color)) {
@@ -735,6 +748,7 @@ export class Game {
 
     if (!frozen) this.lapTimer.update(this.track.nearestIndex(this.player.position), dt);
     if (this.lapTimer.event) this.lapEvent = this.lapTimer.event;
+    this.engineer?.fixedUpdate(dt, frozen ? null : this.lapTimer.event);
 
     this.perf.endPhysics();
   }
@@ -762,6 +776,7 @@ export class Game {
     this.racingLine.update(this.player.object3D.position, this.player.physics.forwardSpeed);
     this.debugRenderer?.update();
     this.hud.updateLaps(this.lapTimer, this.lapEvent);
+    this.radio.update();
     if (this.race) {
       const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
       this.hud.updateRace(this.race, (r) => ({
