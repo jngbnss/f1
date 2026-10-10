@@ -52,10 +52,10 @@ while (t < limit && !racers.every((r) => r.finished)) {
   for (const r of racers) r.vehicle.fixedUpdate(race.frozen ? HOLD : r.ai!.update(dt, vehicles), dt);
   physics.step();
   for (const v of vehicles) v.snapshot();
-  applyImpacts(physics, byCollider, dt, (v) => {
+  applyImpacts(physics, byCollider, dt, (v, hit) => {
     if (process.env.RESET_LOG && (v.damage.front >= 0.6 || v.damage.rear >= 0.6) && !broken.has(v)) {
       broken.add(v);
-      console.log(`  wing off ${racers.find((r) => r.vehicle === v)!.name} t=${t.toFixed(1)}s at sample ${track.nearestIndex(v.position)} front ${v.damage.front.toFixed(2)} rear ${v.damage.rear.toFixed(2)}, ${(v.physics.speed * 3.6).toFixed(0)} km/h, lateral ${track.lateral(v.position).toFixed(1)} m`);
+      console.log(`  wing off (${hit}) ${racers.find((r) => r.vehicle === v)!.name} t=${t.toFixed(1)}s at sample ${track.nearestIndex(v.position)} front ${v.damage.front.toFixed(2)} rear ${v.damage.rear.toFixed(2)}, ${(v.physics.speed * 3.6).toFixed(0)} km/h, lateral ${track.lateral(v.position).toFixed(1)} m`);
     }
   });
   for (const r of racers) {

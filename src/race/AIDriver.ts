@@ -15,11 +15,26 @@ export interface AIProfile {
 
 /** Race start: grid lane kept until the first, fully on the line from the second (m); before the first corner of short run-ups (Monza T1 is ~350 m from the line). */
 const START_MERGE = [60, 260];
+/** Street circuits: the first corner comes quickly (Monaco's Sainte Devote), so be on the line before braking for it. */
+const START_MERGE_STREET = [10, 90];
 const _fwd = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _to = new THREE.Vector3();
 const _target = new THREE.Vector3();
 const _tan = new THREE.Vector3();
+
+/** Car length and width used for gaps and overlap in traffic (m). */
+const CAR_LENGTH = 5.6;
+const OVERLAP = 2.6;
+
+/** A car's place on the track: distance along the centreline and offset across it (shared by all AI, once per step). */
+interface TrackPos {
+  x: number;
+  z: number;
+  s: number;
+  lat: number;
+}
+const trackPosCache = new WeakMap<Vehicle, TrackPos>();
 
 /**
  * Computer driver. Produces a VehicleInput (same as a keyboard or gamepad
@@ -88,33 +103,53 @@ export class AIDriver {
     }
 
     // --- traffic: anyone in our path? ----------------------------------
-    const merge = Math.min(Math.max((this.travelled - START_MERGE[0]) / (START_MERGE[1] - START_MERGE[0]), 0), 1);
+    const [m0, m1] = this.track.street ? START_MERGE_STREET : START_MERGE;
+    const merge = Math.min(Math.max((this.travelled - m0) / (m1 - m0), 0), 1);
     // Street circuits (Monaco): stay on the line in single file; lanes only on wide tracks.
     const lane = this.track.street ? this.profile.lane * 0.3 : this.profile.lane;
     let desiredOffset = this.startOffset + (lane - this.startOffset) * merge * merge * (3 - 2 * merge);
     let followSpeed = Infinity;
     let sideNudge = 0;
+    // Slow corners just ahead (hairpins): single file. Lane changes there run cars into the
+    // inside wall at the apex; on street circuits they stay on the line and a car half a
+    // length behind yields instead of squeezing alongside.
+    let slowest = Infinity;
+    for (let k = 0; k < 16; k++) slowest = Math.min(slowest, line.speeds[(this.index + k) % count]);
+    const street = this.track.street;
+    const slowCorner = slowest < (street ? 30 : 22);
+    const laneScale = slowCorner && street ? 0 : 1;
     // Racing line position across the track, to express other cars relative to it.
     const lineLateral = this.track.lateral(this.line.points[this.index]);
+    // Traffic is measured along the track (distance along it, offset across it), as the
+    // TORCS / Speed Dreams robots do: in a hairpin the car ahead is already round the
+    // bend, far off our heading, but still right in front of us on the track.
+    const me = this.trackPos(v);
+    const length = this.track.length;
+    const ph0 = v.physics;
+    const tyre = ph0.tyreGrip;
+    const gripNow = Math.min(1, ((tyre[0] + tyre[1] + tyre[2] + tyre[3]) / 4) * (0.5 + 0.5 * Math.min(ph0.aero.front, ph0.aero.rear)));
     for (const o of others) {
       if (o === v) continue;
-      _to.subVectors(o.position, pos).setY(0);
-      const ahead = _to.dot(_fwd);
-      const side = _to.dot(_right);
-      // Look further ahead at speed: at 300 km/h a car 40 m ahead is under a second away.
+      const op = this.trackPos(o);
+      let ahead = op.s - me.s;
+      if (ahead > length / 2) ahead -= length;
+      if (ahead < -length / 2) ahead += length;
+      const side = op.lat - me.lat;
       // Alongside: make room instead of leaning on each other (wheel-to-wheel contact pushes cars off).
-      if (Math.abs(ahead) < 5.5 && Math.abs(side) < 2.9) {
+      if (Math.abs(ahead) < CAR_LENGTH && Math.abs(side) < 2.9) {
+        if (street && slowCorner) {
+          if (ahead > 0) followSpeed = Math.min(followSpeed, Math.max(0, o.physics.forwardSpeed - 2));
+          continue;
+        }
         sideNudge += (side > 0 ? -1 : 1) * (2.9 - Math.abs(side));
         continue;
       }
-      // Tight street hairpins: a car stopped in the bend sits well off our heading line.
-      const sideReach = this.track.street && speed < 25 ? 5.5 : 3.2;
-      if (ahead < -2 || ahead > Math.max(35, speed * 1.1) || Math.abs(side) > sideReach) continue;
-      const otherSpeed = o.physics.forwardSpeed;
-      if (otherSpeed > speed + 2 && ahead > 6) continue; // pulling away, ignore
+      // Look further ahead at speed: at 300 km/h a car 60 m ahead is under a second away.
+      if (ahead < 2 || ahead > Math.max(40, speed * 1.6) || Math.abs(side) > 4.5) continue;
+      const otherSpeed = Math.max(0, o.physics.forwardSpeed);
       // Pass on the side with more room (asphalt edge minus margin).
       const half = this.track.halfWidth - 1.6;
-      const otherLat = this.track.lateral(o.position);
+      const otherLat = op.lat;
       const roomRight = half - otherLat;
       const roomLeft = otherLat + half;
       const passSide = roomRight > roomLeft ? 1 : -1;
@@ -124,16 +159,19 @@ export class AIDriver {
       if (room > passRoom && ahead > 3) {
         desiredOffset = otherLat - lineLateral + passSide * 3.4;
       }
-      // Closing in with no room to pass (or a cautious driver): match speed
-      // with a ~5 m gap instead of ramming.
-      const closing = speed - otherSpeed;
-      // Brake in time: the gap needed grows with the closing speed (decelerating at ~3 g).
-      const needed = (this.track.street ? 1.5 : 1) * (6 + (closing > 0 ? (closing * closing) / (2 * 25) + closing * 0.3 : 0));
-      if (ahead < needed && closing > 0 && (room < passRoom || this.profile.aggression < 0.25 || ahead < 12 || this.track.street)) {
-        followSpeed = Math.min(followSpeed, otherSpeed + Math.max(ahead - 6, 0) * 0.5);
+      // In its lane: never close faster than we can brake. The braking a car can do
+      // depends on speed (downforce): ~5 g at 300 km/h, ~1.5 g in a hairpin, so the
+      // gap is planned with the deceleration at the car ahead's speed, plus a
+      // reaction margin. Moving out of its lane (a pass) lifts the limit.
+      if (Math.abs(side) < OVERLAP) {
+        const closing = Math.max(0, speed - otherSpeed);
+        const decel = this.line.brakeAt(otherSpeed) * 0.75 * gripNow;
+        const margin = (this.track.street ? 4 : 2.5) + 0.35 * closing;
+        const gap = ahead - CAR_LENGTH - margin;
+        followSpeed = Math.min(followSpeed, Math.sqrt(otherSpeed * otherSpeed + 2 * decel * Math.max(0, gap)));
       }
     }
-    desiredOffset += sideNudge;
+    desiredOffset = (desiredOffset + sideNudge) * laneScale;
     // Never aim off the asphalt (passing on the outside of a corner used to run cars into the barrier).
     const edge = this.track.halfWidth - 1.8;
     desiredOffset = THREE.MathUtils.clamp(lineLateral + desiredOffset, -edge, edge) - lineLateral;
@@ -182,6 +220,17 @@ export class AIDriver {
       this.unstuckCount++;
     }
     return inp;
+  }
+
+  private trackPos(o: Vehicle): TrackPos {
+    const p = o.position;
+    let c = trackPosCache.get(o);
+    if (c && c.x === p.x && c.z === p.z) return c;
+    const i = this.track.nearestIndex(p);
+    const s = (i / this.track.getCenterline().length) * this.track.length;
+    c = { x: p.x, z: p.z, s, lat: this.track.lateral(p, i) };
+    trackPosCache.set(o, c);
+    return c;
   }
 
   /** Times it had to back out; the race manager resets cars that keep failing. */

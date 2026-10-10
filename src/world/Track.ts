@@ -45,6 +45,8 @@ export interface Track {
   readonly spawnIndex: number;
   /** Half of the asphalt width (m). */
   readonly halfWidth: number;
+  /** Centreline length (m). */
+  readonly length: number;
   /** Signed lateral distance from the centerline (+ = right of the driving direction). */
   lateral(p: THREE.Vector3, index?: number): number;
   /** True when `p` is clearly outside the barriers (escaped the circuit). */
