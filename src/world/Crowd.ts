@@ -264,6 +264,7 @@ const HOME_CROWD: Record<string, Record<string, number>> = {
   mexicocity: { redbull: 1.5 },
   saopaulo: { audi: 3 },
   austin: { haas: 3 },
+  madrid: { aston: 2.5, williams: 2.5 },
 };
 
 export function dressFans(seats: CrowdSeat[], trackId: string, seed = 7): void {

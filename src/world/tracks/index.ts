@@ -76,6 +76,9 @@ export const TRACKS: TrackEntry[] = [
   realCircuit('shanghai', 'Shanghai International', 'Shanghai, China', 5.5, 'Shanghai'),
   realCircuit('suzuka', 'Suzuka', 'Suzuka, Japan', 5.8, 'Suzuka'),
   realCircuit('sakhir', 'Bahrain International', 'Sakhir, Bahrain', 5.4, 'Sakhir'),
+  // Not in TUMFTM: built from OpenStreetMap (scripts/build-osm-circuit.ts).
+  realCircuit('jeddah', 'Jeddah Corniche', 'Jeddah, Saudi Arabia', 6.2, 'Jeddah'),
+  realCircuit('miami', 'Miami International Autodrome', 'Miami, USA', 5.4, 'Miami'),
   realCircuit('montreal', 'Circuit Gilles Villeneuve', 'Montréal, Canada', 4.4, 'Montreal'),
   // Street circuit: centerline built from OpenStreetMap (scripts/fetch-monaco.ts), not TUMFTM.
   realCircuit('monaco', 'Monaco', 'Monte Carlo, Monaco', 3.3, 'Monaco'),
@@ -86,9 +89,14 @@ export const TRACKS: TrackEntry[] = [
   realCircuit('budapest', 'Hungaroring', 'Mogyoród, Hungary', 4.4, 'Budapest'),
   realCircuit('zandvoort', 'Zandvoort', 'Zandvoort, Netherlands', 4.3, 'Zandvoort'),
   realCircuit('monza', 'Monza', 'Monza, Italy', 5.8, 'Monza'),
+  realCircuit('madrid', 'Madring', 'Madrid, Spain', 5.5, 'Madrid'),
+  realCircuit('baku', 'Baku City Circuit', 'Baku, Azerbaijan', 6.0, 'Baku'),
+  realCircuit('singapore', 'Marina Bay', 'Singapore', 4.9, 'Singapore'),
   realCircuit('austin', 'Circuit of the Americas', 'Austin, USA', 5.5, 'Austin'),
   realCircuit('mexicocity', 'Hermanos Rodríguez', 'Mexico City, Mexico', 4.3, 'MexicoCity'),
   realCircuit('saopaulo', 'Interlagos', 'São Paulo, Brazil', 4.3, 'SaoPaulo'),
+  realCircuit('lasvegas', 'Las Vegas Strip', 'Las Vegas, USA', 6.2, 'LasVegas'),
+  realCircuit('lusail', 'Lusail International', 'Lusail, Qatar', 5.4, 'Lusail'),
   realCircuit('yasmarina', 'Yas Marina', 'Abu Dhabi, UAE', 5.3, 'YasMarina'),
 ];
 
