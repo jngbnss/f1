@@ -98,6 +98,8 @@ export class Game {
   private readonly hud: HUD;
   private readonly debugRenderer: PhysicsDebugRenderer | null = null;
   private flippedTime = 0;
+  /** Seconds the player has been crawling off the road or against a wall (shows the reset hint). */
+  private stuckTime = 0;
   private outTime = 0;
   /** Real ground around the track (null = procedural backdrop). */
   private ground: Ground | null = null;
@@ -646,6 +648,22 @@ export class Game {
       this.autopilot.resetState();
       this.autopilot.unstuckCount = 0;
     }
+
+    // Beached in the grass / gravel or pinned on a wall: tell the driver how to get back.
+    const ph = this.player.physics;
+    const trying = Math.abs(input.throttle) > 0.3 || Math.abs(input.steer) > 0.3;
+    const offRoad = ph.surfaceGrip < 0.9;
+    const crawling = Math.abs(ph.forwardSpeed) < (offRoad ? 5 : 2);
+    const stuck = !frozen && !this.autopilot && !(this.pitStops?.driving(this.player) ?? false) && crawling && (offRoad || trying);
+    this.stuckTime = stuck ? this.stuckTime + dt : Math.max(0, this.stuckTime - dt * 3);
+    if (actions.includes('reset')) this.stuckTime = 0;
+    this.hud.setHint(
+      this.stuckTime > 2.5
+        ? this.config.touch
+          ? '<kbd>↺</kbd> 버튼을 눌러 트랙으로 복귀<small>위치를 트랙 위로 되돌립니다</small>'
+          : '<kbd>R</kbd> 키를 눌러 트랙으로 복귀<small>위치를 트랙 위로 되돌립니다</small>'
+        : null,
+    );
 
     // Stuck on its roof / side?
     if (this.player.isFlipped() && this.player.physics.speed < 3) {

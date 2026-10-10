@@ -51,6 +51,8 @@ export class HUD {
   private readonly lapEl: HTMLDivElement;
   private readonly lapFields: Record<'lap' | 'cur' | 'last' | 'best', HTMLSpanElement>;
   private readonly toastEl: HTMLDivElement;
+  private readonly hintEl: HTMLDivElement;
+  private hintText: string | null = null;
   private toastUntil = 0;
   private readonly fields = new Map<string, HTMLSpanElement>();
   private lastPerfUpdate = 0;
@@ -128,8 +130,10 @@ export class HUD {
     this.lapFields = { lap: mk('LAP'), cur: mk('TIME'), last: mk('LAST'), best: mk('BEST') };
     this.toastEl = document.createElement('div');
     this.toastEl.className = 'toast';
+    this.hintEl = document.createElement('div');
+    this.hintEl.className = 'center-hint';
 
-    parent.append(this.perfEl, speedo, this.helpEl, trackEl, this.lapEl, this.toastEl);
+    parent.append(this.perfEl, speedo, this.helpEl, trackEl, this.lapEl, this.toastEl, this.hintEl);
     window.addEventListener('keydown', (e) => {
       if (e.code === 'KeyH' && !e.repeat) this.toggle();
     });
@@ -282,6 +286,14 @@ export class HUD {
         : '') +
       `<div class="intervals"><span>앞차 <b>${gap(s.ahead, '-')}</b></span><span>뒤차 <b>${gap(s.behind, '+')}</b></span></div>` +
       (s.pit ? `<div class="pit">${s.pit}</div>` : '<div class="pit hint">P 피트 · 1~5 타이어</div>');
+  }
+
+  /** Large message in the middle of the screen until cleared (null), e.g. how to get back on track. */
+  setHint(html: string | null): void {
+    if (html === this.hintText) return;
+    this.hintText = html;
+    if (html) this.hintEl.innerHTML = html;
+    this.hintEl.classList.toggle('show', !!html);
   }
 
   toast(text: string, now = performance.now()): void {
