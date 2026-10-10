@@ -97,7 +97,7 @@ export const TRACKS: TrackEntry[] = [
  * pass (scenery, trees, trackside detail); the others stay reachable by URL
  * (?track=spa) for tests and benchmarks.
  */
-export const FEATURED_TRACKS: TrackEntry[] = ['monza', 'spa', 'suzuka', 'monaco'].map((id) => TRACKS.find((t) => t.id === id)!);
+export const FEATURED_TRACKS: TrackEntry[] = ['melbourne', 'monza', 'spa', 'suzuka', 'monaco'].map((id) => TRACKS.find((t) => t.id === id)!);
 
 export function findTrack(id: string | null | undefined): TrackEntry {
   return TRACKS.find((t) => t.id === id) ?? TRACKS[0];

@@ -1,6 +1,6 @@
 # Real circuit data
 
-The 16 circuit CSVs (`Melbourne`, `Shanghai`, `Suzuka`, `Sakhir`, `Montreal`,
+The 15 circuit CSVs (`Shanghai`, `Suzuka`, `Sakhir`, `Montreal`,
 `Catalunya`, `Spielberg`, `Silverstone`, `Spa`, `Budapest`, `Zandvoort`, `Monza`,
 `Austin`, `MexicoCity`, `SaoPaulo`, `YasMarina`) come unmodified from
 [TUMFTM/racetrack-database](https://github.com/TUMFTM/racetrack-database)
@@ -27,7 +27,13 @@ them: it computes its own line on the widened game road
 (`src/world/RacingLineOptimizer.ts`).
 
 Some dataset layouts predate recent changes to the real circuits (e.g. Yas
-Marina before 2021, Barcelona with the final chicane, Albert Park before 2022).
+Marina before 2021, Barcelona with the final chicane).
+
+`Melbourne.csv` is the 2022 Albert Park layout built from OpenStreetMap
+relation 280443 by `scripts/fetch-albertpark.ts` (© OpenStreetMap
+contributors, ODbL), in the same frame as before; its widths come from the
+TUMFTM file it replaced (LGPL-3.0). `Monaco.csv` is built from OSM too
+(`scripts/fetch-monaco.ts`).
 
 ## Surroundings (`*_osm.json`)
 
@@ -35,6 +41,12 @@ Buildings, forests, water, car parks and roads around each circuit, downloaded
 from **OpenStreetMap** via the Overpass API by `scripts/fetch-osm.ts` and
 rigidly aligned to the TUMFTM frame (RMS error ≈ 1–3 m; street circuits such as
 Albert Park are aligned to the public road network, ≈ 7 m).
+
+Albert Park's automatic fit locked onto the street grid ~870 m south-west of
+the park (good RMS, wrong place). Its scenery, satellite / DEM rectangles and
+georeference were moved onto the park roads by `scripts/realign-scenery.ts`
+(see `alignment.corrected` in `Melbourne_osm.json`); the track now runs round
+Albert Park Lake as it should.
 
 © OpenStreetMap contributors. This derived data is made available under the
 [Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/).

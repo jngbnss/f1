@@ -256,6 +256,7 @@ const HOME_CROWD: Record<string, Record<string, number>> = {
   zandvoort: { dutch: 30 },
   suzuka: { redbull: 1.6, racingbulls: 2.5, aston: 1.5 },
   silverstone: { mercedes: 1.6, mclaren: 1.8, williams: 1.8 },
+  melbourne: { mclaren: 2.2 },
 };
 
 export function dressFans(seats: CrowdSeat[], trackId: string, seed = 7): void {
