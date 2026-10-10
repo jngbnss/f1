@@ -174,7 +174,7 @@ for (const car of quick ? CLASS_REPS : CARS) await manoeuvres(car);
 console.log('Bot laps');
 const only = process.argv.slice(2).find((a) => a !== 'quick');
 for (const car of CLASS_REPS) if (!only || only === 'test') await botLap(car, DEMO_TRACK);
-if (!quick) for (const layout of realTracks.filter((l) => !only || l.id === only)) await botLap(findCar(null), layout);
+if (!quick) for (const layout of realTracks.filter((l) => !only || l.id === only)) await botLap(findCar('f1-haas'), layout); // baseline team: the bot's target speed follows the car's top speed
 
 // --- 3. dynamic racing line ------------------------------------------------
 console.log('Racing line');

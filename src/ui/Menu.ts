@@ -157,13 +157,28 @@ export function showMenu(
 /** Five rating bars of the selected car, with the figures behind them. */
 function renderSpec(el: HTMLElement, car: CarDefinition): void {
   const s = car.stats;
-  const bars: [string, number, string][] = [
-    ['최고속도', s.topSpeed, `${car.spec.top} km/h`],
-    ['가속', s.acceleration, `0-100 ${s.t100.toFixed(1)} s`],
-    ['핸들링', s.handling, `${s.lateralG.toFixed(2)} g @150`],
-    ['제동', s.braking, `200-0 ${s.brake200} m`],
-    ['무게', s.weight, `${car.spec.kg} kg`],
-  ];
+  const tr = car.spec.traits;
+  // F1 teams: seven bars relative to the field (the middle = the baseline car), so the
+  // strengths and weaknesses show instead of ten near-identical F1 bars.
+  const rel = (dev: number) => Math.round(Math.min(100, Math.max(4, 50 + dev * 4.5)));
+  const pct = (x: number) => `${x >= 1 ? '+' : ''}${Math.round((x - 1) * 100)}%`;
+  const bars: [string, number, string][] = tr
+    ? [
+        ['최고속도', rel((car.spec.top - 345) / 3), `${car.spec.top} km/h`],
+        ['파워', rel(((car.spec.kw - 760) / 760) * 100), `${car.spec.kw} kW`],
+        ['고속 코너', rel((tr.downforce - 1) * 100), `다운포스 ${pct(tr.downforce)}`],
+        ['저속 코너', rel((tr.grip - 1) * 250), `기계적 그립 ${pct(tr.grip)}`],
+        ['트랙션', rel((tr.traction - 1) * 100), pct(tr.traction)],
+        ['제동', rel((tr.braking - 1) * 100), pct(tr.braking)],
+        ['타이어', rel((1 - tr.tyreWear) * 70), `마모 ${pct(tr.tyreWear)}`],
+      ]
+    : [
+        ['최고속도', s.topSpeed, `${car.spec.top} km/h`],
+        ['가속', s.acceleration, `0-100 ${s.t100.toFixed(1)} s`],
+        ['핸들링', s.handling, `${s.lateralG.toFixed(2)} g @150`],
+        ['제동', s.braking, `200-0 ${s.brake200} m`],
+        ['무게', s.weight, `${car.spec.kg} kg`],
+      ];
   el.innerHTML = `<div class="menu-spec-head"><strong></strong><span>PI ${s.pi}</span></div>` +
     bars
       .map(

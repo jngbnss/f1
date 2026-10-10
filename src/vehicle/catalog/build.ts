@@ -8,6 +8,11 @@ const DRIVETRAIN = 0.88;
 const CRR = 0.013;
 /** F1 slicks at racing temperature (TUMFTM laptime-simulation F1 data: f_roll 0.03). */
 const CRR_F1 = 0.03;
+/** F1 baseline: a 760 kW car with neutral aero reaches 345 km/h; team drag scales from there. */
+const F1_REF_KW = 760;
+const F1_REF_TOP = 345 / 3.6;
+/** Extra drag per unit of extra downforce (wing level). At 1.2 more downforce lost time even at Monaco. */
+const DOWNFORCE_DRAG = 0.5;
 
 /** Tyre μ, aero (½ρClA) and chassis template per body archetype. */
 interface BodyTemplate {
@@ -75,22 +80,36 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
   const tr = spec.traits;
   if (tr) {
     t.downforce *= tr.downforce;
-    t.mu *= tr.grip;
   }
   const [length, width, , wheelbase] = spec.dims;
   const mass = spec.kg;
 
   // Drag from the real top speed: P·η = c·v³ + Crr·m·g·v. Limited cars could go
   // ~12 % faster on power, so their drag is lower and the limiter stops them.
-  const vTop = spec.top / 3.6;
+  let vTop = spec.top / 3.6;
   const vDrag = spec.limited ? vTop * 1.12 : vTop;
   const power = spec.kw * 1000 * DRIVETRAIN;
   const formula = spec.cls === 'formula';
   const crr = formula ? CRR_F1 : CRR;
   // Rolling resistance grows with the tyre load, downforce included: P·η = c·v³ + Crr·(m·g + D·v²)·v.
   let drag = Math.max((power / vDrag - crr * mass * G) / (vDrag * vDrag) - crr * t.downforce, 0.15);
-  // More wing = more drag: high-downforce cars give a little away on the straights.
-  if (tr) drag *= 1 + 1.2 * (tr.downforce - 1);
+  if (tr) {
+    // F1 teams: drag from the shared baseline (neutral aero) x aero efficiency x wing level
+    // (more wing, more drag); the top speed then follows from power, drag and rolling resistance.
+    const refPower = F1_REF_KW * 1000 * DRIVETRAIN;
+    const baseDownforce = t.downforce / tr.downforce;
+    const refDrag = (refPower / F1_REF_TOP - crr * mass * G) / F1_REF_TOP ** 2 - crr * baseDownforce;
+    drag = refDrag * tr.drag * (1 + DOWNFORCE_DRAG * (tr.downforce - 1));
+    let lo = 50;
+    let hi = 150;
+    for (let k = 0; k < 40; k++) {
+      const mid = (lo + hi) / 2;
+      if (drag * mid ** 3 + crr * (mass * G + t.downforce * mid * mid) * mid < power) lo = mid;
+      else hi = mid;
+    }
+    vTop = lo;
+    spec.top = Math.round(vTop * 3.6);
+  }
 
   const wx = width / 2 - 0.15;
   const front = { steerable: true, driven: spec.drive !== 'RWD', handbrake: false };
@@ -130,8 +149,11 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
     frontGrip: t.grip[0],
     rearGrip: t.grip[1],
     frontFriction: t.mu,
-    rearFriction: t.mu * 1.03 * (tr?.traction ?? 1),
+    rearFriction: t.mu * 1.03,
+    traction: tr?.traction ?? 1,
     tyreWear: tr?.tyreWear ?? 1,
+    braking: tr?.braking ?? 1,
+    mechGrip: tr?.grip ?? 1,
     handbrakeGripFactor: 0.3,
     maxSteerLowSpeed: t.steer[0],
     maxSteerHighSpeed: t.steer[1],
