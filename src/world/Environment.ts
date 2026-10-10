@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
 import type { WorldTheme } from './themes';
 
+/** Width of the sky HDRIs (public/hdri, 2k): sets the PMREM size, part of every PBR shader's key. */
+const SKY_WIDTH = 2048;
+
 export interface EnvironmentOptions {
   shadows: boolean;
   shadowMapSize: number;
@@ -21,6 +24,7 @@ export class Environment {
   private readonly ambient: THREE.AmbientLight;
   private readonly hemi: THREE.HemisphereLight;
   private envMap: THREE.Texture | null = null;
+  private placeholderEnv: THREE.Texture | null = null;
   private skyTexture: THREE.Texture | null = null;
   private readonly theme: WorldTheme;
 
@@ -66,13 +70,32 @@ export class Environment {
    * running): becomes the visible sky, the image-based lighting for PBR
    * materials (car paint reflections), and drives sun direction + fog color.
    */
+  /**
+   * Before the HDRI arrives: a blank environment map of the same kind and size (PMREM of a
+   * 2048-wide equirect, at zero intensity, so the look is unchanged). Materials then compile
+   * with an environment map from the first frame; without it the sky's arrival recompiled
+   * every PBR shader in the scene mid-race (~3 s frozen).
+   */
+  placeholderEnvironment(renderer: THREE.WebGLRenderer): void {
+    if (this.theme.night || this.scene.environment) return;
+    const blank = new THREE.DataTexture(new Float32Array(SKY_WIDTH * 2 * 4), SKY_WIDTH, 2, THREE.RGBAFormat, THREE.FloatType);
+    blank.mapping = THREE.EquirectangularReflectionMapping;
+    blank.needsUpdate = true;
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    this.placeholderEnv = pmrem.fromEquirectangular(blank).texture;
+    pmrem.dispose();
+    blank.dispose();
+    this.scene.environment = this.placeholderEnv;
+    this.scene.environmentIntensity = 0;
+  }
+
   async loadSky(baseUrl: string, renderer: THREE.WebGLRenderer): Promise<void> {
     if (this.theme.night) {
       this.nightSky(renderer);
       return;
     }
     // Half-float EXR with lossy DWAA compression (~1 MB; the Poly Haven .hdr files were ~4.6 MB).
-    const texture = await new EXRLoader().loadAsync(`${baseUrl}hdri/${this.theme.hdri}`);
+    const texture = await loadSkyExr(`${baseUrl}hdri/${this.theme.hdri}`);
     texture.mapping = THREE.EquirectangularReflectionMapping;
 
     const pmrem = new THREE.PMREMGenerator(renderer);
@@ -83,6 +106,8 @@ export class Environment {
     this.scene.background = texture;
     this.scene.environment = this.envMap;
     this.scene.environmentIntensity = this.theme.envIntensity;
+    this.placeholderEnv?.dispose();
+    this.placeholderEnv = null;
     this.sky.visible = false;
     // IBL now provides the ambient term.
     this.ambient.intensity = 0;
@@ -153,6 +178,7 @@ export class Environment {
     this.sky.geometry.dispose();
     (this.sky.material as THREE.Material).dispose();
     this.envMap?.dispose();
+    this.placeholderEnv?.dispose();
     this.skyTexture?.dispose();
   }
 
@@ -258,4 +284,35 @@ function analyzeEquirect(texture: THREE.Texture, minElevation: number): { sunDir
     }
   const horizon = n > 0 ? new THREE.Color().setRGB(r / n, g / n, b / n) : null;
   return { sunDir, horizon };
+}
+
+/**
+ * Loads a sky EXR, decoded in a worker (SkyDecode.worker.ts) so the ~0.5 s of DWAA decoding
+ * does not freeze the race; on the main thread only where workers are unavailable.
+ */
+async function loadSkyExr(url: string): Promise<THREE.DataTexture> {
+  if (typeof Worker === 'undefined') return new EXRLoader().loadAsync(url);
+  const worker = new Worker(new URL('./SkyDecode.worker.ts', import.meta.url), { type: 'module' });
+  try {
+    const out = await new Promise<{ ok: boolean; error?: string; width: number; height: number; data: Uint16Array | Float32Array; format: THREE.PixelFormat; type: THREE.TextureDataType; colorSpace: string }>((resolve, reject) => {
+      worker.onmessage = (e) => resolve(e.data);
+      worker.onerror = (e) => reject(new Error(e.message));
+      worker.postMessage({ url: new URL(url, location.href).href });
+    });
+    if (!out.ok) throw new Error(out.error);
+    const texture = new THREE.DataTexture(out.data, out.width, out.height, out.format, out.type);
+    // As EXRLoader sets them.
+    texture.colorSpace = out.colorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    texture.flipY = false;
+    texture.needsUpdate = true;
+    return texture;
+  } catch (err) {
+    console.warn('sky worker failed, decoding on the main thread', err);
+    return new EXRLoader().loadAsync(url);
+  } finally {
+    worker.terminate();
+  }
 }

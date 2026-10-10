@@ -47,10 +47,10 @@ import { buildLandmarks, landmarkClear } from '../world/Landmarks';
 import { readWeather, weatherPostFx, weatherTheme, WeatherFx } from '../world/Weather';
 import { RacingLine } from '../world/RacingLine';
 import { racingLineFor } from '../world/RacingLineOptimizer';
-import { applyTerrainImagery, buildTerrain } from '../world/Terrain';
+import { applyTerrainImagery, buildTerrain, prepareTerrainImagery } from '../world/Terrain';
 import { applySatelliteTint, drapeOnGround, groundField, loadRealTerrain, loadSatellite, REAL_TERRAIN_CREDIT, trackMask, type Ground, type RealTerrain } from '../world/RealTerrain';
 import { themeFor, type WorldTheme } from '../world/themes';
-import { applyTrackTextures } from '../world/TrackTextures';
+import { applyTrackTextures, prepareTrackMaterials } from '../world/TrackTextures';
 import { ProceduralTrack, type Surface, type Track } from '../world/Track';
 import type { TrackLayout } from '../world/TrackLayout';
 import { GameLoop } from './GameLoop';
@@ -492,7 +492,44 @@ export class Game {
     }
   }
 
+  /**
+   * Before the first frame (behind the loading screen): compiles every shader the race will
+   * use, in parallel where the browser can (KHR_parallel_shader_compile). Stand-ins for the
+   * streamed sky and track textures keep the shaders the same when those arrive. Compiling
+   * on first draw instead froze the race for seconds just after the start.
+   */
+  async prepare(): Promise<void> {
+    prepareTrackMaterials(this.track.materials, this.track.street);
+    this.environment.placeholderEnvironment(this.renderer);
+    if (this.realTerrain && this.ground) {
+      prepareTerrainImagery(this.terrain);
+      applySatelliteTint(this.track.materials.grass, null, trackMask(this.realTerrain, this.ground), this.realTerrain);
+    }
+    // The impostor forest renders its trees into an atlas (its own shaders): built here too.
+    if (this.config.forest && this.track.forestSpots.length) {
+      try {
+        const { buildImpostorForest } = await import('../world/TreeImpostors');
+        const forest = await buildImpostorForest(this.renderer, this.forestSpots(), (x, z) => this.ground?.height(x, z) ?? 0);
+        this.scene.add(forest.mesh);
+        this.disposeForest = forest.dispose;
+      } catch (e) {
+        console.warn('Forest failed', e);
+      }
+    }
+    // Shaders depend on the target (post-processing draws the scene into a linear buffer).
+    this.renderer.setRenderTarget(this.postFx?.sceneTarget ?? null);
+    try {
+      await this.renderer.compileAsync(this.scene, this.followCamera.camera);
+    } finally {
+      this.renderer.setRenderTarget(null);
+    }
+    // One frame behind the loading screen compiles the rest: shadow-map depth shaders and the
+    // post-processing passes.
+    this.render();
+  }
+
   start(): void {
+    performance.mark('race-start');
     this.loop.start();
     // Stream heavy assets after the first frame: drive first, prettier a moment later.
     const base = import.meta.env.BASE_URL;
@@ -507,15 +544,6 @@ export class Game {
       Promise.all([loadSatellite(base, real, 'near', this.renderer), textures])
         .then(([tex]) => applySatelliteTint(this.track.materials.grass, tex, trackMask(real, this.ground!), real))
         .catch((e) => console.warn('Ground imagery failed', e));
-    }
-    if (this.config.forest && this.track.forestSpots.length) {
-      import('../world/TreeImpostors')
-        .then(({ buildImpostorForest }) => buildImpostorForest(this.renderer, this.forestSpots(), (x, z) => this.ground?.height(x, z) ?? 0))
-        .then((forest) => {
-          this.scene.add(forest.mesh);
-          this.disposeForest = forest.dispose;
-        })
-        .catch((e) => console.warn('Forest failed', e));
     }
     this.environment.loadSky(base, this.renderer).catch((e) => console.warn('HDRI sky failed', e));
   }

@@ -160,7 +160,29 @@ export function buildTerrain(
 /** Swaps the procedural vertex colors for the satellite image once it has loaded. */
 export function applyTerrainImagery(terrain: THREE.Mesh, image: THREE.Texture): void {
   const m = terrain.material as THREE.MeshStandardMaterial;
+  const colors = terrain.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+  if (m.map && m.vertexColors && colors) {
+    // Prepared (prepareTerrainImagery): swap the texture and whiten the vertex colours, same shader.
+    (colors.array as Float32Array).fill(1);
+    colors.needsUpdate = true;
+    m.map = image;
+    return;
+  }
   m.map = image;
   m.vertexColors = false;
+  m.needsUpdate = true;
+}
+
+/**
+ * Before the race: a white stand-in map (same look: white x vertex colours), so the
+ * terrain shader is compiled with a map and the satellite image only swaps it in.
+ */
+export function prepareTerrainImagery(terrain: THREE.Mesh): void {
+  const m = terrain.material as THREE.MeshStandardMaterial;
+  if (m.map) return;
+  const white = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+  white.colorSpace = THREE.SRGBColorSpace;
+  white.needsUpdate = true;
+  m.map = white;
   m.needsUpdate = true;
 }
