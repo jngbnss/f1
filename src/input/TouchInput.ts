@@ -62,6 +62,10 @@ export class TouchInput implements InputSource {
     this.actions.push('reset');
   }
 
+  requestOvertake(): void {
+    this.actions.push('overtake');
+  }
+
   consumeActions(): InputAction[] {
     const out = this.actions;
     this.actions = [];

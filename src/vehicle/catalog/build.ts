@@ -1,11 +1,21 @@
 import type { EngineSoundProfile } from '../../audio/EngineSound';
 import type { GearboxConfig } from '../Gearbox';
 import type { VehicleConfig, WheelConfig } from '../VehicleConfig';
+import { mgukTaper, powerAt } from '../Ers';
 import type { BodyType, CarClass, CarSpec, EngineType } from './specs';
 
 const G = 9.81;
 const DRIVETRAIN = 0.88;
 const CRR = 0.013;
+/** 2026 MGU-K deployment limit (kW). */
+const MGUK_KW = 350;
+/**
+ * 2026 active aero, straight mode ("X-mode": front and rear wing flaps opened):
+ * drag and downforce multipliers vs corner mode. The FIA targets ~55 % less drag
+ * than the 2025 cars overall; flaps-open is taken as ~30 % less drag and ~45 % less
+ * downforce than flaps-closed (estimate).
+ */
+const STRAIGHT_MODE = { drag: 0.7, downforce: 0.55 };
 /** F1 slicks at racing temperature (TUMFTM laptime-simulation F1 data: f_roll 0.03). */
 const CRR_F1 = 0.03;
 /** F1 baseline: a 760 kW car with neutral aero reaches 345 km/h; team drag scales from there. */
@@ -91,20 +101,30 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
   const power = spec.kw * 1000 * DRIVETRAIN;
   const formula = spec.cls === 'formula';
   const crr = formula ? CRR_F1 : CRR;
+  // 2026 power unit: the MGU-K's 350 kW fades out between 290 and 355 km/h, so at the
+  // top speed only part of it is left; and the car reaches that speed with its active
+  // aero in straight mode (less drag and downforce).
+  const mguk = formula ? MGUK_KW * 1000 * DRIVETRAIN : 0;
+  const atTop = power - mguk + mguk * mgukTaper(vDrag);
+  const aero = formula ? STRAIGHT_MODE : { drag: 1, downforce: 1 };
   // Rolling resistance grows with the tyre load, downforce included: P·η = c·v³ + Crr·(m·g + D·v²)·v.
-  let drag = Math.max((power / vDrag - crr * mass * G) / (vDrag * vDrag) - crr * t.downforce, 0.15);
+  let drag = Math.max((atTop / vDrag - crr * mass * G) / (vDrag * vDrag) - crr * t.downforce * aero.downforce, 0.15) / aero.drag;
   if (tr) {
     // F1 teams: drag from the shared baseline (neutral aero) x aero efficiency x wing level
     // (more wing, more drag); the top speed then follows from power, drag and rolling resistance.
+    // The baseline is taken at its top speed as above (straight mode, MGU-K mostly faded out).
     const refPower = F1_REF_KW * 1000 * DRIVETRAIN;
+    const refAtTop = refPower - mguk + mguk * mgukTaper(F1_REF_TOP);
     const baseDownforce = t.downforce / tr.downforce;
-    const refDrag = (refPower / F1_REF_TOP - crr * mass * G) / F1_REF_TOP ** 2 - crr * baseDownforce;
+    const refDrag = ((refAtTop / F1_REF_TOP - crr * mass * G) / F1_REF_TOP ** 2 - crr * baseDownforce * aero.downforce) / aero.drag;
     drag = refDrag * tr.drag * (1 + DOWNFORCE_DRAG * (tr.downforce - 1));
+    // Top speed in straight mode, with the power the MGU-K taper leaves at that speed.
     let lo = 50;
     let hi = 150;
     for (let k = 0; k < 40; k++) {
       const mid = (lo + hi) / 2;
-      if (drag * mid ** 3 + crr * (mass * G + t.downforce * mid * mid) * mid < power) lo = mid;
+      const available = power - mguk + mguk * mgukTaper(mid);
+      if (drag * aero.drag * mid ** 3 + crr * (mass * G + t.downforce * aero.downforce * mid * mid) * mid < available) lo = mid;
       else hi = mid;
     }
     vTop = lo;
@@ -133,6 +153,8 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
     antiRollRear: mass * (t.antiRollPerKg?.[1] ?? 12),
     cgHeight: t.cgHeight ?? 0.45,
     enginePower: power,
+    mgukPower: mguk,
+    activeAero: formula ? STRAIGHT_MODE : undefined,
     engineForce: mass * G * 1.4,
     reverseForce: mass * 5,
     brakeForce: mass * G * 4,
@@ -393,7 +415,7 @@ export function rateCar(spec: CarSpec, c: VehicleConfig): CarStats {
   while (v < 100 / 3.6 && t < 30) {
     const load = m * G + c.downforce * v * v;
     const traction = mu * load * drivenShare;
-    const drive = Math.min(c.engineForce, c.enginePower / Math.max(v, 1), traction);
+    const drive = Math.min(c.engineForce, powerAt(c, Math.max(v, 1)) / Math.max(v, 1), traction);
     v += ((drive - c.dragCoefficient * v * v - c.rollingResistance * load) / m) * dt;
     t += dt;
   }

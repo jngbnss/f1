@@ -1,0 +1,27 @@
+{
+  "about": "Team radio lines. {name} is filled in at runtime: {pos} / {gap} numbers, spoken from the number clips. Each piece of fixed text between placeholders is its own recorded clip (scripts/radio/generate.py), so every language keeps its own word order.",
+  "lines": {
+    "radio_check": { "en": "Radio check. Good luck out there.", "ko": "무전 확인. 행운을 빈다." },
+    "lap_report": { "en": "You are P{pos}. Car ahead is {gap} seconds up the road.", "ko": "현재 {pos}위. 앞차와 {gap}초 차이." },
+    "lap_leading": { "en": "You are leading. Gap to second is {gap} seconds.", "ko": "선두다. 2위와 {gap}초 차이." },
+    "defend": { "en": "Car behind is within a second. Defend.", "ko": "뒤차가 1초 안이야. 방어해." },
+    "attack": { "en": "Car ahead is within a second. Go for it.", "ko": "앞차가 1초 안이야. 공격해." },
+    "tyres_wearing": { "en": "Tyres are starting to go. Look after them.", "ko": "타이어가 닳기 시작했어. 아껴 줘." },
+    "box_tyres": { "en": "Box, box. Box this lap, the tyres are gone.", "ko": "박스, 박스. 이번 랩에 들어와. 타이어가 다 됐어." },
+    "pit_confirm": { "en": "Copy. Box this lap.", "ko": "알았다. 이번 랩에 들어와." },
+    "pit_out": { "en": "Good stop. You are P{pos}.", "ko": "좋은 피트스톱이야. 현재 {pos}위." },
+    "wing_damage": { "en": "Front wing damage. Box this lap.", "ko": "프런트 윙 손상. 이번 랩에 들어와." },
+    "puncture": { "en": "Puncture! Bring it back to the pits.", "ko": "펑크야! 피트로 들어와." },
+    "floor_damage": { "en": "Floor damage. We have lost some downforce.", "ko": "바닥 손상이야. 다운포스가 줄었어." },
+    "yellow": { "en": "Yellow flag, crash ahead. Careful.", "ko": "옐로 플래그, 앞에 사고. 조심해." },
+    "brake_later": { "en": "You can brake later into that corner.", "ko": "방금 코너는 브레이크를 더 늦게 밟아도 돼." },
+    "brake_earlier": { "en": "Too late on the brakes there. Brake a bit earlier.", "ko": "브레이크가 늦었어. 조금 더 일찍 밟아." },
+    "gained": { "en": "Nice move. P{pos}.", "ko": "좋은 추월이야. {pos}위." },
+    "lost": { "en": "Lost a place. P{pos}.", "ko": "한 자리 잃었어. {pos}위." },
+    "best_lap": { "en": "Personal best lap. Great job.", "ko": "개인 최고 랩이야. 좋아." },
+    "last_lap": { "en": "Last lap. Bring it home.", "ko": "마지막 랩이다. 끝까지 가자." },
+    "win": { "en": "Get in there! You win the race!", "ko": "해냈어! 우승이야!" },
+    "finish": { "en": "Chequered flag. P{pos}. Good job.", "ko": "체커기. {pos}위. 수고했어." }
+  },
+  "point": { "en": "point", "ko": "점" }
+}

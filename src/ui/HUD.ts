@@ -38,6 +38,8 @@ export interface VehicleHudState {
   /** Slipstream: share of drag removed (0..1) and of downforce lost (0..1). */
   tow?: number;
   dirty?: number;
+  /** 2026 power unit: battery 0..1, MGU-K deploying (+) / recovering (-), active aero, overtake mode. */
+  ers?: { charge: number; power: number; straight: boolean; overtake: 'ready' | 'active' | null };
 }
 
 const fmt = (v: number, digits = 1) => v.toFixed(digits);
@@ -53,6 +55,9 @@ export class HUD {
   private readonly gearEl: HTMLDivElement;
   private readonly rpmEl: HTMLDivElement;
   private readonly slipEl: HTMLDivElement;
+  private readonly ersEl: HTMLDivElement;
+  private readonly ersBar: HTMLDivElement;
+  private readonly ersText: HTMLDivElement;
   private readonly helpEl: HTMLDivElement;
   private readonly lapEl: HTMLDivElement;
   private readonly lapFields: Record<'lap' | 'cur' | 'last' | 'best', HTMLSpanElement>;
@@ -109,11 +114,22 @@ export class HUD {
     rpm.append(this.rpmEl);
     this.slipEl = document.createElement('div');
     this.slipEl.className = 'slip';
-    speedo.append(this.slipEl, this.gearEl, rpm, this.speedEl, unit);
+    // 2026: battery bar (green deploying, blue recovering) and active aero / overtake mode.
+    this.ersEl = document.createElement('div');
+    this.ersEl.className = 'ers';
+    const ersTrack = document.createElement('div');
+    ersTrack.className = 'bar';
+    this.ersBar = document.createElement('div');
+    ersTrack.append(this.ersBar);
+    this.ersText = document.createElement('div');
+    this.ersText.className = 'label';
+    this.ersEl.append(ersTrack, this.ersText);
+    this.ersEl.hidden = true;
+    speedo.append(this.slipEl, this.gearEl, rpm, this.ersEl, this.speedEl, unit);
 
     this.helpEl = document.createElement('div');
     this.helpEl.className = 'help';
-    this.helpEl.textContent = 'W/↑ 가속 · S/↓ 브레이크/후진 · A/D 조향 · Space 핸드브레이크 · B 브레이크 보조 · R 리셋 · L 레이싱 라인 · C 시점 · M 소리 · H HUD · Esc 메뉴';
+    this.helpEl.textContent = 'W/↑ 가속 · S/↓ 브레이크/후진 · A/D 조향 · Space 핸드브레이크 · B 브레이크 보조 · R 리셋 · O 오버테이크 모드 · L 레이싱 라인 · C 시점 · M 소리 · H HUD · Esc 메뉴';
 
     const trackEl = document.createElement('div');
     trackEl.className = 'trackname';
@@ -164,6 +180,17 @@ export class HUD {
         ? `<b>${'›'.repeat(bars)}<i>${'›'.repeat(3 - bars)}</i></b> 슬립스트림${dirty > 0.1 ? ` <em>다운포스 -${Math.round(dirty * 100)}%</em>` : ''}`
         : '';
       if (this.slipEl.innerHTML !== html) this.slipEl.innerHTML = html;
+      const ers = vehicle.ers;
+      this.ersEl.hidden = !ers;
+      if (ers) {
+        this.ersBar.style.width = `${(ers.charge * 100).toFixed(1)}%`;
+        this.ersBar.className = ers.power > 1000 ? 'deploy' : ers.power < -1000 ? 'harvest' : '';
+        const label =
+          `⚡ ${Math.round(ers.charge * 100)}%` +
+          (ers.straight ? ' · <b>직선 모드</b>' : '') +
+          (ers.overtake === 'active' ? ' · <em>오버테이크</em>' : ers.overtake === 'ready' ? ' · <i>O 오버테이크</i>' : '');
+        if (this.ersText.innerHTML !== label) this.ersText.innerHTML = label;
+      }
     }
     if (!this.visible || now - this.lastPerfUpdate < 250) return;
     this.lastPerfUpdate = now;

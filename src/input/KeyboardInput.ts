@@ -6,6 +6,7 @@ const LEFT = ['KeyA', 'ArrowLeft'];
 const RIGHT = ['KeyD', 'ArrowRight'];
 const HANDBRAKE = ['Space'];
 const RESET = ['KeyR'];
+const OVERTAKE = ['KeyO'];
 
 const CAPTURED = new Set([...THROTTLE, ...BRAKE, ...LEFT, ...RIGHT, ...HANDBRAKE]);
 
@@ -51,6 +52,7 @@ export class KeyboardInput implements InputSource {
   private onKeyDown = (e: KeyboardEvent): void => {
     if (CAPTURED.has(e.code)) e.preventDefault();
     if (RESET.includes(e.code) && !e.repeat) this.actions.push('reset');
+    if (OVERTAKE.includes(e.code) && !e.repeat) this.actions.push('overtake');
     this.down.add(e.code);
   };
 

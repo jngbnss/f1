@@ -50,8 +50,12 @@ export interface VehicleConfig {
    */
   cgHeight: number;
 
-  /** Engine power at the wheels (W). Drive force = min(engineForce, power / speed). */
+  /** Engine power at the wheels (W), MGU-K included. Drive force = min(engineForce, power / speed). */
   enginePower: number;
+  /** Of which the MGU-K (W at the wheels; 0 = no hybrid). Tapers at high speed and runs on the battery (Ers). */
+  mgukPower: number;
+  /** Active aero straight mode: drag and downforce multipliers (none = fixed wings). */
+  activeAero?: { drag: number; downforce: number };
   /** Max tractive force (N): launch limit before power takes over. */
   engineForce: number;
   reverseForce: number;
