@@ -1,4 +1,5 @@
 import type * as THREE from 'three';
+import { QUALITY } from './Quality';
 
 /** Frames slower than this miss the 90 fps target (ms). */
 const TARGET_FRAME_MS = 1000 / 90;
@@ -32,6 +33,8 @@ export interface BenchResult {
   loadMs: number;
   resolution: string;
   pixelRatio: number;
+  /** Device quality tier the run used. */
+  quality: string;
   gpu: string;
   userAgent: string;
   date: string;
@@ -168,6 +171,7 @@ export class Benchmark {
       loadMs: Math.round(this.loadMs),
       resolution: `${canvas.width}x${canvas.height}`,
       pixelRatio: r.getPixelRatio(),
+      quality: QUALITY.tier,
       gpu: gpuName(r),
       userAgent: navigator.userAgent,
       date: new Date().toISOString(),

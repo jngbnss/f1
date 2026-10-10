@@ -4,6 +4,7 @@
  *   /?car=formula&track=monza&shadows=0&pr=1&aa=0&debug=1
  */
 import { isMobile, isTouchDevice } from './platform';
+import { detectTier, setQuality, TIER_DEFAULTS, type QualityTier } from './performance/Quality';
 
 export interface SimConfig {
   /** Car / track ids; when missing (or `menu` is set) the start menu is shown. */
@@ -52,6 +53,8 @@ export interface SimConfig {
   touch: boolean;
   /** Phone / small tablet: lighter defaults (each one still overridable in the URL). */
   mobile: boolean;
+  /** Device quality tier (see performance/Quality.ts); ?quality= forces it. */
+  quality: QualityTier;
 }
 
 function num(params: URLSearchParams, key: string, fallback: number): number {
@@ -73,20 +76,23 @@ export function readConfig(search = window.location.search): SimConfig {
   const track = p.get('track');
   const benchRaw = p.get('bench');
   const bench = benchRaw === null ? 0 : Number(benchRaw) > 1 ? Number(benchRaw) : 40;
-  // Phones: no post-processing (AO/bloom passes), smaller shadow map, 1x pixels.
+  // Phones: a lighter quality tier (no post-processing, smaller shadow map, 1x pixels, ...).
   const mobile = isMobile(search);
+  const quality = detectTier(search, mobile);
+  setQuality(quality);
+  const tier = TIER_DEFAULTS[quality];
   return {
     car,
     track,
     showMenu: !bench && (p.has('menu') || !car || !track),
-    shadows: bool(p, 'shadows', true),
-    shadowMapSize: num(p, 'shadowmap', mobile ? 1024 : 2048),
-    antialias: bool(p, 'aa', true),
-    postfx: bool(p, 'fx', !mobile),
-    forest: bool(p, 'forest', true),
+    shadows: bool(p, 'shadows', tier.shadows),
+    shadowMapSize: num(p, 'shadowmap', tier.shadowMapSize),
+    antialias: bool(p, 'aa', tier.antialias),
+    postfx: bool(p, 'fx', tier.postfx),
+    forest: bool(p, 'forest', tier.forest),
     camera: p.get('cam'),
     damage: p.get('dmg') ? (p.get('dmg')!.split(',').map(Number).concat(0).slice(0, 2) as [number, number]) : null,
-    pixelRatio: num(p, 'pr', mobile ? 1 : 1.5),
+    pixelRatio: num(p, 'pr', tier.pixelRatio),
     // Benchmarks measure the full-resolution cost, so dynamic resolution is off unless asked for.
     dynamicResolution: bool(p, 'dynres', !bench),
     physicsDebug: bool(p, 'debug', false),
@@ -103,6 +109,7 @@ export function readConfig(search = window.location.search): SimConfig {
     benchFirst: !p.has('benchi'),
     touch: isTouchDevice(search),
     mobile,
+    quality,
   };
 }
 

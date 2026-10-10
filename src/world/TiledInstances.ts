@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { QUALITY } from '../performance/Quality';
 
 export interface InstanceLevel {
   /** null = draw nothing at this distance (culled level). */
@@ -79,7 +80,8 @@ export class TiledInstances {
             m.updateMatrix();
             m.computeBoundingSphere();
           }
-          lod.addLevel(m ?? new THREE.Object3D(), levels[i].distance);
+          // Cheaper levels (and the culled one) kick in sooner on weaker devices.
+          lod.addLevel(m ?? new THREE.Object3D(), levels[i].distance * QUALITY.viewDistance);
         });
         this.group.add(lod);
       }

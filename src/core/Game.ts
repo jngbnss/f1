@@ -9,6 +9,8 @@ import { InputManager } from '../input/InputManager';
 import { KeyboardInput } from '../input/KeyboardInput';
 import { Benchmark } from '../performance/Benchmark';
 import { DynamicResolution } from '../performance/DynamicResolution';
+import { QUALITY } from '../performance/Quality';
+import { QualityGovernor } from '../performance/QualityGovernor';
 import { PostFx } from '../render/PostFx';
 import { TyreSmoke } from '../render/TyreSmoke';
 import { DrivingFx } from '../render/DrivingFx';
@@ -120,6 +122,8 @@ export class Game {
   private readonly byCollider = new Map<number, Vehicle>();
   private readonly aiOutTime = new Map<Vehicle, number>();
   private readonly dynamicResolution: DynamicResolution | null;
+  /** Gives up shadows / post-processing / draw distance when even the lowest resolution is too slow. */
+  private qualityGovernor: QualityGovernor | null = null;
   private postFx: PostFx | null = null;
   /** Smoke from locked / sliding tyres. */
   private readonly tyreSmoke = new TyreSmoke();
@@ -326,6 +330,32 @@ export class Game {
     this.drivingFx = new DrivingFx(this.scene, this.track, this.followCamera);
     this.followCamera.snap(this.player.object3D);
     if (config.postfx) this.postFx = new PostFx(this.renderer, this.scene, this.followCamera.camera, this.weatherPost);
+    if (this.dynamicResolution) {
+      this.qualityGovernor = new QualityGovernor(
+        this.dynamicResolution,
+        [
+          () => {
+            if (!this.environment.sun.castShadow) return null;
+            this.environment.sun.castShadow = false;
+            this.renderer.shadowMap.enabled = false;
+            return '그림자 끔';
+          },
+          () => {
+            if (!this.postFx) return null;
+            this.postFx.dispose();
+            this.postFx = null;
+            return '후처리 효과 끔';
+          },
+          () => {
+            if (QUALITY.viewDistance <= 0.36) return null;
+            QUALITY.viewDistance = Math.max(0.35, QUALITY.viewDistance * 0.7);
+            QUALITY.carDetail = Math.max(25, QUALITY.carDetail * 0.7);
+            return '시야 거리 줄임';
+          },
+        ],
+        (label) => this.hud.toast(`그래픽 자동 조절: ${label}`),
+      );
+    }
     this.weatherFx = new WeatherFx(this.renderer, this.scene, this.weather, this.track, this.vehicles, config.postfx ? this.weatherPost.lens : null);
     if (config.damage) {
       [this.player.damage.front, this.player.damage.rear] = config.damage;
@@ -712,12 +742,14 @@ export class Game {
   private update(frameDt: number, alpha: number): void {
     this.perf.beginFrame();
     this.dynamicResolution?.update(this.perf.snapshot);
+    this.qualityGovernor?.update(this.perf.snapshot);
     this.perf.snapshot.pixelRatio = this.renderer.getPixelRatio();
     for (const v of this.vehicles) v.render(alpha);
     if (this.pitStops) this.pitCrew?.update(frameDt, this.pitStops);
-    // Car LOD: beyond ~70 m wheel rims and brake discs are a few pixels; hide them.
+    // Car LOD: beyond ~70 m (less on weaker devices) wheel rims and brake discs are a few pixels; hide them.
     const cam = this.followCamera.camera.position;
-    for (const v of this.vehicles) v.visual.setDetail?.(v.object3D.position.distanceToSquared(cam) < 70 * 70);
+    const detail = QUALITY.carDetail * QUALITY.carDetail;
+    for (const v of this.vehicles) v.visual.setDetail?.(v.object3D.position.distanceToSquared(cam) < detail);
     const speedRatio = this.player.physics.forwardSpeed / this.player.config.maxSpeed;
     this.followCamera.update(this.player.object3D, speedRatio, frameDt);
     this.tyreSmoke.update(frameDt, this.vehicles, this.followCamera.camera);
