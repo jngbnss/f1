@@ -21,6 +21,8 @@ export interface TrackLayout {
   attribution?: string;
   /** Baked minimum-lap-time racing line for the F1 car (scripts/bake-raceline.ts). */
   minTimeLine?: [number, number][];
+  /** Per-team refinements of it (scripts/bake-team-lines.ts): see world/TeamLines.ts. */
+  teamLines?: import('./TeamLines').TeamLinesData;
   /** Pit lane along the start/finish straight: +1 right, -1 left of the driving direction. */
   pitSide?: number;
   /** Where the pit lane leaves / rejoins the track (m before / after the start line) and the box row centre (m after the line). */

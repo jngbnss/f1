@@ -18,7 +18,8 @@ import { powerAt } from '../vehicle/Ers';
 const G = 9.81;
 const CORNER_MARGIN = 0.8;
 const BRAKE_MARGIN = 0.8;
-const CTRL = 8;
+/** Samples between optimizer control points. */
+export const CTRL = 8;
 
 export interface MinTimeInput {
   points: readonly THREE.Vector3[];
@@ -27,6 +28,8 @@ export interface MinTimeInput {
   /** Starting offsets (e.g. the minimum-curvature line), one per sample. */
   start: Float64Array;
   margin?: number;
+  /** Largest offset either side per sample (m); the line between control points is clipped to it. */
+  limit?: ArrayLike<number>;
 }
 
 export function lapTime(cx: Float64Array, cz: Float64Array, car: VehicleConfig, out?: Float64Array): number {
@@ -85,7 +88,9 @@ export function optimizeMinTime(
   car: VehicleConfig,
   log?: (msg: string) => void,
   evaluate?: (path: [number, number][]) => number,
-): { path: [number, number][]; before: number; after: number } {
+  /** Offset steps (m), coarse to fine; a warm start (an already good line) can skip the coarse ones. */
+  steps: readonly number[] = [1.2, 0.6, 0.3, 0.15],
+): { path: [number, number][]; before: number; after: number; ctrl: Float64Array } {
   const { points, rights } = input;
   const n = points.length;
   const limit = Math.max(input.halfWidth - (input.margin ?? 1.6), 0);
@@ -96,31 +101,13 @@ export function optimizeMinTime(
   for (let k = 0; k < m; k++) ctrl[k] = input.start[k * CTRL];
   const cx = new Float64Array(n);
   const cz = new Float64Array(n);
-  const build = () => {
-    for (let k = 0; k < m; k++) {
-      // Catmull-Rom through the control offsets: smooth (C1) so the line has no
-      // kinks the lap-time model could exploit.
-      const p0 = ctrl[(k - 1 + m) % m];
-      const p1 = ctrl[k];
-      const p2 = ctrl[(k + 1) % m];
-      const p3 = ctrl[(k + 2) % m];
-      const i0 = k * CTRL;
-      const span = k + 1 < m ? CTRL : n - i0;
-      for (let s = 0; s < span; s++) {
-        const t = s / span;
-        const off = 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (3 * p1 - p0 - 3 * p2 + p3) * t * t * t);
-        const i = i0 + s;
-        cx[i] = points[i].x + off * rights[i].x;
-        cz[i] = points[i].z + off * rights[i].z;
-      }
-    }
-  };
+  const build = () => buildFromControls(points, rights, ctrl, cx, cz, input.limit);
   const pathOf = () => Array.from({ length: n }, (_, i) => [cx[i], cz[i]] as [number, number]);
   const time = () => (evaluate ? evaluate(pathOf()) : lapTime(cx, cz, car));
   build();
   const before = time();
   let best = before;
-  for (const step of [1.2, 0.6, 0.3, 0.15]) {
+  for (const step of steps) {
     for (let pass = 0; pass < 6; pass++) {
       let improved = 0;
       for (let k = 0; k < m; k++) {
@@ -145,5 +132,52 @@ export function optimizeMinTime(
   build();
   const path: [number, number][] = [];
   for (let i = 0; i < n; i++) path.push([+cx[i].toFixed(2), +cz[i].toFixed(2)]);
-  return { path, before, after: best };
+  return { path, before, after: best, ctrl };
+}
+
+/**
+ * Line through control offsets (m across the track, + = right) every CTRL samples:
+ * Catmull-Rom between them, smooth (C1) so the line has no kinks the lap-time model
+ * could exploit. Writes x / z per sample into cx / cz.
+ */
+function buildFromControls(points: readonly THREE.Vector3[], rights: readonly THREE.Vector3[], ctrl: ArrayLike<number>, cx: Float64Array, cz: Float64Array, limit?: ArrayLike<number>): void {
+  const n = points.length;
+  const m = ctrl.length;
+  for (let k = 0; k < m; k++) {
+    const p0 = ctrl[(k - 1 + m) % m];
+    const p1 = ctrl[k];
+    const p2 = ctrl[(k + 1) % m];
+    const p3 = ctrl[(k + 2) % m];
+    const i0 = k * CTRL;
+    const span = k + 1 < m ? CTRL : n - i0;
+    for (let s = 0; s < span; s++) {
+      const t = s / span;
+      const i = i0 + s;
+      let off = 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (3 * p1 - p0 - 3 * p2 + p3) * t * t * t);
+      if (limit) off = Math.max(-limit[i], Math.min(limit[i], off));
+      cx[i] = points[i].x + off * rights[i].x;
+      cz[i] = points[i].z + off * rights[i].z;
+    }
+  }
+}
+
+/** Control offsets (one every CTRL samples) of a path that runs sample by sample along the track. */
+export function controlsOf(points: readonly THREE.Vector3[], rights: readonly THREE.Vector3[], path: readonly [number, number][]): Float64Array {
+  const m = Math.floor(points.length / CTRL);
+  const ctrl = new Float64Array(m);
+  for (let k = 0; k < m; k++) {
+    const i = k * CTRL;
+    ctrl[k] = (path[i][0] - points[i].x) * rights[i].x + (path[i][1] - points[i].z) * rights[i].z;
+  }
+  return ctrl;
+}
+
+/** The racing line through control offsets (see buildFromControls), as [x, z] per track sample. */
+/** `limit` (optional, per sample): largest offset either side (m). */
+export function pathFromControls(points: readonly THREE.Vector3[], rights: readonly THREE.Vector3[], ctrl: ArrayLike<number>, limit?: ArrayLike<number>): [number, number][] {
+  const n = points.length;
+  const cx = new Float64Array(n);
+  const cz = new Float64Array(n);
+  buildFromControls(points, rights, ctrl, cx, cz, limit);
+  return Array.from({ length: n }, (_, i) => [+cx[i].toFixed(2), +cz[i].toFixed(2)] as [number, number]);
 }

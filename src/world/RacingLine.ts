@@ -18,6 +18,8 @@ export interface RacingLineOptions {
   spacing?: number;
   /** Road height per path point (elevated circuits, see Track.heightsFor). */
   heights?: readonly number[];
+  /** Speed profile only, no ribbon to draw (offline optimizers evaluate thousands of lines). */
+  profileOnly?: boolean;
 }
 
 const GREEN = new THREE.Color(0x2bd56f);
@@ -117,7 +119,7 @@ export class RacingLine {
     this.brakeAt = (speed) => BRAKE_MARGIN * mu * (car.braking ?? 1) * (G * mech + aero * speed * speed);
     const accelAt = (speed: number) => {
       const vv = Math.max(speed, 1);
-      const traction = mu * G * car.mass * 0.6; // rear-axle share
+      const traction = mu * (car.traction ?? 1) * G * car.mass * 0.6; // rear-axle share, team traction
       const drive = Math.min(car.engineForce, powerAt(car, vv) / vv, traction);
       return Math.max((drive - car.dragCoefficient * vv * vv) / car.mass - car.rollingResistance * G, 0.05);
     };
@@ -175,6 +177,12 @@ export class RacingLine {
       }
     }
     this.speeds = v;
+    if (options.profileOnly) {
+      this.colors = new Float32Array(0);
+      this.colorAttr = new THREE.BufferAttribute(this.colors, 4);
+      this.mesh = new THREE.Mesh();
+      return;
+    }
 
     // --- ribbon geometry -------------------------------------------------
     const positions = new Float32Array(count * 2 * 3);
