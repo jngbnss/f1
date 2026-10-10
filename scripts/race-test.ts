@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { PhysicsWorld } from '../src/physics/PhysicsWorld';
 import { AIDriver } from '../src/race/AIDriver';
 import { RaceManager, type Racer } from '../src/race/RaceManager';
+import { Penalties } from '../src/race/Penalties';
 import { findCar } from '../src/vehicle/cars';
 import { applyImpacts } from '../src/race/Impacts';
 import { DebrisField } from '../src/race/Debris';
@@ -57,6 +58,7 @@ const offSide = { inside: 0, outside: 0 };
 const samples = track.getCenterline().length;
 const byCollider = new Map(vehicles.map((v) => [v.physics.collider.handle, v] as [number, Vehicle]));
 const race = new RaceManager(track, racers, Number(lapsArg));
+const penalties = new Penalties(track);
 const HOLD = { throttle: 0, brake: 1, steer: 0, handbrake: 1 };
 let resets = 0;
 let stepMs = 0;
@@ -119,6 +121,7 @@ while (t < limit && !racers.every((r) => r.finished)) {
     }
   }
   race.update(dt);
+  if (!race.frozen) penalties.update(racers, dt, () => false);
   stepMs += performance.now() - t0;
   steps++;
   t += dt;
@@ -138,5 +141,7 @@ const zoneShare = zones.reduce((a, b) => a + b, 0) / zones.length;
 const charge = vehicles.reduce((a, v) => a + v.ers.charge, 0) / vehicles.length;
 console.log(`2026: straight-mode zones ${(zoneShare * 100).toFixed(0)} % of the lap, cars in straight mode ${((straightSteps / Math.max(carSteps, 1)) * 100).toFixed(0)} % of the time, battery at the end ${(charge * 100).toFixed(0)} % (lowest ${(minCharge * 100).toFixed(0)} %), overtake mode used ${vehicles.reduce((a, v) => a + v.ers.overtakeUses, 0)} times`);
 if (debris) console.log(`debris: up to ${maxDebris} pieces on track, ${debrisSlides} tyre slides on it, ${debris.punctures} punctures`);
+const strikes = [...penalties.state.values()].reduce((s, p) => s + p.strikes, 0);
+console.log(`track limits: ${strikes} excursions, ${racers.filter((r) => r.penalty).length} cars penalised`);
 console.log(`CPU per physics step (all ${total} cars + AI): ${(stepMs / steps).toFixed(2)} ms`);
 process.exit(finished.length >= total * 0.9 && resets <= total ? 0 : 1);
