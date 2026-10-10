@@ -19,7 +19,12 @@ export const COMPOUND_LIST: Compound[] = ['hyper', 'soft', 'medium', 'hard', 'we
 
 interface CompoundSpec {
   grip: number;
-  /** Share of the wet-track grip loss this tyre suffers (1 = all of it, 0 = none). */
+  /**
+   * Share of the wet-track grip loss this tyre suffers (1 = all of it, 0 = none).
+   * Slicks take more than all of it (> 1): no tread to clear the water and they run
+   * cold. On a wet track (0.78) every slick ends near 0.65-0.68 and the full wet
+   * near 0.85, so a slick in the rain is ~20 % off, as in the F1 games.
+   */
   wetLoss: number;
   /** Wear per km of normal running at multiplier 1 (fraction of the tyre). */
   wearPerKm: number;
@@ -29,10 +34,10 @@ interface CompoundSpec {
 
 export const COMPOUNDS: Record<Compound, CompoundSpec> = {
   // Hyper-soft: the most grip and the sharpest turn-in, but it is gone in a few laps.
-  hyper: { grip: 1.09, wetLoss: 1, wearPerKm: 0.012, window: [65, 95] },
-  soft: { grip: 1.035, wetLoss: 1, wearPerKm: 0.0085, window: [75, 100] },
-  medium: { grip: 1.0, wetLoss: 0.95, wearPerKm: 0.0055, window: [85, 110] },
-  hard: { grip: 0.97, wetLoss: 0.85, wearPerKm: 0.0036, window: [95, 120] },
+  hyper: { grip: 1.09, wetLoss: 1.75, wearPerKm: 0.012, window: [65, 95] },
+  soft: { grip: 1.035, wetLoss: 1.6, wearPerKm: 0.0085, window: [75, 100] },
+  medium: { grip: 1.0, wetLoss: 1.5, wearPerKm: 0.0055, window: [85, 110] },
+  hard: { grip: 0.97, wetLoss: 1.5, wearPerKm: 0.0036, window: [95, 120] },
   // Full wet: slowest in the dry (and it cooks itself there), far less slippery in the rain.
   wet: { grip: 0.9, wetLoss: 0.25, wearPerKm: 0.0045, window: [45, 85] },
 };
@@ -43,8 +48,8 @@ export const COMPOUND_HINTS: Record<Compound, string> = {
   hyper: '접지·조향 최고 · 빨리 닳음',
   soft: '빠름 · 마모 큼',
   medium: '균형',
-  hard: '오래감 · 비에 조금 강함',
-  wet: '비에 강함 · 맑은 날 느림',
+  hard: '오래감 · 접지 낮음',
+  wet: '비 올 때 필수 · 맑은 날 느림',
 };
 
 /**
