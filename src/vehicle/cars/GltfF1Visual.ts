@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import type { VehicleConfig } from '../VehicleConfig';
 import type { WheelState } from '../VehiclePhysics';
 import type { VehicleVisual } from '../VehicleVisual';
@@ -74,7 +75,7 @@ let loading: Promise<void> | null = null;
 
 /** Loads the shared model once. Cars created before it is ready fall back to primitives. */
 export function loadF1Model(baseUrl: string): Promise<void> {
-  loading ??= new GLTFLoader().loadAsync(`${baseUrl}models/f1-2026.glb`).then((gltf) => {
+  loading ??= new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${baseUrl}models/f1-2026.glb`).then((gltf) => {
     // Undo KHR_mesh_quantization once: float positions in model meters (relative
     // to each LOD's parent: the scene for the body, the wheel centre for wheels)
     // with identity transforms below, so shaders can paint by model-space position.
