@@ -66,7 +66,7 @@ const FORMULA = rows('formula', [
   ['f1-mercedes', 'Mercedes', 'F1 2026', 'f1', 785, 800, 347, 'RWD', F1_DIMS, 'f1', 0xc7ccd1, 0x00a19b],
   ['f1-redbull', 'Red Bull', 'F1 2026', 'f1', 765, 800, 343, 'RWD', F1_DIMS, 'f1', 0x1e2a5a, 0xd0021b],
   ['f1-mclaren', 'McLaren', 'F1 2026', 'f1', 750, 800, 342, 'RWD', F1_DIMS, 'f1', 0xff8000, 0x1c1c1c],
-  ['f1-aston', 'Aston Martin', 'F1 2026', 'f1', 745, 800, 340, 'RWD', F1_DIMS, 'f1', 0x00665e, 0xc4d600],
+  ['f1-aston', 'Aston Martin', 'F1 2026', 'f1', 735, 800, 340, 'RWD', F1_DIMS, 'f1', 0x00665e, 0xc4d600],
   ['f1-alpine', 'Alpine', 'F1 2026', 'f1', 720, 800, 343, 'RWD', F1_DIMS, 'f1', 0x1f5fbf, 0xff4fa0],
   ['f1-williams', 'Williams', 'F1 2026', 'f1', 770, 800, 350, 'RWD', F1_DIMS, 'f1', 0x00205b, 0x00a0de],
   ['f1-racingbulls', 'Racing Bulls', 'F1 2026', 'f1', 760, 800, 343, 'RWD', F1_DIMS, 'f1', 0xf2f2f2, 0x2f5fd0],
@@ -80,14 +80,14 @@ const FORMULA = rows('formula', [
 // lap-time simulation over five circuits (scripts/team-balance.ts), so a different team
 // wins at Monza, Monaco and Suzuka. Power (kW) is in the rows above.
 const TRAITS: Record<string, CarTraits> = {
-  'f1-ferrari': { downforce: 0.96, drag: 0.94, grip: 0.98, traction: 0.97, braking: 1.02, tyreWear: 0.95, label: '최고속도 · 파워 / 저속 트랙션 약함' },
+  'f1-ferrari': { downforce: 0.96, drag: 0.94, grip: 0.985, traction: 0.97, braking: 1.02, tyreWear: 0.95, label: '최고속도 · 파워 / 저속 트랙션 약함' },
   'f1-mercedes': { downforce: 1.01, drag: 0.95, grip: 1, traction: 1.07, braking: 0.95, tyreWear: 1.12, label: '엔진 · 효율 · 트랙션 / 제동 · 타이어 마모' },
   'f1-redbull': { downforce: 1.07, drag: 1, grip: 0.99, traction: 0.97, braking: 1.03, tyreWear: 1.1, label: '고속 코너 · 제동 / 저속 · 뒷타이어' },
   'f1-mclaren': { downforce: 1.09, drag: 1.06, grip: 1.02, traction: 1.02, braking: 0.91, tyreWear: 0.85, label: '코너 최강 · 타이어 관리 / 직선 · 제동' },
-  'f1-aston': { downforce: 1.1, drag: 1.04, grip: 0.98, traction: 0.96, braking: 1.1, tyreWear: 0.98, label: '다운포스 · 제동 / 파워 · 저속 코너' },
+  'f1-aston': { downforce: 1.08, drag: 1.04, grip: 0.98, traction: 0.96, braking: 1.1, tyreWear: 0.98, label: '다운포스 · 제동 / 파워 · 저속 코너' },
   'f1-alpine': { downforce: 1.06, drag: 0.98, grip: 0.99, traction: 1.07, braking: 0.99, tyreWear: 1, label: '고속 코너 · 트랙션 / 파워 부족' },
-  'f1-williams': { downforce: 0.99, drag: 0.9, grip: 0.975, traction: 0.98, braking: 1, tyreWear: 1.02, label: '직선 최강 / 저속 코너' },
-  'f1-racingbulls': { downforce: 0.92, drag: 0.98, grip: 1.03, traction: 1.04, braking: 0.92, tyreWear: 1, label: '저속 코너 · 트랙션 / 고속 코너 · 제동' },
+  'f1-williams': { downforce: 0.99, drag: 0.9, grip: 0.985, traction: 0.98, braking: 1, tyreWear: 1.02, label: '직선 최강 / 저속 코너' },
+  'f1-racingbulls': { downforce: 0.92, drag: 0.98, grip: 1.035, traction: 1.04, braking: 0.92, tyreWear: 1, label: '저속 코너 · 트랙션 / 고속 코너 · 제동' },
   'f1-haas': { downforce: 1, drag: 1, grip: 1, traction: 1, braking: 1, tyreWear: 1, label: '균형형' },
   'f1-audi': { downforce: 0.93, drag: 0.97, grip: 0.99, traction: 1, braking: 1.05, tyreWear: 0.9, label: '제동 · 타이어 관리 / 다운포스 부족' },
 };

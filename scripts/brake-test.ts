@@ -42,9 +42,10 @@ for (const assist of [true, false]) {
   // Human braking (the AI constructor set the AI values).
   v.physics.brakeGrip = BRAKE_GRIP;
   v.physics.brakeForceScale = 1.5;
-  // Start 600 m before the line at 250 km/h, so 300 km/h comes on the straight.
+  // Start 220 m before the line at 250 km/h, on the straight (600 m back was still inside the
+  // Parabolica, R 94 m: no car holds that at 250 km/h), so 300 km/h comes before Turn 1.
   const pts = track.getCenterline();
-  const start0 = pts[(pts.length - Math.round(600 / layout.sampleSpacing)) % pts.length];
+  const start0 = pts[(pts.length - Math.round(220 / layout.sampleSpacing)) % pts.length];
   const pose = track.getResetPose(start0);
   v.teleport(pose);
   const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(pose.quaternion).multiplyScalar(250 / 3.6);
