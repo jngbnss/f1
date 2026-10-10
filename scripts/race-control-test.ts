@@ -90,7 +90,8 @@ async function setup() {
   let tYellow = -1;
   let tVsc = -1;
   const t0 = race.time;
-  while (race.time < t0 + 12) {
+  // Cleared within 15 s (longer brings the safety car out, see safety-car-test).
+  while (race.time < t0 + 7) {
     step(wreck);
     if (tYellow < 0 && messages.includes('yellow')) tYellow = race.time - t0;
     if (tVsc < 0 && rc.flag === 'vsc') tVsc = race.time - t0;
@@ -98,13 +99,13 @@ async function setup() {
   check(tYellow > 1 && tYellow < 3, `stopped car: yellow after ${tYellow.toFixed(1)} s`);
   check(tVsc > 5 && tVsc < 8, `still stopped: VSC after ${tVsc.toFixed(1)} s`);
   // Let the field settle to VSC pace, then measure.
-  for (let t = 0; t < 6; t += dt) step(wreck);
+  for (let t = 0; t < 3; t += dt) step(wreck);
   let slow = 0;
-  for (let t = 0; t < 4; t += dt) {
+  for (let t = 0; t < 3; t += dt) {
     step(wreck);
     slow += avg() * dt;
   }
-  slow /= 4;
+  slow /= 3;
   check(slow < 0.75 && slow > 0.45 && green > 0.85, `VSC: field at ${(slow * 100).toFixed(0)} % of racing-line speed (racing: ${(green * 100).toFixed(0)} %)`);
   // The car is recovered (marshals push it away, here: it drives on).
   const tClear = race.time;

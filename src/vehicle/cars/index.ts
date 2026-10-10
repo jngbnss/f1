@@ -2,7 +2,7 @@ import type { EngineSoundProfile } from '../../audio/EngineSound';
 import { buildGearbox, buildPhysics, buildSound } from '../catalog/build';
 import { carInfo, resolveCarId, type CarInfo } from '../catalog';
 import { ParametricCarVisual } from '../catalog/ParametricCarVisual';
-import { CAR_SPECS, type CarSpec } from '../catalog/specs';
+import { CAR_SPECS, SAFETY_CAR, type CarSpec } from '../catalog/specs';
 import type { GearboxConfig } from '../Gearbox';
 import type { VehicleConfig } from '../VehicleConfig';
 import type { VehicleVisual } from '../VehicleVisual';
@@ -42,6 +42,9 @@ function define(spec: CarSpec): CarDefinition {
 }
 
 export const CARS: CarDefinition[] = CAR_SPECS.map(define);
+
+/** The safety car (not in the car list). */
+export const SAFETY_CAR_DEF: CarDefinition = define(SAFETY_CAR);
 
 export function findCar(id: string | null | undefined): CarDefinition {
   const key = resolveCarId(id);
