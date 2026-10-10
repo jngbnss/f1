@@ -28,6 +28,11 @@ const _tan = new THREE.Vector3();
 const CAR_LENGTH = 5.6;
 /** Extra front wheel angle per m/s² of lateral acceleration (front tyre slip angle). */
 const UNDERSTEER = 0.0005;
+/** Heading error (rad) at which the car counts as spun round, and the speed it then turns back at (m/s). */
+const SPUN_HEADING = Math.PI / 4;
+const RECOVERY_SPEED = 6;
+/** Rear tyre sliding speed (m/s) above which the AI lifts off the throttle. */
+const REAR_SLIDE = 0.8;
 /** Path tracking: heading error gain, and cross-track gain k in atan(k·e / v). */
 const HEADING_GAIN = 1;
 const CROSS_GAIN = 2;
@@ -249,6 +254,9 @@ export class AIDriver {
       if (allowed < target) target = allowed;
     }
     target = Math.min(target, followSpeed);
+    // Spun round (pointing well off the track's direction): turn back slowly first, as a
+    // driver does, instead of flooring it at full lock (that drove cars in circles into the barrier).
+    if (Math.abs(this.headingError) > SPUN_HEADING) target = Math.min(target, RECOVERY_SPEED);
     const err = target - speed;
     inp.handbrake = 0;
     if (err > 0.5) {
@@ -261,6 +269,11 @@ export class AIDriver {
       inp.throttle = 0.15;
       inp.brake = 0;
     }
+    // Throttle control, as a driver feels the rear step out: when the driven rear tyres
+    // slide, lift until they bite again. Full lock and full throttle at 20 km/h (crawling
+    // off the back of the grid in traffic) spun cars into the barrier.
+    const rearSlide = Math.max(Math.abs(v.physics.wheels[2].slip), Math.abs(v.physics.wheels[3].slip));
+    if (inp.throttle > 0 && rearSlide > REAR_SLIDE) inp.throttle *= Math.max(0.15, 1 - (rearSlide - REAR_SLIDE) / REAR_SLIDE);
 
     // --- stuck? ---------------------------------------------------------
     if (Math.abs(speed) < 1 && inp.throttle > 0.3) this.stuckTime += dt;
@@ -284,6 +297,8 @@ export class AIDriver {
     return c;
   }
 
+  /** Car heading vs the line's direction in the last step (rad, + = line heads right of us). */
+  private headingError = 0;
   /** Debris on the track to steer round (wings; shards are too small to see in time). */
   debris: DebrisField | null = null;
 
@@ -377,6 +392,7 @@ export class AIDriver {
     _tan.subVectors(line.points[(i + 1) % count], line.points[(i - 1 + count) % count]).setY(0).normalize();
     const e = (pos.x - p.x) * -_tan.z + (pos.z - p.z) * _tan.x - this.offset; // + = right of the path
     const heading = Math.atan2(_fwd.x * _tan.z - _fwd.z * _tan.x, _fwd.dot(_tan)); // + = path heads right of us
+    this.headingError = heading;
     // Curvature a little ahead (the steering and the tyres take a moment to respond).
     const ahead = this.indexAhead(i, 4 + Math.max(speed, 0) * PREVIEW);
     const kappa = this.signedCurvature(ahead);
