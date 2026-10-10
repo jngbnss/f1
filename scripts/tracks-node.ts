@@ -45,6 +45,8 @@ export function loadLayout(id: string): TrackLayout {
   layout.stands = FAMOUS_STANDS[id];
   layout.ferrisWheel = FERRIS_WHEELS[id];
   if (existsSync(dataUrl(`${file}_elev.json`))) layout.heights = (JSON.parse(readFileSync(dataUrl(`${file}_elev.json`), 'utf8')) as { heights: number[] }).heights;
+  if (existsSync(dataUrl(`${file}_mintime.json`))) layout.minTimeLine = (JSON.parse(readFileSync(dataUrl(`${file}_mintime.json`), 'utf8')) as { path: [number, number][] }).path;
+  if (existsSync(dataUrl(`${file}_teamlines.json`))) layout.teamLines = JSON.parse(readFileSync(dataUrl(`${file}_teamlines.json`), 'utf8')) as TrackLayout['teamLines'];
   if (existsSync(dataUrl(`${file}_osm.json`))) layout.scenery = JSON.parse(readFileSync(dataUrl(`${file}_osm.json`), 'utf8')) as OsmData;
   if (layout.scenery && existsSync(dataUrl(`${file}_woods.json`))) layout.scenery.woods = JSON.parse(readFileSync(dataUrl(`${file}_woods.json`), 'utf8')) as OsmData['woods'];
   return layout;

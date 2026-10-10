@@ -36,7 +36,7 @@ export function optimizeRacingLine(input: RacingLineInput): [number, number][] {
 export function minCurvatureOffsets(input: RacingLineInput): Float64Array {
   const { points, rights } = input;
   const n = points.length;
-  const limit = Math.max(input.halfWidth - (input.margin ?? 1.6), 0);
+  const limit = Math.max(input.halfWidth - (input.margin ?? LINE_MARGIN), 0);
   const cx = Float64Array.from(points, (p) => p.x);
   const cz = Float64Array.from(points, (p) => p.z);
   const rx = Float64Array.from(rights, (r) => r.x);
@@ -156,6 +156,8 @@ function shiftApexes(alpha: Float64Array, cx: Float64Array, cz: Float64Array, rx
  * corner's exit, which put Jeddah's, Baku's and Las Vegas's T1 walls in reach at 1.6 m.
  */
 export const STREET_MARGIN = 3;
+/** Line centre to asphalt edge on open circuits (m): half a car plus room. */
+export const LINE_MARGIN = 1.6;
 
 /** Racing line for a built track (uses its centerline, right vectors and road width). */
 export function racingLineFor(track: {
