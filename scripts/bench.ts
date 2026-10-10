@@ -5,6 +5,7 @@
  *   npm run build && npm run bench              # 40 s per track, vsync off
  *   npm run bench -- --seconds 20 --label after-lod
  *   npm run bench -- --headed                   # visible window (closest to real play)
+ *   npm run bench -- --tracks monza,spa --query "&quality=low" --label low   # some circuits, extra URL params
  *
  * Uses Chrome or Edge (BROWSER env var to override the path). The browser
  * runs with vsync / frame-rate limit off so fps above the monitor refresh
@@ -24,6 +25,9 @@ const arg = (name: string, fallback: string) => {
 const seconds = Number(arg('seconds', '40'));
 const label = arg('label', 'baseline');
 const headed = args.includes('--headed');
+/** Extra URL params (e.g. "&quality=low"), and a comma-separated subset of circuits. */
+const query = arg('query', '');
+const only = arg('tracks', '').split(',').filter(Boolean);
 const port = 4179;
 
 const BROWSERS = [
@@ -56,7 +60,7 @@ async function main(): Promise<void> {
   let chrome: ChildProcess | null = null;
   try {
     await waitForServer(`http://localhost:${port}/`, 20000);
-    const url = `http://localhost:${port}/?bench=${seconds}`;
+    const url = `http://localhost:${port}/?bench=${seconds}${only.length ? `&track=${only[0]}${only.length > 1 ? `&benchq=${only.slice(1).join(',')}` : ''}` : ''}${query}`;
     chrome = spawn(
       browser,
       [
@@ -78,7 +82,7 @@ async function main(): Promise<void> {
     );
 
     const results: BenchResult[] = [];
-    const tracks = 17;
+    const tracks = only.length || 30;
     const timeoutMs = tracks * (seconds + 60) * 1000;
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`timed out after ${results.length} result(s)`)), timeoutMs);
@@ -126,7 +130,7 @@ function report(results: BenchResult[], name: string): string {
     '',
     `- Date: ${r0?.date ?? ''}`,
     `- GPU: ${r0?.gpu ?? ''}`,
-    `- Resolution: ${r0?.resolution ?? ''} (pixel ratio ${r0?.pixelRatio ?? ''}), dynamic resolution off, vsync off`,
+    `- Resolution: ${r0?.resolution ?? ''} (pixel ratio ${r0?.pixelRatio ?? ''}), quality tier ${r0?.quality ?? 'high'}, dynamic resolution off, vsync off`,
     `- Scene: ${r0?.car ?? ''} × ${r0?.cars ?? 0} cars (player on autopilot), ${r0?.seconds ?? 0} s per track after a ${3} s warmup`,
     '- Target: 90 fps minimum (frame time ≤ 11.1 ms)',
     '',

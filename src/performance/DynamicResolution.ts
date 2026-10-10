@@ -26,6 +26,11 @@ export class DynamicResolution {
     this.ratio = renderer.getPixelRatio();
   }
 
+  /** At the lowest render resolution it may use (nothing left to give here). */
+  get atMinimum(): boolean {
+    return this.ratio <= this.minRatio * 1.001;
+  }
+
   /** Call every frame with the monitor's snapshot (acts once per published window). */
   update(perf: PerfSnapshot, now = performance.now()): void {
     if (perf.windowId === this.lastWindow || perf.frameTimeAvg === 0) return;

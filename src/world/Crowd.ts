@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { TiledInstances } from './TiledInstances';
+import { QUALITY } from '../performance/Quality';
 
 /**
  * Spectators: instanced low-poly people that bounce ("cheer") in the vertex
@@ -215,8 +216,10 @@ export function buildTribune(
 }
 
 /** All spectators as tiled, LOD'd instances (near: detailed, far: blocks, very far: none). */
-export function buildCrowd(seats: CrowdSeat[], material: CrowdMaterial): { group: THREE.Group; disposables: { dispose(): void }[] } {
+export function buildCrowd(all: CrowdSeat[], material: CrowdMaterial): { group: THREE.Group; disposables: { dispose(): void }[] } {
   const { hi, lo } = personGeometries();
+  // Weaker devices fill fewer seats (evenly spread: golden-ratio sampling keeps every stand populated).
+  const seats = QUALITY.crowd >= 1 ? all : all.filter((_, i) => ((i * 0.6180339887) % 1) < QUALITY.crowd);
   const tiles = new TiledInstances(
     [
       { geometry: hi, material, distance: 0 },
