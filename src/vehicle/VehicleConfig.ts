@@ -28,6 +28,18 @@ export interface VehicleConfig {
   suspensionRestLength: number;
   suspensionStiffness: number;
   suspensionDamping: number;
+  /**
+   * Anti-roll bar per axle (N per m of left/right compression difference). Stiffer
+   * = less body roll, and that axle takes a larger share of the cornering load transfer.
+   */
+  antiRollFront: number;
+  antiRollRear: number;
+  /**
+   * Real centre-of-mass height above the ground (m). Tyre forces act this far below
+   * the centre of mass, so cornering loads the outside wheels, braking the fronts and
+   * accelerating the rears (load transfer = m·a·h / track or wheelbase).
+   */
+  cgHeight: number;
 
   /** Engine power at the wheels (W). Drive force = min(engineForce, power / speed). */
   enginePower: number;

@@ -5,6 +5,7 @@
  *
  *   npx tsx scripts/bake-woods.ts <terrainId> <DataName> [debug.jpg]
  *   e.g. npx tsx scripts/bake-woods.ts monza Monza
+ *   --water: leave dark blue-green pixels out (sea and lakes, e.g. melbourne)
  *
  * Writes src/world/tracks/data/<DataName>_woods.json: a bitmask (base64,
  * row-major, z rows) of CELL-metre cells over the near image rectangle.
@@ -12,8 +13,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import jpeg from 'jpeg-js';
 
-const [id, name, debug] = process.argv.slice(2);
-if (!id || !name) throw new Error('usage: bake-woods.ts <terrainId> <DataName> [debug.jpg]');
+const args = process.argv.slice(2);
+const waterMask = args.includes('--water');
+const [id, name, debug] = args.filter((a) => a !== '--water');
+if (!id || !name) throw new Error('usage: bake-woods.ts <terrainId> <DataName> [debug.jpg] [--water]');
 const CELL = 4;
 
 const meta = JSON.parse(readFileSync(`public/terrain/${id}/terrain.json`, 'utf8')) as { near: { rect: [number, number, number, number] } };
@@ -27,15 +30,37 @@ const px = (u: number, v: number) => {
   return [img.data[i], img.data[i + 1], img.data[i + 2]];
 };
 
+/** With --water, woods this close to water (cells) are dropped: the shoreline blends sea and sand into "dark green". */
+const SHORE = 4;
+const isWater = new Uint8Array(w * h);
+const isWoods = new Uint8Array(w * h);
+for (let j = 0; j < h; j++)
+  for (let i = 0; i < w; i++) {
+    const [r, g, b] = px((i + 0.5) / w, (j + 0.5) / h);
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    // Canopy: dark, green-dominant (fields are brighter, roofs red/grey, roads light).
+    // Water is just as dark but blue at least as strong as green (Port Phillip Bay, Albert Park Lake).
+    // Opt-in: Spa's dark conifers read the same way.
+    isWater[j * w + i] = waterMask && b >= g - 1 && lum < 60 ? 1 : 0;
+    isWoods[j * w + i] = !isWater[j * w + i] && ((lum < 52 && g >= r + 2 && g >= b) || (lum < 36 && g >= r - 4)) ? 1 : 0;
+  }
+const nearWater = (i: number, j: number) => {
+  for (let dj = -SHORE; dj <= SHORE; dj++)
+    for (let di = -SHORE; di <= SHORE; di++) {
+      const a = i + di;
+      const c = j + dj;
+      if (a >= 0 && a < w && c >= 0 && c < h && isWater[c * w + a]) return true;
+    }
+  return false;
+};
+
 const bits = new Uint8Array(Math.ceil((w * h) / 8));
 let count = 0;
 const out = debug ? new Uint8Array(w * h * 4) : null;
 for (let j = 0; j < h; j++)
   for (let i = 0; i < w; i++) {
     const [r, g, b] = px((i + 0.5) / w, (j + 0.5) / h);
-    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-    // Canopy: dark, green-dominant (fields are brighter, roofs red/grey, roads light).
-    const woods = (lum < 52 && g >= r + 2 && g >= b) || (lum < 36 && g >= r - 4);
+    const woods = isWoods[j * w + i] === 1 && !(waterMask && nearWater(i, j));
     if (woods) {
       bits[(j * w + i) >> 3] |= 1 << ((j * w + i) & 7);
       count++;
