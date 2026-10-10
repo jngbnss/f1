@@ -212,6 +212,12 @@ html, body {
 /* Game sound volume (desktop). */
 .volume-ctl { position: fixed; left: 232px; bottom: 50px; z-index: 20; display: flex; align-items: center; gap: 8px; background: rgba(12, 14, 18, 0.72); border-radius: 18px; padding: 4px 8px; color: #fff; font: 600 12px system-ui, sans-serif; }
 .volume-ctl button { background: none; border: 0; font-size: 18px; cursor: pointer; padding: 2px 4px; }
-.volume-ctl input, .volume-ctl span { display: none; }
-.volume-ctl.open input, .volume-ctl.open span { display: inline-block; }
-.volume-ctl input { width: 120px; accent-color: #e10600; }
+/* Sound settings panel: engine / effects volume and team radio. */
+.volume-panel { display: none; position: absolute; left: 0; bottom: calc(100% + 8px); background: rgba(12, 14, 18, 0.9); border-radius: 10px; padding: 10px 12px; min-width: 300px; }
+.volume-ctl.open .volume-panel { display: grid; gap: 8px; }
+.vp-row { display: flex; align-items: center; gap: 8px; }
+.vp-row > span { width: 78px; color: #b8c2cc; flex: none; }
+.vp-row input[type='range'], .tc-row input[type='range'] { flex: 1; min-width: 90px; max-width: 220px; accent-color: #e10600; }
+.vp-row small, .tc-row small { width: 34px; text-align: right; color: #b8c2cc; }
+.vp-toggle, .volume-ctl .vp-toggle { background: #2a3038; color: #b8c2cc; border: 0; border-radius: 6px; padding: 4px 10px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
+.vp-toggle.on, .volume-ctl .vp-toggle.on { background: #e10600; color: #fff; }
