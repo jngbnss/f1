@@ -37,12 +37,38 @@ const _normal = new THREE.Vector3();
 const _vel = new THREE.Vector3();
 /** Longitudinal (braking) grip relative to lateral grip. */
 export const BRAKE_GRIP = 1.2;
+/**
+ * Pacejka magic formula (lateral) as a share of the peak force:
+ * sin(C·atan(B·α − E·(B·α − atan(B·α)))). Racing slick: ~0.6 of the peak at 1°
+ * of slip, ~0.98 by 4°, a broad top and only ~3 % lost when sliding at 30°. A sharper
+ * fall past the peak made the rear snap away on corner exit (the AI spun and
+ * crashed in every race), as a real car only does on cold or worn tyres.
+ */
+const MF_B = 36;
+const MF_C = 1.2;
+const MF_E = 0.3;
+export function magicFormula(alpha: number): number {
+  const x = MF_B * alpha;
+  return Math.sin(MF_C * Math.atan(x - MF_E * (x - Math.atan(x))));
+}
+/** tan of the slip angle where the contact patch starts to slide (~2.5°; ~0.9 of the peak force). */
+const SLIDE_START = Math.tan((2.5 * Math.PI) / 180);
+/** Friction lost per unit of load above the car's mean wheel load (slicks: ~0.1-0.2). */
+const LOAD_SENSITIVITY = 0.1;
 const _impulse = new THREE.Vector3();
 const _linvel = new THREE.Vector3();
 const _angvel = new THREE.Vector3();
 const _com = new THREE.Vector3();
 const _steerQuat = new THREE.Quaternion();
 const _contact = new THREE.Vector3();
+const _invQuat = new THREE.Quaternion();
+const _localW = new THREE.Vector3();
+/**
+ * Roll / pitch damping rate (1/s), and the smaller yaw damping on the ground: the
+ * tyres do most of that work, this keeps a car from snapping into a spin.
+ */
+const ANGULAR_DAMPING = 1.5;
+const YAW_DAMPING = 0.8;
 
 /** Grip multiplier and extra deceleration (m/s²) of the ground under one wheel. */
 export interface SurfaceSample {
@@ -59,8 +85,9 @@ export interface SurfaceSample {
  *   of mass), so the body rolls and pitches and the load moves where it should.
  * - Engine = constant power (force = P / v) limited by a max tractive force,
  *   so acceleration and top speed come out of power, drag and mass.
- * - Tyre model = per-wheel impulses: cancel a fraction of lateral slip, plus
- *   drive/brake along the wheel, all inside a friction circle of μ·load —
+ * - Tyre model = per-wheel forces: lateral from the slip angle (Pacejka magic
+ *   formula, μ falling a little with load), plus drive/brake along the wheel, all
+ *   inside a friction ellipse of μ·load —
  *   braking or flooring it while cornering eats into lateral grip.
  *   Load includes aero downforce, so fast corners hold more g.
  * - Surface sampled per wheel: two wheels on the grass pull the car around.
@@ -78,6 +105,8 @@ export class VehiclePhysics {
   private readonly drivenCount: number;
   /** Ground normal under each wheel from this step's suspension ray. */
   private readonly normals: THREE.Vector3[];
+  /** Principal moments of inertia (chassis local axes). */
+  private readonly inertia: { x: number; y: number; z: number };
   /** Ground under a wheel contact (x, z). Unset = asphalt everywhere. */
   surfaceAt: ((x: number, z: number, y?: number) => SurfaceSample) | null = null;
   /** Average surface grip under the grounded wheels in the last step (1 = asphalt). */
@@ -104,8 +133,12 @@ export class VehiclePhysics {
   brakeGrip = BRAKE_GRIP;
   /** Brake pedal force multiplier (human drivers; AI keeps 1). */
   brakeForceScale = 1.5;
-  /** Front tyre cornering grip multiplier (human drivers: less understeer; AI keeps 1). */
-  frontGripScale = 1.1;
+  /**
+   * Front tyre cornering grip multiplier. With the slip-angle tyre model the car is
+   * already close to neutral; more front grip than the rear's small margin (~6 %)
+   * makes it snap into a spin at 250 km/h, so it stays 1.
+   */
+  frontGripScale = 1;
   /**
    * Keep the downforce while all four wheels are off the ground (circuits with real
    * crests: Spa, Suzuka). On flat circuits a car only takes off in a crash, where
@@ -125,7 +158,8 @@ export class VehiclePhysics {
       .setTranslation(spawn.position.x, spawn.position.y, spawn.position.z)
       .setRotation(spawn.quaternion)
       .setLinearDamping(0)
-      .setAngularDamping(1.5)
+      // Angular damping is applied per axis in step(): roll/pitch only (yaw comes from the tyres).
+      .setAngularDamping(0)
       .setCcdEnabled(true)
       .setCanSleep(false);
     this.body = world.createRigidBody(bodyDesc);
@@ -135,13 +169,9 @@ export class VehiclePhysics {
     const h = c.halfExtents.y * 2;
     const d = c.halfExtents.z * 2;
     const k = (c.mass / 12) * 1.6;
+    this.inertia = { x: k * (h * h + d * d), y: k * (w * w + d * d), z: k * (w * w + h * h) };
     const colliderDesc = rapier.ColliderDesc.cuboid(c.halfExtents.x, c.halfExtents.y, c.halfExtents.z)
-      .setMassProperties(
-        c.mass,
-        c.centerOfMass,
-        { x: k * (h * h + d * d), y: k * (w * w + d * d), z: k * (w * w + h * h) },
-        { x: 0, y: 0, z: 0, w: 1 },
-      )
+      .setMassProperties(c.mass, c.centerOfMass, this.inertia, { x: 0, y: 0, z: 0, w: 1 })
       .setFriction(0.3)
       .setRestitution(0.1)
       .setCollisionGroups(CHASSIS_GROUPS)
@@ -243,6 +273,32 @@ export class VehiclePhysics {
       if (hit) this.normals[i].set(hit.normal.x, hit.normal.y, hit.normal.z);
     }
 
+    // Pass 2: spring + damper + anti-roll bar = vertical load per wheel.
+    let loadSum = 0;
+    for (let i = 0; i < n; i++) {
+      const wc = c.wheels[i];
+      const ws = this.wheels[i];
+      ws.load = 0;
+      if (!ws.grounded) continue;
+      _origin.set(wc.position.x, wc.position.y, wc.position.z).applyQuaternion(_quat).add(_pos);
+      // v = v_lin + w x (p - com)
+      _vel.subVectors(_origin, _com).crossVectors(_angvel, _vel).add(_linvel);
+      const compression = c.suspensionRestLength - ws.suspensionLength;
+      const compressionVel = -_vel.dot(_up);
+      let spring = c.suspensionStiffness * compression + c.suspensionDamping * compressionVel;
+      // Anti-roll bar: the more compressed side of the axle pushes up harder, the other less.
+      const mate = i ^ 1; // wheels come in left/right pairs per axle
+      if (mate < n && this.wheels[mate].grounded) {
+        const arb = wc.steerable ? c.antiRollFront : c.antiRollRear;
+        spring += arb * (this.wheels[mate].suspensionLength - ws.suspensionLength);
+      }
+      ws.load = Math.max(spring, 0);
+      loadSum += ws.load;
+    }
+    let groundedCount = 0;
+    for (const w of this.wheels) if (w.grounded) groundedCount++;
+    const meanLoad = groundedCount > 0 ? loadSum / groundedCount : 0;
+
     for (let i = 0; i < n; i++) {
       const wc = c.wheels[i];
       const ws = this.wheels[i];
@@ -257,22 +313,9 @@ export class VehiclePhysics {
 
       grounded++;
       _origin.set(wc.position.x, wc.position.y, wc.position.z).applyQuaternion(_quat).add(_pos);
-      const springLength = ws.suspensionLength;
       _normal.copy(this.normals[i]);
-
-      // --- suspension (spring-damper along chassis up) --------------
-      // v = v_lin + w x (p - com)
       _vel.subVectors(_origin, _com).crossVectors(_angvel, _vel).add(_linvel);
-      const compression = c.suspensionRestLength - springLength;
-      const compressionVel = -_vel.dot(_up);
-      let spring = c.suspensionStiffness * compression + c.suspensionDamping * compressionVel;
-      // Anti-roll bar: the more compressed side of the axle pushes up harder, the other less.
-      const mate = i ^ 1; // wheels come in left/right pairs per axle
-      if (mate < n && this.wheels[mate].grounded) {
-        const arb = wc.steerable ? c.antiRollFront : c.antiRollRear;
-        spring += arb * (this.wheels[mate].suspensionLength - springLength);
-      }
-      const load = Math.max(spring, 0);
+      const load = ws.load;
       _impulse.copy(_up).multiplyScalar(load * dt);
       body.applyImpulseAtPoint(_impulse, _origin, true);
 
@@ -288,8 +331,10 @@ export class VehiclePhysics {
 
       const vLong = _vel.dot(_wheelFwd);
       const vLat = _vel.dot(_wheelRight);
-      ws.slip = vLat;
-      ws.load = load;
+      // Sliding speed: below ~2.5° of slip angle the contact patch mostly grips (the
+      // tyre just deflects), so only the lateral speed beyond that counts as a slide
+      // (heat, wear, skid marks, squeal).
+      ws.slip = Math.sign(vLat) * Math.max(0, Math.abs(vLat) - Math.abs(vLong) * SLIDE_START);
 
       // --- surface under this wheel -----------------------------------
       let surfGrip = 1;
@@ -312,9 +357,19 @@ export class VehiclePhysics {
         grip *= f;
         mu *= f;
       }
+      // Load sensitivity: a tyre's friction coefficient falls as it is loaded harder, so a
+      // car that piles its load onto the outside tyres has less grip than one sharing it
+      // evenly. Measured against the car's own mean wheel load, so the total downforce
+      // still adds grip as before (the racing line plans with that).
+      const loadRatio = meanLoad > 0 ? Math.min(load / meanLoad, 2.5) : 1;
+      mu *= 1 - LOAD_SENSITIVITY * (loadRatio - 1);
       let maxForce = mu * load; // N
-      // Lateral: cancel a fraction of the sideways slip this step.
-      let lateralF = (-vLat * this.massPerWheel * grip) / dt;
+      // Lateral: Pacejka "magic formula" force from the slip angle (near its peak by
+      // ~4°, hardly falling past it), never more than what would cancel the sideways slip in this
+      // step: at parking speed the slip angle means little and the force must not overshoot.
+      const alpha = Math.atan2(vLat, Math.max(Math.abs(vLong), 1.5));
+      const cancel = (Math.abs(vLat) * this.massPerWheel * grip) / dt;
+      let lateralF = -Math.sign(vLat) * Math.min(maxForce * magicFormula(Math.abs(alpha)), cancel);
       // Longitudinal: engine (driven wheels) minus brakes, signed against travel.
       let driveF = wc.driven ? driveForce / this.drivenCount : 0;
       // Brake bias: the front axle takes the larger share (weight transfers forward under
@@ -399,6 +454,19 @@ export class VehiclePhysics {
         body.applyImpulseAtPoint(_impulse, _origin, true);
       }
     }
+
+    // Roll / pitch damping (dampers, stiff chassis) plus a little yaw damping in the air;
+    // on the ground the tyres damp the yaw themselves (front and rear slip angles oppose
+    // a yaw rate the corner does not ask for).
+    _invQuat.copy(_quat).invert();
+    _localW.copy(_angvel).applyQuaternion(_invQuat);
+    const yawDamp = grounded > 0 ? YAW_DAMPING : ANGULAR_DAMPING;
+    const ix = ANGULAR_DAMPING * dt;
+    const iy = yawDamp * dt;
+    _impulse
+      .set(-this.inertia.x * _localW.x * (ix / (1 + ix)), -this.inertia.y * _localW.y * (iy / (1 + iy)), -this.inertia.z * _localW.z * (ix / (1 + ix)))
+      .applyQuaternion(_quat);
+    body.applyTorqueImpulse(_impulse, true);
 
     // Hard speed cap (safety net; the limiter normally keeps us under).
     const cap = forwardSpeed >= 0 ? c.maxSpeed * 1.12 : c.maxReverseSpeed * 1.2;
