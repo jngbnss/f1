@@ -50,10 +50,10 @@ for (const id of ids.filter((x) => !STREET.includes(x))) {
       return t;
     };
     const res = optimizeMinTime(input, car, undefined, lapTime, [0.6, 0.3, 0.15]);
-    // What the game loads: whole-cm controls, clamped to the limit. Rounding can lose a few
+    // What the game loads: controls to 0.1 cm, clamped to the limit. Rounding can lose a few
     // hundredths; a team line must never be slower than the shared line, so then the team
     // gets none (the game falls back to the shared line).
-    const cm = Array.from(controlsOf(points, rights, res.path), (o) => Math.round(o * 100));
+    const cm = Array.from(controlsOf(points, rights, res.path), (o) => Math.round(o * 1000) / 10);
     const own = lapTime(pathFromControls(points, rights, cm.map((c) => c / 100), input.limit));
     const sharedTime = lapTime(shared);
     if (own <= sharedTime) out[team.id] = { shared: +sharedTime.toFixed(3), own: +own.toFixed(3), cm };
