@@ -40,9 +40,10 @@ const BODY: Record<BodyType, BodyTemplate> = {
   gt3: { mu: 1.45, downforce: 0.95, wheelRadius: 0.35, halfY: 0.26, wheelY: -0.12, rest: 0.38, springPerKg: 26, damperPerKg: 2.2, grip: [0.88, 0.92], steer: [0.55, 0.085, 55] },
   supercar: { mu: 1.28, downforce: 0.35, wheelRadius: 0.355, halfY: 0.25, wheelY: -0.11, rest: 0.36, springPerKg: 26, damperPerKg: 2.2, grip: [0.88, 0.92], steer: [0.54, 0.085, 58] },
   lmp: { mu: 1.6, downforce: 2.0, wheelRadius: 0.36, halfY: 0.22, wheelY: -0.04, rest: 0.32, springPerKg: 45, damperPerKg: 3, grip: [0.9, 0.95], steer: [0.5, 0.072, 66] },
-  // CoG 0.33 m (TUMFTM F1: 0.335); very stiff anti-roll bars: ~1° of roll at 4 g. The rear one is a little
-  // stiffer so the rear takes more of the load transfer (less understeer at the limit).
-  f1: { mu: 1.75, downforce: 2.9, wheelRadius: 0.36, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 56, damperPerKg: 3.25, grip: [0.9, 0.95], steer: [0.5, 0.07, 70], cgHeight: 0.33, antiRollPerKg: [100, 110] },
+  // CoG 0.33 m (TUMFTM F1: 0.335); very stiff anti-roll bars (front stiffer): ~1° of roll at 4 g.
+  // With the Pacejka tyres a stiffer rear bar made the car snap into oversteer when braking into
+  // a corner: AI cars spun at Suzuka, Spa and Shanghai (solo laps up to 30 % slower).
+  f1: { mu: 1.75, downforce: 2.9, wheelRadius: 0.36, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 56, damperPerKg: 3.25, grip: [0.9, 0.95], steer: [0.5, 0.07, 70], cgHeight: 0.33, antiRollPerKg: [120, 95] },
   openwheel: { mu: 1.6, downforce: 2.0, wheelRadius: 0.33, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 50, damperPerKg: 3.1, grip: [0.9, 0.95], steer: [0.5, 0.075, 66] },
   indy: { mu: 1.62, downforce: 2.3, wheelRadius: 0.34, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 52, damperPerKg: 3.2, grip: [0.9, 0.95], steer: [0.5, 0.07, 70] },
   fe: { mu: 1.38, downforce: 1.0, wheelRadius: 0.34, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 45, damperPerKg: 3, grip: [0.9, 0.95], steer: [0.52, 0.08, 62] },
