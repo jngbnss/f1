@@ -1,5 +1,6 @@
 import type * as THREE from 'three';
 import type { VehicleConfig } from '../vehicle/VehicleConfig';
+import { powerAt } from '../vehicle/Ers';
 
 /**
  * Minimum-lap-time racing line (refines the minimum-curvature line).
@@ -56,7 +57,7 @@ export function lapTime(cx: Float64Array, cz: Float64Array, car: VehicleConfig, 
   const brakeAt = (s: number) => BRAKE_MARGIN * mu * (G + aero * s * s);
   const accelAt = (s: number) => {
     const vv = Math.max(s, 1);
-    const drive = Math.min(car.engineForce, car.enginePower / vv, mu * G * car.mass * 0.6);
+    const drive = Math.min(car.engineForce, powerAt(car, vv) / vv, mu * G * car.mass * 0.6);
     return Math.max((drive - car.dragCoefficient * vv * vv) / car.mass - car.rollingResistance * G, 0.05);
   };
   for (let lap = 0; lap < 2; lap++) {

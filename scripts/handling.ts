@@ -46,8 +46,8 @@ export interface HandlingResult {
 async function rig(car: CarDefinition) {
   const physics = await PhysicsWorld.create(dt);
   const track = new ProceduralTrack(physics, RUNWAY, { treesPerKm: 0 });
-  // Start of the long straight, facing -Z (car forward).
-  const pose = { position: new Vector3(-150, 1, 9800), quaternion: new Quaternion() };
+  // Back straight, facing -Z (car forward): the main straight has the pits and stands to hit.
+  const pose = { position: new Vector3(4000, 1, 9000), quaternion: new Quaternion() };
   const v = new Vehicle(physics, car.physics, car.createVisual(), pose, car.gearbox);
   const tick = (input: Partial<VehicleInput>) => {
     v.fixedUpdate({ throttle: 0, brake: 0, steer: 0, handbrake: 0, ...input }, dt);
@@ -61,6 +61,8 @@ async function rig(car: CarDefinition) {
 export async function measure(car: CarDefinition): Promise<HandlingResult> {
   // --- straight line ---------------------------------------------------
   const { v, tick } = await rig(car);
+  // A long straight: active aero in straight mode (2026), as on a real one.
+  v.straightZone = true;
   let t = 0;
   let t100 = 0;
   let t200: number | null = null;
@@ -85,6 +87,7 @@ export async function measure(car: CarDefinition): Promise<HandlingResult> {
   let brake200m: number | null = null;
   if (topKmh > 205) {
     const b = await rig(car);
+    b.v.straightZone = true;
     while (b.v.speedKmh < 200) b.tick({ throttle: 1 });
     const p0 = b.v.position.clone();
     while (b.v.speedKmh > 1) b.tick({ brake: 1 });

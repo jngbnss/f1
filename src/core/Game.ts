@@ -31,6 +31,7 @@ import { updateSlipstream } from '../race/Slipstream';
 import { PitCrew } from '../world/PitCrew';
 import { applyImpacts } from '../race/Impacts';
 import { DebrisField, type DebrisEvent } from '../race/Debris';
+import { straightZones, updateRules2026 } from '../race/Rules2026';
 import { DebrisMesh } from '../render/DebrisMesh';
 import { AIDriver } from '../race/AIDriver';
 import { LapTimer } from '../race/LapTimer';
@@ -132,6 +133,8 @@ export class Game {
   /** Carbon shards and broken wings lying on the track. */
   private readonly debris = new DebrisField((Math.random() * 2 ** 32) >>> 0);
   private readonly debrisMesh = new DebrisMesh(this.debris);
+  /** 2026 active aero zones (per centreline sample). */
+  private aeroZones: Uint8Array = new Uint8Array(0);
   /** Tyre marks, live steering-wheel display, camera shake input. */
   private drivingFx!: DrivingFx;
   /** Latched lap event from fixed steps, consumed by the next rendered frame. */
@@ -237,6 +240,7 @@ export class Game {
     this.scene.add(this.player.object3D);
     this.scene.add(this.tyreSmoke.mesh);
     this.scene.add(this.debrisMesh.group);
+    this.aeroZones = straightZones(this.track);
     this.vehicles.push(this.player);
 
     if (plan) {
@@ -673,6 +677,12 @@ export class Game {
 
     this.net?.beforeStep(dt);
     updateSlipstream(this.vehicles);
+    updateRules2026(this.track, this.aeroZones, this.vehicles, this.race ?? null);
+    if (actions.includes('overtake')) {
+      const ers = this.player.ers;
+      if (ers.activateOvertake()) this.hud.toast('오버테이크 모드: 337 km/h까지 전기 출력, +0.5 MJ');
+      else this.hud.toast(ers.overtakeLeft ? '오버테이크 모드: 앞차와 1초 이내일 때' : '오버테이크 모드는 한 바퀴에 한 번');
+    }
     const frozen = this.race?.frozen ?? false;
     // The pit controller drives cars in the pit lane (player included).
     const pitPlayer = frozen ? null : (this.pitStops?.update(this.player, dt) ?? null);
@@ -793,6 +803,14 @@ export class Game {
       gear: gearbox ? gearbox.label : '',
       rpmRatio: gearbox ? gearbox.rpmRatio : 0,
       input: this.input.activeSource,
+      ers: this.player.config.mgukPower > 0
+        ? {
+            charge: this.player.ers.charge,
+            power: this.player.ers.power,
+            straight: this.player.aeroMode > 0.5,
+            overtake: this.player.ers.overtakeActive ? 'active' : this.player.ers.overtakeAvailable ? 'ready' : null,
+          }
+        : undefined,
       tow: 1 - this.player.physics.wake.drag,
       dirty: 1 - (this.player.physics.wake.front + this.player.physics.wake.rear) / 2,
     });
