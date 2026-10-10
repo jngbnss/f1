@@ -36,11 +36,13 @@ interface Spec {
   half: number;
   /** Longest gap bridged between dead ends (m, default 30): Las Vegas has unmapped stretches of the Strip. */
   gap?: number;
+  /** Moves the start line along the lap (m) when the pit road's middle leaves the grid in a corner. */
+  startShift?: number;
   note: string;
 }
 
 export const NEW_CIRCUITS: Record<string, Spec> = {
-  jeddah: { file: 'Jeddah', lat: 21.6319, lon: 39.1044, name: 'كورنيش|Corniche|Jeddah', length: 6174, sense: 'ccw', smooth: 200, half: 6, note: 'Jeddah Corniche Circuit' },
+  jeddah: { file: 'Jeddah', lat: 21.6319, lon: 39.1044, name: 'كورنيش|Corniche|Jeddah', length: 6174, sense: 'ccw', smooth: 200, half: 6, startShift: 120, note: 'Jeddah Corniche Circuit' },
   miami: { file: 'Miami', lat: 25.9581, lon: -80.2389, name: 'Miami International Autodrome', length: 5412, sense: 'ccw', smooth: 60, half: 7, note: 'Miami International Autodrome' },
   madrid: { file: 'Madrid', lat: 40.4637, lon: -3.6163, relation: 18813472, length: 5474, sense: 'cw', smooth: 200, half: 6.5, note: 'Madring' },
   baku: { file: 'Baku', lat: 40.3725, lon: 49.8533, relation: 11266687, length: 6003, sense: 'ccw', smooth: 60, half: 6, note: 'Baku City Circuit' },
@@ -267,6 +269,13 @@ async function main(): Promise<void> {
   pts = pts.slice(i0).concat(pts.slice(0, i0));
   // Sense of travel: positive area = counter-clockwise in (east, north).
   if ((signedArea(pts) > 0) !== (s.sense === 'ccw')) pts = [pts[0], ...pts.slice(1).reverse()];
+  if (s.startShift) {
+    // The 20-car grid needs ~170 m of straight behind the line (Jeddah's last corner was 115 m back).
+    const k = Math.round(s.startShift / 5);
+    pts = pts.slice(k).concat(pts.slice(0, k));
+    console.log(`  start line moved ${s.startShift} m along the lap`);
+  }
+
   // Cross-check with the ways' own direction: oneway raceways, and a relation's
   // forward / backward roles. When they clearly disagree, they win.
   const nearestIdx = (p: V2) => {

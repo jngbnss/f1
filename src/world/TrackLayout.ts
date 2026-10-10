@@ -248,7 +248,7 @@ export const PIT_LANE: Record<string, { entry: number; exit: number; boxes: numb
   saopaulo: { entry: 350, exit: 250, boxes: 0 },
   yasmarina: { entry: 110, exit: 300, boxes: 90 },
   // OSM-built circuits: the line sits at the middle of the mapped pit road.
-  jeddah: { entry: 200, exit: 260, boxes: 30 },
+  jeddah: { entry: 320, exit: 140, boxes: -40 },
   miami: { entry: 400, exit: 240, boxes: -80 },
   madrid: { entry: 220, exit: 280, boxes: 0 },
   baku: { entry: 380, exit: 200, boxes: -60 },
