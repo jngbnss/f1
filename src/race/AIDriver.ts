@@ -133,7 +133,10 @@ export class AIDriver {
     for (let k = 0; k < 16; k++) slowest = Math.min(slowest, line.speeds[(this.index + k) % count]);
     const street = this.track.street;
     const slowCorner = slowest < (street ? 30 : 22);
-    const laneScale = slowCorner && street ? 0 : 1;
+    // Between the walls of a street circuit every corner is single file, fast ones too (Jeddah's
+    // 150-250 km/h bends squeezed the inside car into the wall); side by side on the straights.
+    const singleFile = street && (slowCorner || cornerFactor < 0.6);
+    const laneScale = singleFile ? 0 : 1;
     // Racing line position across the track, to express other cars relative to it.
     const lineLateral = this.track.lateral(this.line.points[this.index]);
     // Traffic is measured along the track (distance along it, offset across it), as the
@@ -153,7 +156,7 @@ export class AIDriver {
       const side = op.lat - me.lat;
       // Alongside: make room instead of leaning on each other (wheel-to-wheel contact pushes cars off).
       if (Math.abs(ahead) < CAR_LENGTH && Math.abs(side) < 2.9) {
-        if (street && slowCorner) {
+        if (singleFile) {
           if (ahead > 0) followSpeed = Math.min(followSpeed, Math.max(0, o.physics.forwardSpeed - 2));
           continue;
         }
@@ -173,7 +176,7 @@ export class AIDriver {
       // Between walls a pass needs a real gap (Monaco is nearly impossible to pass on).
       const passRoom = this.track.street ? 5.5 : 3.2;
       // No passing under yellow / VSC, except round a car that has stopped.
-      if (room > passRoom && ahead > 3 && (!this.rules.noPassing || otherSpeed < 8)) {
+      if (room > passRoom && ahead > 3 && (!this.rules.noPassing || otherSpeed < 8) && (!singleFile || otherSpeed < 8)) {
         desiredOffset = otherLat - lineLateral + passSide * 3.4;
       }
       // In its lane: keep a gap from which we can still stop if the car ahead brakes as
