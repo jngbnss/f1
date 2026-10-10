@@ -25,6 +25,13 @@ const _tan = new THREE.Vector3();
 
 /** Car length and width used for gaps and overlap in traffic (m). */
 const CAR_LENGTH = 5.6;
+/** Extra front wheel angle per m/s² of lateral acceleration (front tyre slip angle). */
+const UNDERSTEER = 0.0005;
+/** Path tracking: heading error gain, and cross-track gain k in atan(k·e / v). */
+const HEADING_GAIN = 1;
+const CROSS_GAIN = 2;
+/** Seconds of travel ahead at which the line curvature is read. */
+const PREVIEW = 0.25;
 const OVERLAP = 2.6;
 
 /** A car's place on the track: distance along the centreline and offset across it (shared by all AI, once per step). */
@@ -181,7 +188,7 @@ export class AIDriver {
     this.offset += (desiredOffset - this.offset) * (1 - Math.exp(-1.5 * dt));
 
     // --- steering: pure pursuit to a point ahead on the (offset) line ---
-    inp.steer = THREE.MathUtils.clamp(this.steerTowards(this.lookaheadPoint(speed)) * 2.6, -1, 1);
+    inp.steer = this.pathSteer(speed);
 
     // --- speed: brake for the slowest point within braking distance ----
     // The line was planned on fresh tyres, intact wings and clean air. Grip = tyre x
@@ -288,6 +295,61 @@ export class AIDriver {
       _target.z -= _tan.x * fix;
     }
     return _target;
+  }
+
+  /**
+   * Path tracking on the (offset) racing line, Stanley style (Hoffmann et al. 2007):
+   * feedforward from the line's curvature just ahead (atan(wheelbase·κ), plus the slip
+   * angle the front tyres run at that lateral acceleration), plus the heading error, plus
+   * atan(k·e / v) for the distance off the line. The old pursuit of a point 20-50 m ahead
+   * ("angle x 2.6") steered along the chord, inside the bend: cars cut corners with all
+   * four wheels 120 times in a 20-car lap of Spa (Blanchimont at 300 km/h included).
+   */
+  private pathSteer(speed: number): number {
+    const line = this.line;
+    const count = line.points.length;
+    const v = this.vehicle;
+    const pos = v.position;
+    const i = this.index;
+    // Line tangent and right-hand normal here; the target path is the line + offset.
+    const p = line.points[i];
+    _tan.subVectors(line.points[(i + 1) % count], line.points[(i - 1 + count) % count]).setY(0).normalize();
+    const e = (pos.x - p.x) * -_tan.z + (pos.z - p.z) * _tan.x - this.offset; // + = right of the path
+    const heading = Math.atan2(_fwd.x * _tan.z - _fwd.z * _tan.x, _fwd.dot(_tan)); // + = path heads right of us
+    // Curvature a little ahead (the steering and the tyres take a moment to respond).
+    const ahead = this.indexAhead(i, 4 + Math.max(speed, 0) * PREVIEW);
+    const kappa = this.signedCurvature(ahead);
+    const wheels = v.physics.config.wheels;
+    const wheelbase = Math.abs(wheels[0].position.z - wheels[wheels.length - 1].position.z);
+    const vs = Math.max(speed, 0);
+    const delta = Math.atan(wheelbase * kappa) + UNDERSTEER * vs * vs * kappa + HEADING_GAIN * heading - Math.atan((CROSS_GAIN * e) / (vs + 5));
+    return THREE.MathUtils.clamp(delta / v.controller.maxSteer(speed), -1, 1);
+  }
+
+  /** Line index `metres` ahead of `from`. */
+  private indexAhead(from: number, metres: number): number {
+    const count = this.line.points.length;
+    let d = 0;
+    let j = from;
+    for (let k = 0; k < 200 && d < metres; k++) {
+      d += this.line.segmentLength(j);
+      j = (j + 1) % count;
+    }
+    return j;
+  }
+
+  /** Signed curvature of the line at index i (1/m, + = bending right), over a ~±10 m chord. */
+  private signedCurvature(i: number): number {
+    const pts = this.line.points;
+    const count = pts.length;
+    const a = pts[(i - 5 + count) % count];
+    const b = pts[i];
+    const c = pts[(i + 5) % count];
+    const ab = Math.hypot(b.x - a.x, b.z - a.z);
+    const bc = Math.hypot(c.x - b.x, c.z - b.z);
+    const ca = Math.hypot(a.x - c.x, a.z - c.z);
+    const cross = (b.x - a.x) * (c.z - b.z) - (b.z - a.z) * (c.x - b.x); // + = turning right
+    return ab * bc * ca > 1e-6 ? (2 * cross) / (ab * bc * ca) : 0;
   }
 
   /** Signed angle (rad) from the car's heading to `p` (+ = right). */
