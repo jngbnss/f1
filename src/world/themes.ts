@@ -339,6 +339,13 @@ const BY_TRACK: Record<string, string> = {
   silverstone: 'england',
   spa: 'ardennes',
   monaco: 'riviera',
+  jeddah: 'desertDusk',
+  miami: 'tropical',
+  madrid: 'mediterranean',
+  baku: 'mediterranean',
+  singapore: 'tropical',
+  lasvegas: 'desertDusk',
+  lusail: 'desertDusk',
 };
 
 export function themeFor(trackId: string, override?: string | null): WorldTheme {

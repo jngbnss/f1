@@ -42,6 +42,14 @@ export const CIRCUITS: Circuit[] = [
   { id: 'mexicocity', file: 'MexicoCity', lat: 19.4042, lon: -99.0907 },
   { id: 'saopaulo', file: 'SaoPaulo', lat: -23.7036, lon: -46.6997 },
   { id: 'yasmarina', file: 'YasMarina', lat: 24.4672, lon: 54.6031 },
+  // Built from OSM by scripts/build-osm-circuit.ts: exact georeference (<Name>_geo.json), no alignment search.
+  { id: 'jeddah', file: 'Jeddah', lat: 21.6319, lon: 39.1044 },
+  { id: 'miami', file: 'Miami', lat: 25.9581, lon: -80.2389 },
+  { id: 'madrid', file: 'Madrid', lat: 40.4637, lon: -3.6163 },
+  { id: 'baku', file: 'Baku', lat: 40.3725, lon: 49.8533 },
+  { id: 'singapore', file: 'Singapore', lat: 1.2914, lon: 103.864 },
+  { id: 'lasvegas', file: 'LasVegas', lat: 36.1147, lon: -115.1728 },
+  { id: 'lusail', file: 'Lusail', lat: 25.49, lon: 51.4542 },
 ];
 
 export const DATA_DIR = new URL('../src/world/tracks/data/', import.meta.url);

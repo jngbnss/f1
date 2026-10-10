@@ -22,6 +22,13 @@ export const REAL_CIRCUITS: [string, string, string][] = [
   ['mexicocity', 'Hermanos Rodríguez', 'MexicoCity'],
   ['saopaulo', 'Interlagos', 'SaoPaulo'],
   ['yasmarina', 'Yas Marina', 'YasMarina'],
+  ['jeddah', 'Jeddah Corniche', 'Jeddah'],
+  ['miami', 'Miami International Autodrome', 'Miami'],
+  ['madrid', 'Madring', 'Madrid'],
+  ['baku', 'Baku City Circuit', 'Baku'],
+  ['singapore', 'Marina Bay', 'Singapore'],
+  ['lasvegas', 'Las Vegas Strip', 'LasVegas'],
+  ['lusail', 'Lusail International', 'Lusail'],
 ];
 
 const dataUrl = (f: string) => new URL(`../src/world/tracks/data/${f}`, import.meta.url);
