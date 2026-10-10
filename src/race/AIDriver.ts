@@ -61,6 +61,9 @@ const trackPosCache = new WeakMap<Vehicle, TrackPos>();
  *  - traffic: cars ahead in its path make it pick a side to pass, or lift
  *  - recovery: reverses out when stuck, resets to the track as a last resort
  */
+/** Furthest off the racing line (m) a pass into a fast corner may go. */
+const FAST_PASS_OFFSET = 2.5;
+
 export class AIDriver {
   readonly input: VehicleInput = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
   private index = -1;
@@ -186,8 +189,13 @@ export class AIDriver {
       // Into a slow corner only up the inside: a pass round the outside of a hairpin on the
       // brakes ran cars wide off the track (Red Bull Ring T3, three cars piled up in the runoff).
       const outsideIntoCorner = slowCorner && passSide !== cornerInside;
-      if (room > passRoom && ahead > 3 && (!this.rules.noPassing || otherSpeed < 8) && (!singleFile || otherSpeed < 8) && !outsideIntoCorner) {
+      // Into a fast or medium corner (Parabolica, ~170 km/h after 340) only up the inside and
+      // at most FAST_PASS_OFFSET off the line: the line's speeds are for the line, and 5 m off
+      // it on the brakes the tighter arc spun cars into the barrier.
+      const intoFastCorner = !slowCorner && cornerFactor < 0.5;
+      if (room > passRoom && ahead > 3 && (!this.rules.noPassing || otherSpeed < 8) && (!singleFile || otherSpeed < 8) && !outsideIntoCorner && !(intoFastCorner && passSide !== cornerInside && otherSpeed >= 8)) {
         desiredOffset = otherLat - lineLateral + passSide * 3.4;
+        if (intoFastCorner && otherSpeed >= 8) desiredOffset = THREE.MathUtils.clamp(desiredOffset, -FAST_PASS_OFFSET, FAST_PASS_OFFSET);
       }
       // In its lane: keep a gap from which we can still stop if the car ahead brakes as
       // hard as it can (the Gipps car-following model, as in the SUMO traffic simulator):
@@ -215,6 +223,9 @@ export class AIDriver {
     const edge = this.track.halfWidth - 1.8;
     desiredOffset = THREE.MathUtils.clamp(lineLateral + desiredOffset, -edge, edge) - lineLateral;
     this.offset += (desiredOffset - this.offset) * (1 - Math.exp(-1.5 * dt));
+    // The offset eases, but where the line itself swings to the edge (Kemmel into Les
+    // Combes) a lagging offset carried cars over it at 300 km/h: clamp what is driven too.
+    this.offset = THREE.MathUtils.clamp(lineLateral + this.offset, -edge, edge) - lineLateral;
 
     // --- steering: pure pursuit to a point ahead on the (offset) line ---
     inp.steer = this.pathSteer(speed);
