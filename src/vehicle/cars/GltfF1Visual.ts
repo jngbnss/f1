@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import type { VehicleConfig } from '../VehicleConfig';
 import type { WheelState } from '../VehiclePhysics';
-import type { VehicleVisual } from '../VehicleVisual';
+import { WHEEL_OFF, type VehicleVisual } from '../VehicleVisual';
 import { helmetTexture, liveryMaterial, numberTexture, rimMaterial, tyreMaterial, type Livery } from './F1Livery';
 import { SteeringWheel, type DashState } from './SteeringWheel';
 
@@ -457,6 +457,17 @@ export class GltfF1Visual implements VehicleVisual {
   /** Sidewall colour of the fitted compound. */
   setCompound(color: number): void {
     this.band.value.set(color);
+  }
+
+  setWheelOffset(i: number, out: number): void {
+    const spin = this.spins[i];
+    if (!spin) return;
+    spin.position.x = Math.sign(spin.parent!.parent!.position.x || 1) * out;
+    spin.visible = out < WHEEL_OFF;
+  }
+
+  wheelHub(i: number, target: THREE.Vector3): THREE.Vector3 {
+    return this.steers[i].getWorldPosition(target);
   }
 
   dispose(): void {
