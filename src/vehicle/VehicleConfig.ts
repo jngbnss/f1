@@ -16,6 +16,15 @@ export interface WheelConfig {
 export interface VehicleConfig {
   /** Tyre wear rate multiplier (team character; 1 = baseline). */
   tyreWear?: number;
+  /** Braking grip multiplier (team character: brake stability, how late it can brake). */
+  braking?: number;
+  /**
+   * Mechanical grip multiplier (team character): tyres and suspension. It only scales the
+   * weight-borne share of the grip, so it matters in slow corners and fades as downforce grows.
+   */
+  mechGrip?: number;
+  /** Traction multiplier (team character): how much drive force the tyres take before wheelspin. Not cornering grip. */
+  traction?: number;
   mass: number;
   /** Chassis collider half extents. */
   halfExtents: { x: number; y: number; z: number };
