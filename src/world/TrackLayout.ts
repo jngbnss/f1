@@ -89,6 +89,74 @@ export const FAMOUS_STANDS: Record<string, StandSpec[]> = {
     { at: 3380, length: 140, depth: 16, height: 10, side: -1 },
     { at: 4800, length: 160, depth: 20, height: 12, side: -1 },
   ],
+  // The rest of the calendar: a stand across from the pits and on the outside of the three
+  // sharpest corners (placed from each centerline's corner list).
+  sakhir: [
+    { at: 120, length: 220, depth: 24, height: 15, side: -1 },
+    { at: 730, length: 150, depth: 16, height: 10, side: -1 },
+    { at: 2270, length: 160, depth: 16, height: 10, side: -1 },
+    { at: 2680, length: 160, depth: 16, height: 10, side: 1 },
+  ],
+  montreal: [
+    { at: 120, length: 220, depth: 24, height: 15, side: 1 },
+    { at: 350, length: 160, depth: 16, height: 10, side: -1 },
+    { at: 1250, length: 130, depth: 16, height: 10, side: 1 },
+    { at: 2700, length: 160, depth: 16, height: 10, side: -1 },
+  ],
+  catalunya: [
+    { at: 120, length: 220, depth: 24, height: 15, side: -1 },
+    { at: 1990, length: 160, depth: 16, height: 10, side: 1 },
+    { at: 2400, length: 140, depth: 16, height: 10, side: 1 },
+    { at: 3390, length: 160, depth: 16, height: 10, side: 1 },
+  ],
+  spielberg: [
+    { at: 120, length: 220, depth: 24, height: 15, side: -1 },
+    { at: 440, length: 140, depth: 16, height: 10, side: -1 },
+    { at: 1380, length: 150, depth: 16, height: 10, side: -1 },
+    { at: 2190, length: 160, depth: 16, height: 10, side: -1 },
+  ],
+  silverstone: [
+    { at: 120, length: 220, depth: 24, height: 15, side: -1 },
+    { at: 880, length: 160, depth: 16, height: 10, side: -1 },
+    { at: 1030, length: 160, depth: 16, height: 10, side: 1 },
+    { at: 2170, length: 160, depth: 16, height: 10, side: -1 },
+  ],
+  budapest: [
+    { at: 120, length: 220, depth: 24, height: 15, side: -1 },
+    { at: 630, length: 160, depth: 16, height: 10, side: -1 },
+    { at: 1140, length: 160, depth: 16, height: 10, side: 1 },
+    { at: 3760, length: 160, depth: 16, height: 10, side: 1 },
+  ],
+  zandvoort: [
+    { at: 120, length: 220, depth: 24, height: 15, side: -1 },
+    { at: 400, length: 160, depth: 16, height: 10, side: -1 },
+    { at: 890, length: 160, depth: 16, height: 10, side: 1 },
+    { at: 3240, length: 160, depth: 16, height: 10, side: 1 },
+  ],
+  austin: [
+    { at: 120, length: 220, depth: 24, height: 15, side: 1 },
+    { at: 650, length: 160, depth: 16, height: 10, side: 1 },
+    { at: 2560, length: 160, depth: 16, height: 10, side: 1 },
+    { at: 4210, length: 160, depth: 16, height: 10, side: 1 },
+  ],
+  mexicocity: [
+    { at: 120, length: 220, depth: 24, height: 15, side: -1 },
+    { at: 1900, length: 130, depth: 16, height: 10, side: -1 },
+    { at: 2040, length: 160, depth: 16, height: 10, side: -1 },
+    { at: 3590, length: 140, depth: 16, height: 10, side: 1 },
+  ],
+  saopaulo: [
+    { at: 120, length: 220, depth: 24, height: 15, side: 1 },
+    { at: 2330, length: 160, depth: 16, height: 10, side: -1 },
+    { at: 2470, length: 160, depth: 16, height: 10, side: 1 },
+    { at: 2750, length: 160, depth: 16, height: 10, side: -1 },
+  ],
+  yasmarina: [
+    { at: 120, length: 220, depth: 24, height: 15, side: 1 },
+    { at: 1440, length: 160, depth: 16, height: 10, side: 1 },
+    { at: 2630, length: 130, depth: 16, height: 10, side: 1 },
+    { at: 4340, length: 140, depth: 16, height: 10, side: -1 },
+  ],
   suzuka: [
     { at: 120, length: 260, depth: 28, height: 16, side: -1 },
     { at: 720, length: 140, depth: 22, height: 12, side: -1 },
@@ -106,7 +174,9 @@ export const FERRIS_WHEELS: Record<string, { at: number; side: number; distance:
 };
 
 /** Side of the pit lane on the start/finish straight (+1 right), where the real one is. */
-export const PIT_SIDE: Record<string, number> = { monza: 1, spa: 1, suzuka: 1, monaco: 1, melbourne: 1, shanghai: 1 };
+export const PIT_SIDE: Record<string, number> = { monza: 1, spa: 1, suzuka: 1, monaco: 1, melbourne: 1, shanghai: 1,
+  sakhir: 1, montreal: -1, catalunya: 1, spielberg: 1, silverstone: 1, budapest: 1, zandvoort: 1, austin: -1, mexicocity: 1, saopaulo: -1, yasmarina: -1,
+};
 
 /**
  * Pit lanes that don't fit the default (330 m before the line to 230 m after,
@@ -122,6 +192,18 @@ export const PIT_LANE: Record<string, { entry: number; exit: number; boxes: numb
   melbourne: { entry: 400, exit: 170, boxes: -150 },
   // Shanghai: in from the inside of T16 (OSM), out on the straight well before the T1 snail.
   shanghai: { entry: 270, exit: 230, boxes: 0 },
+  // Pit lanes along OSM's raceway pit roads (side and extent), entries after the last corner,
+  // exits before T1; boxes stay clear of the ramps (entry + boxes and exit - boxes >= 165 m).
+  sakhir: { entry: 300, exit: 500, boxes: 0 },
+  montreal: { entry: 380, exit: 180, boxes: 0 },
+  catalunya: { entry: 360, exit: 300, boxes: 0 },
+  spielberg: { entry: 280, exit: 300, boxes: 0 },
+  silverstone: { entry: 200, exit: 300, boxes: 60 },
+  budapest: { entry: 190, exit: 375, boxes: 90 },
+  zandvoort: { entry: 330, exit: 280, boxes: 100 },
+  austin: { entry: 120, exit: 520, boxes: 200 },
+  saopaulo: { entry: 350, exit: 250, boxes: 0 },
+  yasmarina: { entry: 110, exit: 300, boxes: 90 },
 };
 
 /** Per-circuit layout overrides that the CSV can't carry. */
@@ -133,6 +215,10 @@ export function applyCircuitSpecifics(layout: TrackLayout): void {
     layout.runoff = 1.6;
     layout.street = true;
     layout.attribution = 'Track & scenery: © OpenStreetMap contributors (ODbL)';
+  }
+  if (layout.id === 'catalunya' || layout.id === 'yasmarina') {
+    // Current layouts from OSM (scripts/fetch-osm-circuit.ts); widths from TUMFTM.
+    layout.attribution = 'Track: © OpenStreetMap contributors (ODbL), widths TUMFTM racetrack-database (LGPL-3.0)';
   }
   if (layout.id === 'melbourne') {
     // 2022 layout from OSM (scripts/fetch-albertpark.ts); widths from TUMFTM.

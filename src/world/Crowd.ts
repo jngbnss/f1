@@ -257,6 +257,13 @@ const HOME_CROWD: Record<string, Record<string, number>> = {
   suzuka: { redbull: 1.6, racingbulls: 2.5, aston: 1.5 },
   silverstone: { mercedes: 1.6, mclaren: 1.8, williams: 1.8 },
   melbourne: { mclaren: 2.2 },
+  montreal: { aston: 2, ferrari: 1.3 },
+  catalunya: { aston: 2.5, williams: 2 },
+  spielberg: { redbull: 2.5, dutch: 8 },
+  budapest: { dutch: 6 },
+  mexicocity: { redbull: 1.5 },
+  saopaulo: { audi: 3 },
+  austin: { haas: 3 },
 };
 
 export function dressFans(seats: CrowdSeat[], trackId: string, seed = 7): void {

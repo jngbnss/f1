@@ -4,6 +4,7 @@
  *
  *   npx tsx scripts/bake-elevation.ts spa Spa
  *   npx tsx scripts/bake-elevation.ts suzuka Suzuka
+ *   npx tsx scripts/bake-elevation.ts catalunya Catalunya 0.08
  *
  * Writes src/world/tracks/data/<Name>_elev.json: one height (m, relative to
  * the terrain's base height, same datum as the landscape) per centerline
@@ -20,11 +21,14 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { findCrossings } from '../src/world/Elevation';
 import { parseTumCsv } from '../src/world/TrackLayout';
 
-const [id, name] = process.argv.slice(2);
-if (!id || !name) throw new Error('usage: bake-elevation.ts <terrainId> <DataName>');
+const [id, name, gradeArg] = process.argv.slice(2);
+if (!id || !name) throw new Error('usage: bake-elevation.ts <terrainId> <DataName> [maxGrade]');
 
-/** Max gradient kept after smoothing (Eau Rouge / Raidillon is ~17-18 %). */
-const MAX_GRADE = 0.185;
+/**
+ * Max gradient kept after smoothing (Eau Rouge / Raidillon is ~17-18 %). Lower
+ * per circuit where the DEM's tree canopy makes up steeper slopes (Barcelona 0.08).
+ */
+const MAX_GRADE = gradeArg ? +gradeArg : 0.185;
 /** Smoothing along the track (Gaussian sigma, m). */
 const SIGMA = 28;
 /** Road-to-road height at a crossing (deck + clearance), m. */

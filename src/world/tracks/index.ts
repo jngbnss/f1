@@ -76,9 +76,9 @@ export const TRACKS: TrackEntry[] = [
   realCircuit('shanghai', 'Shanghai International', 'Shanghai, China', 5.5, 'Shanghai'),
   realCircuit('suzuka', 'Suzuka', 'Suzuka, Japan', 5.8, 'Suzuka'),
   realCircuit('sakhir', 'Bahrain International', 'Sakhir, Bahrain', 5.4, 'Sakhir'),
+  realCircuit('montreal', 'Circuit Gilles Villeneuve', 'Montréal, Canada', 4.4, 'Montreal'),
   // Street circuit: centerline built from OpenStreetMap (scripts/fetch-monaco.ts), not TUMFTM.
   realCircuit('monaco', 'Monaco', 'Monte Carlo, Monaco', 3.3, 'Monaco'),
-  realCircuit('montreal', 'Circuit Gilles Villeneuve', 'Montréal, Canada', 4.4, 'Montreal'),
   realCircuit('catalunya', 'Barcelona-Catalunya', 'Montmeló, Spain', 4.7, 'Catalunya'),
   realCircuit('spielberg', 'Red Bull Ring', 'Spielberg, Austria', 4.3, 'Spielberg'),
   realCircuit('silverstone', 'Silverstone', 'Silverstone, UK', 5.9, 'Silverstone'),
@@ -92,12 +92,8 @@ export const TRACKS: TrackEntry[] = [
   realCircuit('yasmarina', 'Yas Marina', 'Abu Dhabi, UAE', 5.3, 'YasMarina'),
 ];
 
-/**
- * Circuits offered in the menu. One circuit at a time gets the full realism
- * pass (scenery, trees, trackside detail); the others stay reachable by URL
- * (?track=spa) for tests and benchmarks.
- */
-export const FEATURED_TRACKS: TrackEntry[] = ['melbourne', 'shanghai', 'monza', 'spa', 'suzuka', 'monaco'].map((id) => TRACKS.find((t) => t.id === id)!);
+/** Circuits offered in the menu: every real circuit, in calendar order (the test track stays reachable by URL, ?track=test). */
+export const FEATURED_TRACKS: TrackEntry[] = TRACKS.filter((t) => t.id !== 'test');
 
 export function findTrack(id: string | null | undefined): TrackEntry {
   return TRACKS.find((t) => t.id === id) ?? TRACKS[0];

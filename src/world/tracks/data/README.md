@@ -1,8 +1,7 @@
 # Real circuit data
 
-The 15 circuit CSVs (`Shanghai`, `Suzuka`, `Sakhir`, `Montreal`,
-`Catalunya`, `Spielberg`, `Silverstone`, `Spa`, `Budapest`, `Zandvoort`, `Monza`,
-`Austin`, `MexicoCity`, `SaoPaulo`, `YasMarina`) come unmodified from
+The circuit CSVs `Shanghai`, `Suzuka`, `Sakhir`, `Montreal`, `Spa`, `Monza`,
+`MexicoCity` and `SaoPaulo` come unmodified from
 [TUMFTM/racetrack-database](https://github.com/TUMFTM/racetrack-database)
 (Technical University of Munich, Institute of Automotive Technology),
 licensed under **LGPL-3.0**.
@@ -29,11 +28,23 @@ them: it computes its own line on the widened game road
 Some dataset layouts predate recent changes to the real circuits (e.g. Yas
 Marina before 2021, Barcelona with the final chicane).
 
-`Melbourne.csv` is the 2022 Albert Park layout built from OpenStreetMap
-relation 280443 by `scripts/fetch-albertpark.ts` (© OpenStreetMap
-contributors, ODbL), in the same frame as before; its widths come from the
-TUMFTM file it replaced (LGPL-3.0). `Monaco.csv` is built from OSM too
-(`scripts/fetch-monaco.ts`).
+`Silverstone`, `Budapest`, `Austin`, `Zandvoort` and `Spielberg` are the
+TUMFTM files smoothed by `scripts/smooth-centerline.ts` (300 passes, ≤ 5 m
+shift): their local curvature spikes made fast corners slow (Abbey, flat out in
+reality, was a 41 m-radius line at 100 km/h). With it their ideal laps sit at
+~1.12-1.16x the real 2025 poles like the other circuits.
+
+`Melbourne` (2022 layout), `Catalunya` (2023, no final chicane) and `YasMarina`
+(2021 layout) are built from OpenStreetMap circuit relations by
+`scripts/fetch-osm-circuit.ts` (© OpenStreetMap contributors, ODbL), in the same
+frame as before; their widths come from the TUMFTM files they replaced
+(LGPL-3.0). `Monaco.csv` is built from OSM too (`scripts/fetch-monaco.ts`).
+
+Elevation (`*_elev.json`, `scripts/bake-elevation.ts`) is used where the DEM
+agrees with the real circuit; Albert Park, Montréal and Yas Marina stay flat
+(the DEM's tree canopy and buildings made up 7-11 % grades there), Zandvoort too (its
+8 m of dunes broke the pit lane and the banking is not modelled), Barcelona's
+grade is capped at 8 %.
 
 ## Surroundings (`*_osm.json`)
 
