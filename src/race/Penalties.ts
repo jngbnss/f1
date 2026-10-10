@@ -34,7 +34,7 @@ export interface TrackLimitsState {
   penalty: number;
 }
 
-export type PenaltyEvent = { kind: 'warning'; strike: number } | { kind: 'penalty'; strike: number; seconds: number };
+export type PenaltyEvent = { kind: 'warning'; strike: number } | { kind: 'penalty'; strike: number; seconds: number } | { kind: 'overtake'; seconds: number };
 
 interface Watch {
   off: number;
@@ -101,6 +101,14 @@ export class Penalties {
         if (w.on >= REARM_TIME) w.armed = true;
       }
     }
+  }
+
+  /** A time penalty for something else than track limits (overtaking under yellow / VSC). */
+  overtake(r: Racer): void {
+    const s = this.of(r);
+    s.penalty += PENALTY_SECONDS;
+    r.penalty = s.penalty;
+    this.onEvent?.(r, { kind: 'overtake', seconds: s.penalty });
   }
 
   private count(r: Racer): void {

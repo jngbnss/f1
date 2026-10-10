@@ -172,7 +172,8 @@ export class AIDriver {
       const room = Math.max(roomRight, roomLeft);
       // Between walls a pass needs a real gap (Monaco is nearly impossible to pass on).
       const passRoom = this.track.street ? 5.5 : 3.2;
-      if (room > passRoom && ahead > 3) {
+      // No passing under yellow / VSC, except round a car that has stopped.
+      if (room > passRoom && ahead > 3 && (!this.rules.noPassing || otherSpeed < 8)) {
         desiredOffset = otherLat - lineLateral + passSide * 3.4;
       }
       // In its lane: keep a gap from which we can still stop if the car ahead brakes as
@@ -217,7 +218,7 @@ export class AIDriver {
       const b = line.brakeAt(s);
       return (tyreGrip * (b0 + aeroLeft * (b - b0))) / b;
     };
-    const pace = this.profile.pace;
+    const pace = this.profile.pace * this.rules.speedFactor;
     // The plan's speeds assume clean-air acceleration. In a tow the car really accelerates
     // harder, so it drives to the corner / braking limits instead (it can only go as fast
     // as the physics lets it). Flat-out straights stay flat out.
@@ -308,6 +309,9 @@ export class AIDriver {
 
   /** Times it had to back out; the race manager resets cars that keep failing. */
   unstuckCount = 0;
+
+  /** Race control: speed as a share of racing pace (VSC, yellows) and no passing. */
+  readonly rules = { speedFactor: 1, noPassing: false };
 
   /** Starting the race / after a reset. */
   resetState(): void {

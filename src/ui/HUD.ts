@@ -63,6 +63,11 @@ export class HUD {
   private readonly lapFields: Record<'lap' | 'cur' | 'last' | 'best', HTMLSpanElement>;
   private readonly toastEl: HTMLDivElement;
   private readonly hintEl: HTMLDivElement;
+  /** Race control banner (yellow, VSC, green), F1 TV style. */
+  private readonly flagEl: HTMLDivElement;
+  /** VSC text while it is out (stays up until green). */
+  private vscText: string | null = null;
+  private flagTimer: ReturnType<typeof setTimeout> | null = null;
   private hintText: string | null = null;
   private toastUntil = 0;
   private readonly fields = new Map<string, HTMLSpanElement>();
@@ -156,8 +161,10 @@ export class HUD {
     this.toastEl.className = 'toast';
     this.hintEl = document.createElement('div');
     this.hintEl.className = 'center-hint';
+    this.flagEl = document.createElement('div');
+    this.flagEl.className = 'flag-banner';
 
-    parent.append(this.perfEl, speedo, this.helpEl, trackEl, this.lapEl, this.toastEl, this.hintEl);
+    parent.append(this.perfEl, speedo, this.helpEl, trackEl, this.lapEl, this.toastEl, this.hintEl, this.flagEl);
     window.addEventListener('keydown', (e) => {
       if (e.code === 'KeyH' && !e.repeat) this.toggle();
     });
@@ -340,6 +347,30 @@ export class HUD {
   }
 
   /** Large message in the middle of the screen until cleared (null), e.g. how to get back on track. */
+  /** Race control message: the VSC banner stays until green; green shows for 3 s; a yellow somewhere is a toast. */
+  flag(kind: 'yellow' | 'vsc' | 'green', text: string): void {
+    if (kind === 'yellow') {
+      this.toast(text);
+      return;
+    }
+    if (this.flagTimer) clearTimeout(this.flagTimer);
+    this.vscText = kind === 'vsc' ? text : null;
+    this.showFlag(kind, text);
+    if (kind === 'green') this.flagTimer = setTimeout(() => this.showFlag(null, ''), 3000);
+  }
+
+  /** The player is in a local yellow zone (no VSC): yellow banner while there. */
+  setFlagLocal(on: boolean): void {
+    if (this.vscText || this.flagEl.classList.contains('green')) return;
+    if (on) this.showFlag('yellow', '노란 깃발 · 감속, 추월 금지');
+    else if (this.flagEl.classList.contains('yellow')) this.showFlag(null, '');
+  }
+
+  private showFlag(kind: 'yellow' | 'vsc' | 'green' | null, text: string): void {
+    this.flagEl.className = `flag-banner${kind ? ` show ${kind}` : ''}`;
+    if (kind) this.flagEl.textContent = text;
+  }
+
   setHint(html: string | null): void {
     if (html === this.hintText) return;
     this.hintText = html;

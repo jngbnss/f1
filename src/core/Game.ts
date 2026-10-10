@@ -37,6 +37,7 @@ import { AIDriver } from '../race/AIDriver';
 import { LapTimer } from '../race/LapTimer';
 import { RaceManager, type Racer } from '../race/RaceManager';
 import { Penalties, WARNINGS } from '../race/Penalties';
+import { RaceControl, VSC_SPEED } from '../race/RaceControl';
 import { RaceEngineer } from '../race/RaceEngineer';
 import type { VehicleInput } from '../input/VehicleInput';
 import { Environment } from '../world/Environment';
@@ -121,6 +122,10 @@ export class Game {
   private pitCrew: PitCrew | null = null;
   /** Track limits (warnings, time penalties). */
   private penalties: Penalties | null = null;
+  /** Yellow flags and the virtual safety car. */
+  private raceControl: RaceControl | null = null;
+  /** Player's place on the racing line (VSC speed). */
+  private vscIndex = -1;
   private readonly teamBox: Map<string, number>;
   /** Compound the player will get at the next stop. */
   private nextCompound: Compound = 'hard';
@@ -288,8 +293,17 @@ export class Game {
       // Every counted excursion deletes that lap's time; the player hears about it.
       this.penalties.onEvent = (r, e) => {
         if (!r.isPlayer) return;
+        if (e.kind === 'overtake') {
+          this.hud.toast(`추월 금지 구간에서 추월 · +5초 (합계 ${e.seconds}초)`);
+          return;
+        }
         this.lapTimer.invalidate();
         this.hud.toast(e.kind === 'warning' ? `트랙 리밋 경고 ${e.strike}/${WARNINGS} · 랩 기록 삭제` : `트랙 리밋 페널티 +5초 (합계 ${e.seconds}초)`);
+      };
+      this.raceControl = new RaceControl(this.track);
+      this.raceControl.onMessage = (m) => {
+        const text = { yellow: '노란 깃발 · 감속, 추월 금지', vsc: 'VSC · 가상 세이프티카 · 추월 금지', 'vsc-ending': 'VSC 종료 예정', green: '그린 플래그 · 레이스 재개' }[m];
+        this.hud.flag(m === 'green' ? 'green' : m === 'yellow' ? 'yellow' : 'vsc', text);
       };
     }
     if (this.track.pit) {
@@ -602,7 +616,9 @@ export class Game {
     const lapsLeft = this.race!.laps - this.race!.lapOf(r);
     // A puncture or broken bodywork means stopping now (a flat tyre is seconds a corner).
     const broken = r.vehicle.damage.front > 0.35 || r.vehicle.damage.rear > 0.35 || r.vehicle.damage.floor > 0.4 || t.anyPuncture;
-    if ((t.maxWear < 0.68 && !broken) || lapsLeft < 1) return;
+    // Under the VSC a stop costs less (the field is slow too): pit earlier, as the teams do.
+    const pitWear = this.raceControl && this.raceControl.flag !== 'green' ? 0.4 : 0.68;
+    if ((t.maxWear < pitWear && !broken) || lapsLeft < 1) return;
     const compound: Compound = TRACK_GRIP.value < 0.95 ? 'wet' : lapsLeft > 4 ? 'hard' : lapsLeft > 2 ? 'medium' : 'soft';
     this.pitStops.request(r.vehicle, compound, this.teamBox.get(this.carOf.get(r.vehicle)?.id ?? '') ?? 0);
   }
@@ -625,6 +641,30 @@ export class Game {
   }
 
   /** AI cars that are flipped, off the world or hopelessly stuck go back on track. */
+  /** Yellow flags and the VSC: AI pace and passing, the player's speed limit, overtakes. */
+  private applyRaceControl(dt: number): void {
+    const rc = this.raceControl;
+    const race = this.race;
+    if (!rc || !race) return;
+    const inPit = (r: Racer) => this.pitStops?.driving(r.vehicle) ?? false;
+    rc.update(dt, race.racers, race.time, this.debris, inPit);
+    const vsc = rc.flag !== 'green';
+    for (const r of race.racers) {
+      if (!r.ai) continue;
+      r.ai.rules.speedFactor = vsc ? VSC_SPEED : rc.inYellow(r) ? 0.8 : 1;
+      r.ai.rules.noPassing = rc.noOvertaking(r);
+    }
+    // The player gets a limiter at the VSC speed for that point of the lap (the F1 games
+    // show a delta instead; a limiter is kinder on a keyboard).
+    const me = race.player;
+    if (me && vsc) {
+      this.vscIndex = this.racingLine.nearestFrom(this.player.position, this.vscIndex);
+      this.player.physics.speedCap = Math.max(15, this.racingLine.speeds[this.vscIndex] * VSC_SPEED);
+    } else this.player.physics.speedCap = Infinity;
+    if (me) this.hud.setFlagLocal(!vsc && rc.inYellow(me));
+    for (const r of rc.overtakes(race.racers, inPit)) this.penalties?.overtake(r);
+  }
+
   private recoverAI(dt: number): void {
     for (const r of this.race!.racers) {
       if (!r.ai) continue;
@@ -727,6 +767,7 @@ export class Game {
       this.recoverAI(dt);
       this.race.update(dt);
       if (!frozen) this.penalties?.update(this.race.racers, dt, (r) => this.pitStops?.driving(r.vehicle) ?? false);
+      if (!frozen) this.applyRaceControl(dt);
     }
 
     // Fell off the world?
