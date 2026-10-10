@@ -10,6 +10,8 @@ export type Rapier = typeof RAPIER;
  */
 export const BARRIER_GROUPS = 0x0002_ffff;
 export const CHASSIS_GROUPS = 0x0004_ffff;
+/** A car driven down the pit lane: still a chassis, but passes through other cars (never stuck in a queue). */
+export const PIT_GHOST_GROUPS = 0x0004_fffb;
 export const SUSPENSION_RAY_GROUPS = 0xffff_fff9;
 
 /**

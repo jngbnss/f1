@@ -6,6 +6,10 @@ import * as THREE from 'three';
  * behind a pit wall with one box per team, and an exit ramp back onto the
  * track. Cars in the pit lane are driven by PitStops (speed limiter, stop,
  * tyre change), like the automatic pit stops of the F1 games.
+ *
+ * Like a real pit lane it has two lanes: a fast lane next to the pit wall for
+ * driving through, and a working lane in front of the garages where the boxes
+ * are, so a car stopped in its box never blocks the cars behind it.
  */
 export interface PitLaneData {
   /** +1 = right of the driving direction, -1 = left. */
@@ -17,6 +21,10 @@ export interface PitLaneData {
   exitIndex: number;
   /** Lane centreline from entry to exit (every ~2.5 m) and its centreline sample index. */
   path: THREE.Vector3[];
+  /** Fast-lane line (same indices as path; joins the centreline on the ramps). */
+  fastPath: THREE.Vector3[];
+  /** Unit vector towards the garages at each path point. */
+  outward: THREE.Vector3[];
   pathIndex: number[];
   /** Path indices: limiter on / off, and each team's box. */
   limiterStart: number;
@@ -31,7 +39,12 @@ export interface PitLaneData {
 const ENTRY_BEFORE_LINE = 330;
 const EXIT_AFTER_LINE = 230;
 const RAMP = 95;
-export const PIT_LANE_WIDTH = 6.5;
+export const PIT_LANE_WIDTH = 10.5;
+/** Fast-lane centre and box (working-lane) centre, from the lane centre towards the garages (m). */
+export const FAST_LANE_SHIFT = -(PIT_LANE_WIDTH / 2 - 2.6);
+export const BOX_LANE_SHIFT = PIT_LANE_WIDTH / 2 - 2.7;
+/** Line between the fast lane and the working lane, from the lane centre (m). */
+const WORK_LANE_EDGE = FAST_LANE_SHIFT + 2.6;
 const BOX_SPACING = 14;
 export const PIT_SPEED_LIMIT = 80 / 3.6;
 
@@ -53,14 +66,17 @@ export function buildPitLaneData(
   const laneOffset = half + 2.2 + PIT_LANE_WIDTH / 2;
   const edge = half - 2.5;
   const total = before + after;
-  const offsetAtStep = (k: number) => {
+  /** 0 at the ramp ends, 1 along the straight lane. */
+  const rampAt = (k: number) => {
     const s = k * spacing;
     const end = total * spacing;
     const t = Math.min(s / RAMP, (end - s) / RAMP, 1);
-    const e = t * t * (3 - 2 * t);
-    return edge + (laneOffset - edge) * e;
+    return t * t * (3 - 2 * t);
   };
+  const offsetAtStep = (k: number) => edge + (laneOffset - edge) * rampAt(k);
   const path: THREE.Vector3[] = [];
+  const fastPath: THREE.Vector3[] = [];
+  const outward: THREE.Vector3[] = [];
   const pathIndex: number[] = [];
   const lateral = new Map<number, number>();
   for (let k = 0; k <= total; k++) {
@@ -68,6 +84,8 @@ export function buildPitLaneData(
     const off = offsetAtStep(k);
     // Level with the road beside it (y = 0 on flat circuits).
     path.push(points[i].clone().addScaledVector(rights[i], side * off));
+    fastPath.push(points[i].clone().addScaledVector(rights[i], side * (off + FAST_LANE_SHIFT * rampAt(k))));
+    outward.push(rights[i].clone().multiplyScalar(side).setY(0).normalize());
     pathIndex.push(i);
     lateral.set(i, off);
   }
@@ -80,6 +98,8 @@ export function buildPitLaneData(
     entryIndex,
     exitIndex,
     path,
+    fastPath,
+    outward,
     pathIndex,
     limiterStart: Math.round(RAMP / spacing),
     limiterEnd: total - Math.round(RAMP / spacing),
@@ -123,14 +143,16 @@ export function buildPitLaneMeshes(
   const white = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.7 });
   disposables.push(white);
   group.add(lane, new THREE.Mesh(strip(-w, -w + 0.2, 0.03), white), new THREE.Mesh(strip(w - 0.2, w, 0.03), white));
+  // Dashed line between the fast lane and the working lane (along the straight part).
+  for (let k = pit.limiterStart; k < pit.limiterEnd; k += 2) group.add(new THREE.Mesh(strip(WORK_LANE_EDGE - 0.08, WORK_LANE_EDGE + 0.08, 0.03, k, k + 1), white));
   // Limiter lines across the lane.
   for (const k of [pit.limiterStart, pit.limiterEnd]) group.add(new THREE.Mesh(strip(-w, w, 0.032, k, k + 1), white));
 
-  // Box markings: a team-coloured rectangle per box on the garage side of the lane.
+  // Box markings: a team-coloured rectangle per box in the working lane.
   pit.boxes.forEach((k, t) => {
     const mat = new THREE.MeshStandardMaterial({ color: teamColors[t % teamColors.length], roughness: 0.6 });
     disposables.push(mat);
-    group.add(new THREE.Mesh(strip(0.2, w - 0.4, 0.031, k - 2, k + 2), mat));
+    group.add(new THREE.Mesh(strip(WORK_LANE_EDGE + 0.4, w - 0.4, 0.031, k - 2, k + 2), mat));
   });
 
   // Pit wall: low concrete wall between track and lane along the straight part.
