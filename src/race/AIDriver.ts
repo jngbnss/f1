@@ -116,7 +116,13 @@ export class AIDriver {
     const [m0, m1] = this.track.street ? START_MERGE_STREET : START_MERGE;
     const merge = Math.min(Math.max((this.travelled - m0) / (m1 - m0), 0), 1);
     // Street circuits (Monaco): stay on the line in single file; lanes only on wide tracks.
-    const lane = this.track.street ? this.profile.lane * 0.3 : this.profile.lane;
+    // Through corners everyone takes the racing line; the lanes that spread the field only
+    // apply on the straights. A lane 1.2 m to the inside put cars over the white line at
+    // the apex (27 track-limit excursions in a 20-car lap of Suzuka, none alone).
+    let cornerLimit = Infinity;
+    for (let k = 0; k < 60; k++) cornerLimit = Math.min(cornerLimit, line.limits[(this.index + k) % count]);
+    const cornerFactor = THREE.MathUtils.smoothstep(cornerLimit / v.config.maxSpeed, 0.55, 0.85);
+    const lane = (this.track.street ? this.profile.lane * 0.3 : this.profile.lane) * cornerFactor;
     let desiredOffset = this.startOffset + (lane - this.startOffset) * merge * merge * (3 - 2 * merge);
     let followSpeed = Infinity;
     let sideNudge = 0;

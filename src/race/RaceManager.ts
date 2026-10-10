@@ -18,6 +18,8 @@ export interface Racer {
   splits?: Map<number, number>;
   /** Last timing point passed. */
   lastPoint?: number;
+  /** Time penalties to add to the race time (s), e.g. track limits. */
+  penalty?: number;
 }
 
 export type RaceState = 'countdown' | 'racing' | 'finished';
@@ -114,10 +116,15 @@ export class RaceManager {
   /** Sorted standings: finished cars by time, then by distance covered. */
   standings(): Racer[] {
     return [...this.racers].sort((a, b) => {
-      if (a.finished && b.finished) return a.finishTime - b.finishTime;
+      if (a.finished && b.finished) return this.resultTime(a) - this.resultTime(b);
       if (a.finished !== b.finished) return a.finished ? -1 : 1;
       return b.progress - a.progress;
     });
+  }
+
+  /** Race time with penalties added (finished cars). */
+  resultTime(r: Racer): number {
+    return r.finishTime + (r.penalty ?? 0);
   }
 
   positionOf(r: Racer): number {

@@ -34,6 +34,7 @@ import { DebrisMesh } from '../render/DebrisMesh';
 import { AIDriver } from '../race/AIDriver';
 import { LapTimer } from '../race/LapTimer';
 import { RaceManager, type Racer } from '../race/RaceManager';
+import { Penalties, WARNINGS } from '../race/Penalties';
 import type { VehicleInput } from '../input/VehicleInput';
 import { Environment } from '../world/Environment';
 import { buildLandmarks, landmarkClear } from '../world/Landmarks';
@@ -115,6 +116,8 @@ export class Game {
   /** Automatic pit stops (circuits with a pit lane). */
   private pitStops: PitStops | null = null;
   private pitCrew: PitCrew | null = null;
+  /** Track limits (warnings, time penalties). */
+  private penalties: Penalties | null = null;
   private readonly teamBox: Map<string, number>;
   /** Compound the player will get at the next stop. */
   private nextCompound: Compound = 'hard';
@@ -270,6 +273,15 @@ export class Game {
         racers.push(this.racer(carLabel(def, driver), vehicle, ai, false, liveryFor(def.id, def.spec.color, def.spec.accent ?? 0xffffff).primary));
       }
       this.race = new RaceManager(this.track, racers, Math.max(1, Math.round(config.laps)));
+    }
+    if (this.race) {
+      this.penalties = new Penalties(this.track);
+      // Every counted excursion deletes that lap's time; the player hears about it.
+      this.penalties.onEvent = (r, e) => {
+        if (!r.isPlayer) return;
+        this.lapTimer.invalidate();
+        this.hud.toast(e.kind === 'warning' ? `트랙 리밋 경고 ${e.strike}/${WARNINGS} · 랩 기록 삭제` : `트랙 리밋 페널티 +5초 (합계 ${e.seconds}초)`);
+      };
     }
     if (this.track.pit) {
       this.pitStops = new PitStops(this.track.pit, this.track, this.servicePit);
@@ -691,6 +703,7 @@ export class Game {
     if (this.race) {
       this.recoverAI(dt);
       this.race.update(dt);
+      if (!frozen) this.penalties?.update(this.race.racers, dt, (r) => this.pitStops?.driving(r.vehicle) ?? false);
     }
 
     // Fell off the world?

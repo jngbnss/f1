@@ -254,6 +254,13 @@ export class HUD {
         const g = i > 0 ? race.gap(standings[0], r) : null;
         gap.textContent = info?.inPit ? 'PIT' : i === 0 ? 'Leader' : r.finished ? 'FIN' : g !== null ? `+${g.toFixed(1)}` : '';
         if (info?.inPit) gap.classList.add('pit');
+        // Time penalty after the name (the grid columns stay as they are).
+        if (r.penalty) {
+          const pen = document.createElement('small');
+          pen.className = 'penalty';
+          pen.textContent = `+${r.penalty}s`;
+          name.append(pen);
+        }
         li.append(pos, bar, name, gap);
         if (info) {
           const tyre = document.createElement('em');
@@ -269,7 +276,7 @@ export class HUD {
     if (race.state === 'finished' && !this.resultsShown) {
       this.resultsShown = true;
       const lines = standings
-        .map((r, i) => `<li class="${r === me ? 'me' : ''}">${i + 1}. ${r.name} <span>${r.finished ? formatLapTime(r.finishTime) : 'running'}</span></li>`)
+        .map((r, i) => `<li class="${r === me ? 'me' : ''}">${i + 1}. ${r.name} <span>${r.finished ? formatLapTime(race.resultTime(r)) + (r.penalty ? ` (+${r.penalty}s 페널티)` : '') : 'running'}</span></li>`)
         .join('');
       els.results.innerHTML = `<h2>🏁 ${position}위로 완주!</h2><ol>${lines}</ol><p>Esc: 메뉴 · 새로고침: 다시 레이스</p>`;
       els.results.classList.add('show');
