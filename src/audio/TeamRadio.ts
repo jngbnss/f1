@@ -29,11 +29,12 @@ export interface RadioSettings {
 }
 
 const SETTINGS_KEY = 'f1:radio';
-const DEFAULTS: RadioSettings = { on: true, lang: 'ko', subtitles: true, volume: 0.9 };
+/** The engineer speaks English only (as in F1; the player asked for it). */
+const DEFAULTS: RadioSettings = { on: true, lang: 'en', subtitles: true, volume: 0.9 };
 
 export function readRadioSettings(): RadioSettings {
   try {
-    return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as Partial<RadioSettings>) };
+    return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as Partial<RadioSettings>), lang: 'en' };
   } catch {
     return { ...DEFAULTS };
   }
@@ -219,7 +220,7 @@ export class TeamRadio {
     // Hold the channel while the clips load (they are small, usually cached).
     this.busyUntil = now + 30;
     this.lastSpoke = now;
-    this.showSubtitle(m.id, m.vars, lang);
+    this.showSubtitle(m.id, m.vars);
     const ctx = this.ctx;
     if (!ctx || !this.input || this.muted() || ctx.state !== 'running') {
       this.busyUntil = now + 3.5;
@@ -247,21 +248,15 @@ export class TeamRadio {
     window.setTimeout(() => this.duck(false), (t - ctx.currentTime) * 1000);
   }
 
-  private showSubtitle(id: RadioLine, vars: RadioVars, lang: RadioLang): void {
+  private showSubtitle(id: RadioLine, vars: RadioVars): void {
     if (!this.settings.subtitles) return;
-    const ko = radioText(id, vars, 'ko');
     const en = radioText(id, vars, 'en');
     this.subtitle.replaceChildren();
     const who = document.createElement('b');
-    who.textContent = '🎧 엔지니어';
+    who.textContent = '🎧 Engineer';
     const main = document.createElement('span');
-    main.textContent = ko;
+    main.textContent = en;
     this.subtitle.append(who, main);
-    if (lang === 'en') {
-      const orig = document.createElement('small');
-      orig.textContent = en;
-      this.subtitle.append(orig);
-    }
     this.subtitle.hidden = false;
   }
 

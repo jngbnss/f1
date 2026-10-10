@@ -1,6 +1,6 @@
 /**
  * Race control check (yellow flags, VSC):
- *  1. a car stopped on the track: yellow after ~1.5 s, VSC after ~6 s; under the VSC
+ *  1. a car stopped on the track: VSC after ~6 s (local yellows are off); under the VSC
  *     the field slows to ~60 % and nobody passes; the car is cleared: "VSC ending",
  *     then green;
  *  2. a wing lying on the track brings the VSC out and the marshals clear it;
@@ -96,7 +96,7 @@ async function setup() {
     if (tYellow < 0 && messages.includes('yellow')) tYellow = race.time - t0;
     if (tVsc < 0 && rc.flag === 'vsc') tVsc = race.time - t0;
   }
-  check(tYellow > 1 && tYellow < 3, `stopped car: yellow after ${tYellow.toFixed(1)} s`);
+  check(tYellow < 0, 'stopped car: no local yellow flag (turned off), straight to the VSC');
   check(tVsc > 5 && tVsc < 8, `still stopped: VSC after ${tVsc.toFixed(1)} s`);
   // Let the field settle to VSC pace, then measure.
   for (let t = 0; t < 3; t += dt) step(wreck);

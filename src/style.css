@@ -143,7 +143,10 @@ html, body {
   background: rgba(10, 14, 20, 0.72); color: #e6edf3; border-radius: 8px; font: 12px/1.45 system-ui, sans-serif;
   font-variant-numeric: tabular-nums; pointer-events: none;
 }
-.board li { display: grid; grid-template-columns: 22px 4px 1fr 52px 18px; align-items: center; gap: 6px; padding: 0 8px; }
+.board li { display: grid; grid-template-columns: 22px 4px 1fr 52px 18px; align-items: center; gap: 6px; padding: 0 8px; height: 18px; }
+/* One line per car: a penalty badge must never wrap a name onto a second line (the tower then ran into the tyre panel). */
+.board .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.board li.gap-row { height: 8px; background: none; }
 .board li:nth-child(odd) { background: rgba(255, 255, 255, 0.03); }
 .board li.me { background: rgba(255, 210, 63, 0.18); color: #ffd23f; font-weight: 700; }
 .board li b { text-align: right; opacity: 0.85; }
@@ -198,7 +201,11 @@ html, body {
 .results li { display: flex; justify-content: space-between; padding: 2px 0; }
 .results li.me { color: #ffd23f; font-weight: 700; }
 .results p { font-size: 11px; color: #8b97a5; margin-top: 12px; }
-.menu-grid.menu-laps { margin-top: 10px; grid-template-columns: repeat(3, minmax(90px, 140px)); }
+.menu-grid.menu-laps { margin-top: 10px; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+.menu-laps-custom input {
+  width: 64px; margin: 4px 0 2px; padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.35); color: inherit; font: 700 16px/1.2 inherit;
+}
 .bench {
   position: fixed; inset: 50% auto auto 50%; transform: translate(-50%, -50%); z-index: 20;
   background: rgba(10, 14, 20, 0.94); color: #e6edf3; padding: 20px 24px; border-radius: 10px;

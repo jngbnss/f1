@@ -22,6 +22,11 @@ export type Flag = 'green' | 'vsc' | 'vsc-ending' | 'sc' | 'sc-in';
 
 /** Speed under the VSC, as a share of the racing line's speed there. */
 export const VSC_SPEED = 0.6;
+/**
+ * Local yellows (slow down, no overtaking in that stretch) are off: players found the
+ * flags too frequent. Incidents still bring out the VSC and the safety car.
+ */
+const LOCAL_YELLOWS = false;
 /** Stopped this long (s) on or near the track: yellow flag there. */
 const YELLOW_AFTER = 1.5;
 /** Still stopped after this long (s): VSC. */
@@ -137,7 +142,7 @@ export class RaceControl {
       const still = !r.finished && !exempt(r) && near && v.physics.speed < STOPPED && !queued;
       const t = still ? (this.stopped.get(r) ?? 0) + dt : 0;
       this.stopped.set(r, t);
-      if (t >= YELLOW_AFTER) yellows.push({ s: this.sOf(r) });
+      if (LOCAL_YELLOWS && t >= YELLOW_AFTER) yellows.push({ s: this.sOf(r) });
       if (t >= VSC_AFTER) stoppedCars++;
       longest = Math.max(longest, t);
     }

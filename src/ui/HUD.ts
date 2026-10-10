@@ -271,8 +271,23 @@ export class HUD {
     els.pos.innerHTML = `<span>POS</span><b>${position}<small>/${standings.length}</small></b><span>LAP</span><b>${race.lapOf(me)}<small>/${race.laps}</small></b>`;
 
     // Timing tower, F1 TV style: position, team colour, car, gap to the leader, tyre, pit.
+    // It stops above the tyre panel: when the screen is short, the top of the order plus the
+    // cars around the player (a gap row between).
+    const rows = Math.max(6, Math.floor((window.innerHeight - 96 - 330) / 18));
+    let shown = standings.map((_, i) => i);
+    if (standings.length > rows) {
+      const top = rows - 4;
+      const meAt = standings.indexOf(me);
+      shown = meAt < top + 1 ? shown.slice(0, rows) : [...shown.slice(0, top), -1, ...[meAt - 1, meAt, meAt + 1].filter((k) => k < standings.length)];
+    }
     els.board.replaceChildren(
-      ...standings.map((r, i) => {
+      ...shown.map((i) => {
+        if (i < 0) {
+          const gapRow = document.createElement('li');
+          gapRow.className = 'gap-row';
+          return gapRow;
+        }
+        const r = standings[i];
         const li = document.createElement('li');
         if (r === me) li.className = 'me';
         const info = towerInfo?.(r);
