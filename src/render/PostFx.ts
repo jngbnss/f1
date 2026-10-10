@@ -80,6 +80,11 @@ export class PostFx {
     this.composer.addPass(new EffectPass(camera, new SMAAEffect({ preset: SMAAPreset.MEDIUM })));
   }
 
+  /** The target the scene is drawn into (linear, no tone mapping): shaders compile for it. */
+  get sceneTarget(): THREE.WebGLRenderTarget {
+    return this.composer.inputBuffer;
+  }
+
   render(dt: number): void {
     // Dynamic resolution changes the renderer's pixel ratio: resize the buffers with it.
     const ratio = this.renderer.getPixelRatio();

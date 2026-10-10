@@ -5,6 +5,8 @@
  *   npm run build && npx tsx scripts/shot.ts [track | track@car ...] [--wait 12] [--out shots] [--query "&ai=0"]
  *
  * Writes <out>/<track>.png (1600x900). Uses Chrome or Edge (BROWSER env var to override).
+ * --profile: CPU profile of the page from navigation to the shot: prints the functions with
+ * the most self time and writes <out>/<track>.cpuprofile (open in Chrome DevTools).
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -30,6 +32,9 @@ const evalExpr = evalArg.startsWith('@') ? readFileSync(evalArg.slice(1), 'utf8'
 const preArg = opt('pre', '');
 const preExpr = preArg.startsWith('@') ? readFileSync(preArg.slice(1), 'utf8') : preArg;
 const preLead = Number(opt('lead', '1.5'));
+const profileIdx = argv.indexOf('--profile');
+const profiling = profileIdx >= 0;
+if (profiling) argv.splice(profileIdx, 1);
 const tracks = argv.length ? argv : ['test', 'spielberg', 'monza', 'silverstone', 'spa'];
 const port = Number(process.env.SHOT_PORT ?? 4180);
 const cdpPort = Number(process.env.CDP_PORT ?? 9333);
@@ -79,6 +84,24 @@ async function connect(wsUrl: string) {
   };
 }
 
+interface CpuProfile {
+  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number } }[];
+  samples: number[];
+  timeDeltas: number[];
+}
+
+/** Top functions by self time (ms). */
+function printProfile(p: CpuProfile): void {
+  const byId = new Map(p.nodes.map((n) => [n.id, n]));
+  const self = new Map<string, number>();
+  p.samples.forEach((id, i) => {
+    const f = byId.get(id)!.callFrame;
+    const key = `${f.functionName || '(anonymous)'} ${f.url.split('/').pop()}:${f.lineNumber + 1}`;
+    self.set(key, (self.get(key) ?? 0) + (p.timeDeltas[i] ?? 0) / 1000);
+  });
+  for (const [k, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 25)) console.log(`  ${ms.toFixed(0).padStart(7)} ms  ${k}`);
+}
+
 async function main(): Promise<void> {
   if (!existsSync('dist/index.html')) throw new Error('dist/ missing: run `npm run build` first');
   if (!browser) throw new Error('No Chrome/Edge found; set BROWSER=<path>');
@@ -104,6 +127,11 @@ async function main(): Promise<void> {
     const cdp = await connect(page.webSocketDebuggerUrl);
     for (const entry of tracks) {
       const [track, car] = entry.split('@');
+      if (profiling) {
+        await cdp.send('Profiler.enable');
+        await cdp.send('Profiler.setSamplingInterval', { interval: 500 });
+        await cdp.send('Profiler.start');
+      }
       await cdp.send('Page.navigate', { url: `http://localhost:${port}/?bench=999&track=${track}${car ? `&car=${car}` : ''}${query}` });
       if (preExpr) {
         // e.g. teleport the player somewhere, then let it settle before the shot.
@@ -116,6 +144,11 @@ async function main(): Promise<void> {
       const file = join(out, `${entry.replace('@', '_')}.png`);
       writeFileSync(file, Buffer.from(String(shot.result?.data ?? ''), 'base64'));
       console.log(`saved ${file}`);
+      if (profiling) {
+        const prof = (await cdp.send('Profiler.stop')).result?.profile as CpuProfile;
+        writeFileSync(join(out, `${entry.replace('@', '_')}.cpuprofile`), JSON.stringify(prof));
+        printProfile(prof);
+      }
       if (evalExpr) {
         const r = await cdp.send('Runtime.evaluate', { expression: `JSON.stringify(${evalExpr})`, returnByValue: true });
         console.log(JSON.stringify(r.result));

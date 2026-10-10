@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { loadTexture, uploadTexture } from '../render/loadTexture';
 
 /**
  * Baked real-world surroundings of a circuit (scripts/fetch-terrain.ts):
@@ -61,12 +62,10 @@ function sampleGrid(values: ArrayLike<number>, rect: Rect, n: number, x: number,
 
 /** Satellite image as a texture whose UV (0..1) maps straight onto its world rect (no flip). */
 export async function loadSatellite(baseUrl: string, t: RealTerrain, which: 'near' | 'far', renderer: THREE.WebGLRenderer): Promise<THREE.Texture> {
-  const tex = await new THREE.TextureLoader().loadAsync(`${baseUrl}terrain/${t.id}/${which}.jpg`);
-  tex.flipY = false;
+  const tex = await loadTexture(`${baseUrl}terrain/${t.id}/${which}.jpg`, false);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  tex.needsUpdate = true;
-  return tex;
+  return uploadTexture(tex, renderer);
 }
 
 /** Ground stays flat (track height) this close to the centerline (m)... */
@@ -214,18 +213,47 @@ export function trackMask(t: RealTerrain, ground: Ground, near = 60, far = 200, 
  * image shifts every patch towards its real color (meadow, field, forest
  * floor, dry grass...) relative to the area's median color.
  */
-export function applySatelliteTint(material: THREE.MeshStandardMaterial, satellite: THREE.Texture, mask: THREE.Texture, t: RealTerrain): void {
+interface SatelliteUniforms {
+  satMap: { value: THREE.Texture };
+  satMask: { value: THREE.Texture };
+  satRect: { value: THREE.Vector4 };
+  satMedian: { value: THREE.Vector3 };
+}
+
+/**
+ * Tints the grass with the satellite photo. Called once before the race with no photo
+ * (a texel of the photo's median colour: no tint) so the shader is compiled up front;
+ * the photo arriving later only swaps the texture (no recompile, no stall).
+ */
+export function applySatelliteTint(material: THREE.MeshStandardMaterial, satellite: THREE.Texture | null, mask: THREE.Texture, t: RealTerrain): void {
+  const installed = material.userData.satelliteTint as SatelliteUniforms | undefined;
+  if (installed) {
+    if (satellite) installed.satMap.value = satellite;
+    installed.satMask.value = mask;
+    return;
+  }
   const [x0, z0, x1, z1] = t.meta.near.rect;
   const median = new THREE.Vector3(...t.meta.near.median.map((c) => Math.max(Math.pow(c, 2.2), 1e-3)));
+  let map = satellite;
+  if (!map) {
+    const [r, g, b] = t.meta.near.median.map((c) => Math.round(Math.min(Math.max(c, 0), 1) * 255));
+    map = new THREE.DataTexture(new Uint8Array([r, g, b, 255]), 1, 1);
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.needsUpdate = true;
+  }
+  const uniforms: SatelliteUniforms = {
+    satMap: { value: map },
+    satMask: { value: mask },
+    satRect: { value: new THREE.Vector4(x0, z0, x1 - x0, z1 - z0) },
+    satMedian: { value: median },
+  };
+  material.userData.satelliteTint = uniforms;
   // Chain onto any existing patch (GroundShading's mowing stripes / patches) instead of replacing it.
   const previous = material.onBeforeCompile;
   const previousKey = material.customProgramCacheKey();
   material.onBeforeCompile = (shader, renderer) => {
     previous.call(material, shader, renderer);
-    shader.uniforms.satMap = { value: satellite };
-    shader.uniforms.satMask = { value: mask };
-    shader.uniforms.satRect = { value: new THREE.Vector4(x0, z0, x1 - x0, z1 - z0) };
-    shader.uniforms.satMedian = { value: median };
+    Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform vec4 satRect;\nvarying vec2 vSatUv;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSatUv = ((modelMatrix * vec4(transformed, 1.0)).xz - satRect.xy) / satRect.zw;');

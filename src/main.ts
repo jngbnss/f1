@@ -102,6 +102,8 @@ async function main(): Promise<void> {
     const [layout, [{ Game }, { findCar }]] = await Promise.all([trackEntry.load(), engine]);
     const net = lobby ? new (await import('./net/NetRace')).NetRace(lobby.room, lobby.plan) : null;
     const game = await Game.create(container, config, findCar(carId), layout, net);
+    if (loading) loading.textContent = `Preparing ${trackEntry.name}…`;
+    await game.prepare();
     game.start();
     loading?.remove();
     setupDriving(game, config.touch, config.bench > 0);
