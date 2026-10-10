@@ -121,6 +121,8 @@ export class VehiclePhysics {
    * multiplier per axle (< 1 = dirty air, the front wing suffers most).
    */
   readonly wake = { drag: 1, front: 1, rear: 1 };
+  /** Drag multiplier from broken bodywork (1 = intact). */
+  bodyDrag = 1;
   /** Aero efficiency per axle (1 = intact; damaged wings lose downforce on their end). */
   readonly aero = { front: 1, rear: 1 };
   /**
@@ -263,6 +265,15 @@ export class VehiclePhysics {
     const maxRay = c.suspensionRestLength + c.wheelRadius;
     let grounded = 0;
     let gripSum = 0;
+    // Brake assist: an ideal split follows the axle loads (last step's), so under braking,
+    // with the weight on the nose, the light rear is never asked for more than it can take.
+    let frontLoad = 0;
+    let totalLoad = 0;
+    this.wheels.forEach((w, i) => {
+      totalLoad += w.load;
+      if (c.wheels[i].steerable) frontLoad += w.load;
+    });
+    const loadBias = totalLoad > 0 ? THREE.MathUtils.clamp(frontLoad / totalLoad, 0.45, 0.75) : 0.5;
     let dragSum = 0;
 
     // Pass 1: suspension rays (the anti-roll bars need both wheels of an axle).
@@ -380,7 +391,7 @@ export class VehiclePhysics {
       let driveF = wc.driven ? driveForce / this.drivenCount : 0;
       // Brake bias: the front axle takes the larger share (weight transfers forward under
       // braking). The assist works like an ideal (load-proportional) split + ABS instead.
-      const bias = this.brakeAssist ? 0.5 : (c.brakeBias ?? 0.5);
+      const bias = this.brakeAssist ? loadBias : (c.brakeBias ?? 0.5);
       const axleWheels = c.wheels.length / 2;
       let brakeF = (cmd.brake * c.brakeForce * this.brakeForceScale * (isFront ? bias : 1 - bias)) / axleWheels;
       // Lock-up: brake torque beyond the tyre's grip stops the wheel; a sliding tyre
@@ -433,7 +444,7 @@ export class VehiclePhysics {
     // --- body forces -----------------------------------------------
     if (speed > 0.01) {
       // Aerodynamic drag opposing velocity: F = -c * |v| * v.
-      _impulse.copy(_linvel).multiplyScalar(-c.dragCoefficient * this.wake.drag * speed * dt);
+      _impulse.copy(_linvel).multiplyScalar(-c.dragCoefficient * this.wake.drag * this.bodyDrag * speed * dt);
       body.applyImpulse(_impulse, true);
     }
     if (surfaceDrag > 0 && speed > 0.1) {
