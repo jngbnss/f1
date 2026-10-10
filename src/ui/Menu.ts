@@ -20,7 +20,9 @@ const AI_OPTIONS: [number, string, string][] = [
   [11, '12대 레이스', '상대 11대'],
   [19, '20대 레이스', '상대 19대 · 풀 그리드'],
 ];
-const LAP_OPTIONS = [1, 3, 5];
+const LAP_OPTIONS = [1, 3, 5, 10];
+/** Any race distance up to Monaco's real one. */
+const MAX_LAPS = 78;
 
 /**
  * Start screen: pick a car and a circuit. The click on "Start" is also the
@@ -121,13 +123,34 @@ export function showMenu(
         ),
       );
       lapGrid.style.display = ai > 0 ? '' : 'none';
+      // A number field for any race length (the cards are the usual ones).
+      const custom = document.createElement('label');
+      custom.className = 'menu-card menu-laps-custom' + (LAP_OPTIONS.includes(laps) ? '' : ' selected');
+      const title = document.createElement('strong');
+      title.textContent = '직접 입력';
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.min = '1';
+      input.max = String(MAX_LAPS);
+      input.value = String(laps);
+      input.setAttribute('aria-label', '랩 수');
+      input.addEventListener('change', () => {
+        laps = Math.min(MAX_LAPS, Math.max(1, Math.round(Number(input.value) || 1)));
+        render();
+      });
+      // Typing in the field must not start the race (Enter starts it on purpose, after the change).
+      input.addEventListener('keydown', (e) => e.stopPropagation());
+      const unit = document.createElement('span');
+      unit.textContent = `랩 (최대 ${MAX_LAPS})`;
+      custom.append(title, input, unit);
       lapGrid.replaceChildren(
         ...LAP_OPTIONS.map((n) =>
-          card(`${n} 랩`, n === 1 ? '스프린트' : n === 3 ? '기본' : '내구', n === laps, () => {
+          card(`${n} 랩`, n === 1 ? '스프린트' : n === 3 ? '기본' : n === 5 ? '중거리' : '내구', n === laps, () => {
             laps = n;
             render();
           }),
         ),
+        custom,
       );
     };
 

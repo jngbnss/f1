@@ -58,7 +58,7 @@ function sharedParts() {
   return partsCache;
 }
 /** Tyre compound sidewall colours (Pirelli: soft red, medium yellow, hard white). */
-export const COMPOUND_COLORS = { hyper: 0xc04bff, soft: 0xe10600, medium: 0xffd200, hard: 0xf0f0f0, wet: 0x1f6fff } as const;
+export const COMPOUND_COLORS = { hyper: 0xc04bff, soft: 0xe10600, medium: 0xffd200, hard: 0xf0f0f0, inter: 0x43b02a, wet: 0x1f6fff } as const;
 
 /** Tyre centre height in the model (the CAD tyres sink 3 cm into the ground). */
 const MODEL_WHEEL_Y = 0.33;

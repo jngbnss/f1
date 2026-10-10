@@ -63,6 +63,11 @@ export class HUD {
   private readonly lapFields: Record<'lap' | 'cur' | 'last' | 'best', HTMLSpanElement>;
   private readonly toastEl: HTMLDivElement;
   private readonly hintEl: HTMLDivElement;
+  /** Race control banner (yellow, VSC, green), F1 TV style. */
+  private readonly flagEl: HTMLDivElement;
+  /** VSC text while it is out (stays up until green). */
+  private vscText: string | null = null;
+  private flagTimer: ReturnType<typeof setTimeout> | null = null;
   private hintText: string | null = null;
   private toastUntil = 0;
   private readonly fields = new Map<string, HTMLSpanElement>();
@@ -156,8 +161,10 @@ export class HUD {
     this.toastEl.className = 'toast';
     this.hintEl = document.createElement('div');
     this.hintEl.className = 'center-hint';
+    this.flagEl = document.createElement('div');
+    this.flagEl.className = 'flag-banner';
 
-    parent.append(this.perfEl, speedo, this.helpEl, trackEl, this.lapEl, this.toastEl, this.hintEl);
+    parent.append(this.perfEl, speedo, this.helpEl, trackEl, this.lapEl, this.toastEl, this.hintEl, this.flagEl);
     window.addEventListener('keydown', (e) => {
       if (e.code === 'KeyH' && !e.repeat) this.toggle();
     });
@@ -264,8 +271,23 @@ export class HUD {
     els.pos.innerHTML = `<span>POS</span><b>${position}<small>/${standings.length}</small></b><span>LAP</span><b>${race.lapOf(me)}<small>/${race.laps}</small></b>`;
 
     // Timing tower, F1 TV style: position, team colour, car, gap to the leader, tyre, pit.
+    // It stops above the tyre panel: when the screen is short, the top of the order plus the
+    // cars around the player (a gap row between).
+    const rows = Math.max(6, Math.floor((window.innerHeight - 96 - 330) / 18));
+    let shown = standings.map((_, i) => i);
+    if (standings.length > rows) {
+      const top = rows - 4;
+      const meAt = standings.indexOf(me);
+      shown = meAt < top + 1 ? shown.slice(0, rows) : [...shown.slice(0, top), -1, ...[meAt - 1, meAt, meAt + 1].filter((k) => k < standings.length)];
+    }
     els.board.replaceChildren(
-      ...standings.map((r, i) => {
+      ...shown.map((i) => {
+        if (i < 0) {
+          const gapRow = document.createElement('li');
+          gapRow.className = 'gap-row';
+          return gapRow;
+        }
+        const r = standings[i];
         const li = document.createElement('li');
         if (r === me) li.className = 'me';
         const info = towerInfo?.(r);
@@ -281,6 +303,13 @@ export class HUD {
         const g = i > 0 ? race.gap(standings[0], r) : null;
         gap.textContent = info?.inPit ? 'PIT' : i === 0 ? 'Leader' : r.finished ? 'FIN' : g !== null ? `+${g.toFixed(1)}` : '';
         if (info?.inPit) gap.classList.add('pit');
+        // Time penalty after the name (the grid columns stay as they are).
+        if (r.penalty) {
+          const pen = document.createElement('small');
+          pen.className = 'penalty';
+          pen.textContent = `+${r.penalty}s`;
+          name.append(pen);
+        }
         li.append(pos, bar, name, gap);
         if (info) {
           const tyre = document.createElement('em');
@@ -296,7 +325,7 @@ export class HUD {
     if (race.state === 'finished' && !this.resultsShown) {
       this.resultsShown = true;
       const lines = standings
-        .map((r, i) => `<li class="${r === me ? 'me' : ''}">${i + 1}. ${r.name} <span>${r.finished ? formatLapTime(r.finishTime) : 'running'}</span></li>`)
+        .map((r, i) => `<li class="${r === me ? 'me' : ''}">${i + 1}. ${r.name} <span>${r.finished ? formatLapTime(race.resultTime(r)) + (r.penalty ? ` (+${r.penalty}s 페널티)` : '') : 'running'}</span></li>`)
         .join('');
       els.results.innerHTML = `<h2>🏁 ${position}위로 완주!</h2><ol>${lines}</ol><p>Esc: 메뉴 · 새로고침: 다시 레이스</p>`;
       els.results.classList.add('show');
@@ -329,10 +358,34 @@ export class HUD {
       `<div class="tyre"><b style="color:${s.compoundColor};border-color:${s.compoundColor}">${s.compound}</b><div class="corners">${corner(0)}${car}${corner(1)}${corner(2)}${corner(3)}</div></div>` +
       (s.damage.some((d) => d > 0.02) ? `<div class="damage">${part('앞날개', s.damage[0], 0.6)}${part('뒷날개', s.damage[1], 0.6)}${part('바닥', s.damage[2], 0.4)}</div>` : '') +
       `<div class="intervals"><span>앞차 <b>${gap(s.ahead, '-')}</b></span><span>뒤차 <b>${gap(s.behind, '+')}</b></span></div>` +
-      (s.pit ? `<div class="pit">${s.pit}</div>` : '<div class="pit hint">P 피트 · 1~5 타이어</div>');
+      (s.pit ? `<div class="pit">${s.pit}</div>` : '<div class="pit hint">P 피트 · 1~6 타이어</div>');
   }
 
   /** Large message in the middle of the screen until cleared (null), e.g. how to get back on track. */
+  /** Race control message: the VSC banner stays until green; green shows for 3 s; a yellow somewhere is a toast. */
+  flag(kind: 'yellow' | 'vsc' | 'green', text: string): void {
+    if (kind === 'yellow') {
+      this.toast(text);
+      return;
+    }
+    if (this.flagTimer) clearTimeout(this.flagTimer);
+    this.vscText = kind === 'vsc' ? text : null;
+    this.showFlag(kind, text);
+    if (kind === 'green') this.flagTimer = setTimeout(() => this.showFlag(null, ''), 3000);
+  }
+
+  /** The player is in a local yellow zone (no VSC): yellow banner while there. */
+  setFlagLocal(on: boolean): void {
+    if (this.vscText || this.flagEl.classList.contains('green')) return;
+    if (on) this.showFlag('yellow', '노란 깃발 · 감속, 추월 금지');
+    else if (this.flagEl.classList.contains('yellow')) this.showFlag(null, '');
+  }
+
+  private showFlag(kind: 'yellow' | 'vsc' | 'green' | null, text: string): void {
+    this.flagEl.className = `flag-banner${kind ? ` show ${kind}` : ''}`;
+    if (kind) this.flagEl.textContent = text;
+  }
+
   setHint(html: string | null): void {
     if (html === this.hintText) return;
     this.hintText = html;

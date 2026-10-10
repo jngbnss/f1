@@ -137,6 +137,8 @@ export class VehiclePhysics {
    * pedal at low downforce locks the wheels (flat spots, no steering).
    */
   brakeAssist = true;
+  /** Speed limit (m/s) set by race control (VSC): no drive force above it. */
+  speedCap = Infinity;
   /**
    * Braking grip relative to cornering grip (friction ellipse). Human drivers get
    * the stronger stop; AI keeps 1 (their braking points and spacing are tuned for it).
@@ -260,7 +262,8 @@ export class VehiclePhysics {
     let driveForce = 0;
     if (cmd.drive > 0) {
       const v = Math.max(forwardSpeed, 1);
-      const limiter = 1 - Math.min(Math.max((forwardSpeed - c.maxSpeed * 0.985) / (c.maxSpeed * 0.015), 0), 1);
+      const cap = Math.min(c.maxSpeed, this.speedCap);
+      const limiter = 1 - Math.min(Math.max((forwardSpeed - cap * 0.985) / (cap * 0.015), 0), 1);
       // Spinning up the engine, gearbox and wheels takes part of the force: more in the
       // low gears (rotating-mass factor ~1.16 in first, ~1.07 in top, TUMFTM F1 data).
       const rotating = 1.07 + 0.09 * Math.max(0, 1 - forwardSpeed / (c.maxSpeed * 0.3));

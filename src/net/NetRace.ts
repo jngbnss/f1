@@ -9,7 +9,7 @@ import type { Room } from './Room';
 import { VoiceOverlay } from '../ui/VoiceControls';
 
 // Wire codes: append only (older clients know 0-2).
-const COMPOUND_ORDER: Compound[] = ['soft', 'medium', 'hard', 'hyper', 'wet'];
+const COMPOUND_ORDER: Compound[] = ['soft', 'medium', 'hard', 'hyper', 'wet', 'inter'];
 /** Never extrapolate a remote car further than this past its last state (ms). */
 const MAX_EXTRAPOLATION = 300;
 /** States kept per remote car (~1.5 s at 20 Hz). */

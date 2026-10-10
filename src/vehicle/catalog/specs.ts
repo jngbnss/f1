@@ -95,6 +95,11 @@ for (const spec of FORMULA) spec.traits = TRAITS[spec.id];
 
 export const CAR_SPECS: CarSpec[] = FORMULA;
 
+/** The safety car (Mercedes-AMG GT Black Series class): not selectable, race control only. */
+export const SAFETY_CAR: CarSpec = rows('sports', [
+  ['safety-car', 'Safety Car', 'GT', 'supercar', 537, 1520, 325, 'RWD', [4.6, 2.0, 1.25, 2.63], 'v8', 0xb9bec4, 0x00a19b],
+])[0];
+
 export const CLASS_INFO: Record<CarClass, { label: string; description: string }> = {
   street: { label: '스트리트', description: '핫해치 · 고성능 세단' },
   sports: { label: '스포츠', description: '로드 스포츠카 · 쿠페' },

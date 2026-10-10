@@ -116,7 +116,13 @@ export class AIDriver {
     const [m0, m1] = this.track.street ? START_MERGE_STREET : START_MERGE;
     const merge = Math.min(Math.max((this.travelled - m0) / (m1 - m0), 0), 1);
     // Street circuits (Monaco): stay on the line in single file; lanes only on wide tracks.
-    const lane = this.track.street ? this.profile.lane * 0.3 : this.profile.lane;
+    // Through corners everyone takes the racing line; the lanes that spread the field only
+    // apply on the straights. A lane 1.2 m to the inside put cars over the white line at
+    // the apex (27 track-limit excursions in a 20-car lap of Suzuka, none alone).
+    let cornerLimit = Infinity;
+    for (let k = 0; k < 60; k++) cornerLimit = Math.min(cornerLimit, line.limits[(this.index + k) % count]);
+    const cornerFactor = THREE.MathUtils.smoothstep(cornerLimit / v.config.maxSpeed, 0.55, 0.85);
+    const lane = (this.track.street ? this.profile.lane * 0.3 : this.profile.lane) * cornerFactor;
     let desiredOffset = this.startOffset + (lane - this.startOffset) * merge * merge * (3 - 2 * merge);
     let followSpeed = Infinity;
     let sideNudge = 0;
@@ -166,7 +172,8 @@ export class AIDriver {
       const room = Math.max(roomRight, roomLeft);
       // Between walls a pass needs a real gap (Monaco is nearly impossible to pass on).
       const passRoom = this.track.street ? 5.5 : 3.2;
-      if (room > passRoom && ahead > 3) {
+      // No passing under yellow / VSC, except round a car that has stopped.
+      if (room > passRoom && ahead > 3 && (!this.rules.noPassing || otherSpeed < 8)) {
         desiredOffset = otherLat - lineLateral + passSide * 3.4;
       }
       // In its lane: keep a gap from which we can still stop if the car ahead brakes as
@@ -175,7 +182,10 @@ export class AIDriver {
       // Braking depends on speed (downforce: ~5 g at 300 km/h, ~1.5 g in a hairpin), and
       // in its dirty air we brake weaker than the car ahead. Moving out of its lane (a pass)
       // lifts the limit.
-      if (Math.abs(side) < OVERLAP) {
+      // Where passing is not allowed (safety car, VSC, yellow) every car ahead is followed,
+      // wherever it is across the track: the safety car runs off our line at low speed.
+      // A stopped car is still driven round.
+      if (Math.abs(side) < (this.rules.noPassing && otherSpeed >= 8 ? 4.5 : OVERLAP)) {
         const aMe = this.line.brakeAt(Math.min(speed, otherSpeed)) * 0.8 * gripNow;
         const aAhead = this.line.brakeAt(otherSpeed);
         const tau = street ? 0.45 : 0.3;
@@ -211,7 +221,7 @@ export class AIDriver {
       const b = line.brakeAt(s);
       return (tyreGrip * (b0 + aeroLeft * (b - b0))) / b;
     };
-    const pace = this.profile.pace;
+    const pace = this.profile.pace * this.rules.speedFactor;
     // The plan's speeds assume clean-air acceleration. In a tow the car really accelerates
     // harder, so it drives to the corner / braking limits instead (it can only go as fast
     // as the physics lets it). Flat-out straights stay flat out.
@@ -302,6 +312,9 @@ export class AIDriver {
 
   /** Times it had to back out; the race manager resets cars that keep failing. */
   unstuckCount = 0;
+
+  /** Race control: speed as a share of racing pace (VSC, yellows) and no passing. */
+  readonly rules = { speedFactor: 1, noPassing: false };
 
   /** Starting the race / after a reset. */
   resetState(): void {

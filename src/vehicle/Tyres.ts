@@ -14,9 +14,9 @@ import type { VehiclePhysics } from './VehiclePhysics';
  * Like the F1 games, wear runs faster than real life (WEAR_MULTIPLIER) so a
  * few-lap race still needs a decision; real F1 mediums last ~25-35 laps.
  */
-export type Compound = 'hyper' | 'soft' | 'medium' | 'hard' | 'wet';
-/** Softest to hardest (menu order, keys 1-5 for the next pit stop). */
-export const COMPOUND_LIST: Compound[] = ['hyper', 'soft', 'medium', 'hard', 'wet'];
+export type Compound = 'hyper' | 'soft' | 'medium' | 'hard' | 'inter' | 'wet';
+/** Softest to hardest, then the rain tyres (menu order, keys 1-6 for the next pit stop). */
+export const COMPOUND_LIST: Compound[] = ['hyper', 'soft', 'medium', 'hard', 'inter', 'wet'];
 
 interface CompoundSpec {
   grip: number;
@@ -27,6 +27,11 @@ interface CompoundSpec {
    * near 0.85, so a slick in the rain is ~20 % off, as in the F1 games.
    */
   wetLoss: number;
+  /**
+   * Rain tyres on a drying track: grip lost at full dryness (they overheat and tear),
+   * falling off with the square of the dryness, so a damp track barely costs anything.
+   */
+  dryLoss?: number;
   /** Wear per km of normal running at multiplier 1 (fraction of the tyre). */
   wearPerKm: number;
   /** Working window (°C). */
@@ -39,18 +44,24 @@ export const COMPOUNDS: Record<Compound, CompoundSpec> = {
   soft: { grip: 1.035, wetLoss: 1.6, wearPerKm: 0.0085, window: [75, 100] },
   medium: { grip: 1.0, wetLoss: 1.5, wearPerKm: 0.0055, window: [85, 110] },
   hard: { grip: 0.97, wetLoss: 1.5, wearPerKm: 0.0036, window: [95, 120] },
+  // Intermediate: the damp-track tyre. Light rain: 0.88 (full wet 0.86, slicks 0.82); heavy
+  // rain: 0.84 behind the full wet 0.87; dry: 0.88, well behind the slicks (it overheats).
+  // Monza lap 2: dry 106.9 s (slicks 99-104, wet 113), light rain 106.8 s (wet 107.4, slicks
+  // 110-115), heavy rain 109.3 s (wet 107.1).
+  inter: { grip: 0.97, wetLoss: 0.6, dryLoss: 0.093, wearPerKm: 0.006, window: [55, 95] },
   // Full wet: slowest in the dry (and it cooks itself there), far less slippery in the rain.
-  wet: { grip: 0.9, wetLoss: 0.25, wearPerKm: 0.0045, window: [45, 85] },
+  wet: { grip: 0.92, wetLoss: 0.25, dryLoss: 0.15, wearPerKm: 0.0045, window: [45, 85] },
 };
 
-export const COMPOUND_LABELS: Record<Compound, string> = { hyper: 'HS', soft: 'S', medium: 'M', hard: 'H', wet: 'W' };
-export const COMPOUND_NAMES: Record<Compound, string> = { hyper: '하이퍼소프트', soft: '소프트', medium: '미디엄', hard: '하드', wet: '웨트' };
+export const COMPOUND_LABELS: Record<Compound, string> = { hyper: 'HS', soft: 'S', medium: 'M', hard: 'H', inter: 'I', wet: 'W' };
+export const COMPOUND_NAMES: Record<Compound, string> = { hyper: '하이퍼소프트', soft: '소프트', medium: '미디엄', hard: '하드', inter: '인터미디어트', wet: '웨트' };
 export const COMPOUND_HINTS: Record<Compound, string> = {
   hyper: '접지·조향 최고 · 빨리 닳음',
   soft: '빠름 · 마모 큼',
   medium: '균형',
   hard: '오래감 · 접지 낮음',
-  wet: '비 올 때 필수 · 맑은 날 느림',
+  inter: '약한 비 · 마르는 노면 최적',
+  wet: '폭우 최적 · 맑은 날 느림',
 };
 
 /**
@@ -125,7 +136,10 @@ export class TyreSet {
     // (a worn rear axle steps out, a worn front washes wide).
     const worn = 1 - 0.16 * w - 0.9 * Math.max(0, w - 0.6) ** 1.5;
     const track = 1 - (1 - TRACK_GRIP.value) * spec.wetLoss;
-    return spec.grip * thermal * Math.max(worn, 0.5) * track;
+    // Dryness 1 on a dry track, 0 in heavy rain (TRACK_GRIP 0.78).
+    const dryness = Math.min(1, Math.max(0, 1 - (1 - TRACK_GRIP.value) / 0.22));
+    const dry = 1 - (spec.dryLoss ?? 0) * dryness * dryness;
+    return spec.grip * thermal * Math.max(worn, 0.5) * track * dry;
   }
 
   /**
