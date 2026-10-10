@@ -6,6 +6,8 @@ import type { BodyType, CarClass, CarSpec, EngineType } from './specs';
 const G = 9.81;
 const DRIVETRAIN = 0.88;
 const CRR = 0.013;
+/** F1 slicks at racing temperature (TUMFTM laptime-simulation F1 data: f_roll 0.03). */
+const CRR_F1 = 0.03;
 
 /** Tyre μ, aero (½ρClA) and chassis template per body archetype. */
 interface BodyTemplate {
@@ -38,10 +40,10 @@ const BODY: Record<BodyType, BodyTemplate> = {
   gt3: { mu: 1.45, downforce: 0.95, wheelRadius: 0.35, halfY: 0.26, wheelY: -0.12, rest: 0.38, springPerKg: 26, damperPerKg: 2.2, grip: [0.88, 0.92], steer: [0.55, 0.085, 55] },
   supercar: { mu: 1.28, downforce: 0.35, wheelRadius: 0.355, halfY: 0.25, wheelY: -0.11, rest: 0.36, springPerKg: 26, damperPerKg: 2.2, grip: [0.88, 0.92], steer: [0.54, 0.085, 58] },
   lmp: { mu: 1.6, downforce: 2.0, wheelRadius: 0.36, halfY: 0.22, wheelY: -0.04, rest: 0.32, springPerKg: 45, damperPerKg: 3, grip: [0.9, 0.95], steer: [0.5, 0.072, 66] },
-  // CoG ~0.3 m; very stiff anti-roll bars (front stiffer): ~1° of roll at 4 g. With the
-  // Pacejka tyres a stiffer rear bar made the car snap into oversteer when braking into a
-  // corner: AI cars spun at Suzuka, Spa and Shanghai (solo laps up to 30 % slower).
-  f1: { mu: 1.75, downforce: 2.9, wheelRadius: 0.36, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 56, damperPerKg: 3.25, grip: [0.9, 0.95], steer: [0.5, 0.07, 70], cgHeight: 0.3, antiRollPerKg: [120, 95] },
+  // CoG 0.33 m (TUMFTM F1: 0.335); very stiff anti-roll bars (front stiffer): ~1° of roll at 4 g.
+  // With the Pacejka tyres a stiffer rear bar made the car snap into oversteer when braking into
+  // a corner: AI cars spun at Suzuka, Spa and Shanghai (solo laps up to 30 % slower).
+  f1: { mu: 1.75, downforce: 2.9, wheelRadius: 0.36, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 56, damperPerKg: 3.25, grip: [0.9, 0.95], steer: [0.5, 0.07, 70], cgHeight: 0.33, antiRollPerKg: [120, 95] },
   openwheel: { mu: 1.6, downforce: 2.0, wheelRadius: 0.33, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 50, damperPerKg: 3.1, grip: [0.9, 0.95], steer: [0.5, 0.075, 66] },
   indy: { mu: 1.62, downforce: 2.3, wheelRadius: 0.34, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 52, damperPerKg: 3.2, grip: [0.9, 0.95], steer: [0.5, 0.07, 70] },
   fe: { mu: 1.38, downforce: 1.0, wheelRadius: 0.34, halfY: 0.2, wheelY: 0, rest: 0.3, springPerKg: 45, damperPerKg: 3, grip: [0.9, 0.95], steer: [0.52, 0.08, 62] },
@@ -83,7 +85,10 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
   const vTop = spec.top / 3.6;
   const vDrag = spec.limited ? vTop * 1.12 : vTop;
   const power = spec.kw * 1000 * DRIVETRAIN;
-  let drag = Math.max((power / vDrag - CRR * mass * G) / (vDrag * vDrag), 0.15);
+  const formula = spec.cls === 'formula';
+  const crr = formula ? CRR_F1 : CRR;
+  // Rolling resistance grows with the tyre load, downforce included: P·η = c·v³ + Crr·(m·g + D·v²)·v.
+  let drag = Math.max((power / vDrag - crr * mass * G) / (vDrag * vDrag) - crr * t.downforce, 0.15);
   // More wing = more drag: high-downforce cars give a little away on the straights.
   if (tr) drag *= 1 + 1.2 * (tr.downforce - 1);
 
@@ -96,7 +101,6 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
     { position: { x: -wx, y: t.wheelY, z: wheelbase / 2 }, ...rear },
     { position: { x: wx, y: t.wheelY, z: wheelbase / 2 }, ...rear },
   ];
-  const formula = spec.cls === 'formula';
   return {
     mass,
     halfExtents: { x: formula ? 0.75 : (width / 2) * 0.9, y: t.halfY, z: (length / 2) * 0.92 },
@@ -119,8 +123,10 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
     maxSpeed: spec.limited ? vTop : vTop * 1.04,
     maxReverseSpeed: 12,
     dragCoefficient: drag,
-    rollingResistance: CRR,
+    rollingResistance: crr,
     downforce: t.downforce,
+    // Aero balance near the weight distribution (TUMFTM F1: front ClA 2.20 of 4.88 = 45 %).
+    aeroBalance: formula ? 0.45 : 0.5 - comShift(spec) / wheelbase,
     frontGrip: t.grip[0],
     rearGrip: t.grip[1],
     frontFriction: t.mu,

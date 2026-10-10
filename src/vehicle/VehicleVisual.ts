@@ -21,6 +21,11 @@ export interface VehicleVisual {
   setCompound?(color: number): void;
   /** Wing damage 0..1 (front, rear): drooping wings, detached past the limit; 0 = repaired. */
   setDamage?(front: number, rear: number): void;
+  /**
+   * The wing that just broke off (its mesh, already in the scene), handed over to
+   * the track's debris so it lies where the physical piece is. Null if none.
+   */
+  takeDetachedWing?(): THREE.Object3D | null;
   /** Brake pedal 0..1 and speed (m/s), for glowing brake discs. */
   setBrake?(brake: number, speed: number): void;
   /** Live steering-wheel display (player car only). */

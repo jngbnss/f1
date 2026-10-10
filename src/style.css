@@ -149,6 +149,8 @@ html, body {
 .car-panel .damage { display: flex; justify-content: space-between; margin-top: 6px; }
 .car-panel .damage .warn { color: #ffb020; }
 .car-panel .damage .bad { color: #ff4a3d; font-weight: 700; }
+.car-panel .corner.flat i { background: repeating-linear-gradient(45deg, #ff4a3d 0 3px, #3a0d0a 3px 6px); }
+.car-panel .corner.flat b { color: #ff4a3d; }
 .car-panel .intervals { display: flex; justify-content: space-between; margin-top: 6px; opacity: 0.9; }
 .car-panel .pit { margin-top: 6px; color: #2bd56f; font-weight: 700; }
 .car-panel .pit.hint { color: #8b97a5; font-weight: 400; }

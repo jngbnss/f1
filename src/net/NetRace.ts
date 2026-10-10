@@ -163,6 +163,8 @@ export class NetRace {
       rpm: v.gearbox?.rpmRatio ?? 0,
       damageFront: v.damage.front,
       damageRear: v.damage.rear,
+      damageFloor: v.damage.floor,
+      punctures: v.tyres.punctured.reduce((bits, p, i) => bits | (p ? 1 << i : 0), 0),
       compound: COMPOUND_ORDER.indexOf(v.tyres.compound),
       inPit,
       lights: false,
@@ -241,6 +243,8 @@ export class NetRace {
       v.damage.rear = remote.damage[1];
       v.visual.setDamage?.(remote.damage[0], remote.damage[1]);
     }
+    v.damage.floor = latest.damageFloor;
+    for (let i = 0; i < v.tyres.punctured.length; i++) v.tyres.punctured[i] = ((latest.punctures >> i) & 1) === 1;
     remote.inPit = latest.inPit;
   }
 

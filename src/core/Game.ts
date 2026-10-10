@@ -27,6 +27,8 @@ import { PitStops } from '../race/PitStops';
 import { updateSlipstream } from '../race/Slipstream';
 import { PitCrew } from '../world/PitCrew';
 import { applyImpacts } from '../race/Impacts';
+import { DebrisField, type DebrisEvent } from '../race/Debris';
+import { DebrisMesh } from '../render/DebrisMesh';
 import { AIDriver } from '../race/AIDriver';
 import { LapTimer } from '../race/LapTimer';
 import { RaceManager, type Racer } from '../race/RaceManager';
@@ -77,6 +79,9 @@ const SURFACES: Record<Surface, { grip: number; drag: number }> = {
   gravel: { grip: 0.4, drag: 6.5 },
 };
 
+/** Wheel names for messages, in the cars' wheel order (FL, FR, RL, RR). */
+const CORNER_NAMES = ['왼쪽 앞', '오른쪽 앞', '왼쪽 뒤', '오른쪽 뒤'];
+
 /**
  * Composition root: wires renderer, physics, world, player car, input,
  * camera and instrumentation together and drives them from the GameLoop.
@@ -118,6 +123,9 @@ export class Game {
   private postFx: PostFx | null = null;
   /** Smoke from locked / sliding tyres. */
   private readonly tyreSmoke = new TyreSmoke();
+  /** Carbon shards and broken wings lying on the track. */
+  private readonly debris = new DebrisField((Math.random() * 2 ** 32) >>> 0);
+  private readonly debrisMesh = new DebrisMesh(this.debris);
   /** Tyre marks, live steering-wheel display, camera shake input. */
   private drivingFx!: DrivingFx;
   /** Latched lap event from fixed steps, consumed by the next rendered frame. */
@@ -219,6 +227,7 @@ export class Game {
     this.player = new Vehicle(physics, car.physics, car.createVisual(undefined, plan?.slots[playerSlot]?.driver ?? 0), playerPose, car.gearbox);
     this.scene.add(this.player.object3D);
     this.scene.add(this.tyreSmoke.mesh);
+    this.scene.add(this.debrisMesh.group);
     this.vehicles.push(this.player);
 
     if (plan) {
@@ -274,6 +283,8 @@ export class Game {
         r.vehicle.visual.setCompound?.(COMPOUND_COLORS[compound]);
       });
     }
+    // AI drivers steer round wings lying on the track.
+    for (const r of this.race?.racers ?? []) if (r.ai) r.ai.debris = this.debris;
     // The player's starting tyre comes from the menu (or ?tyre=).
     const startTyre = readStartTyre();
     this.player.tyres.fit(startTyre);
@@ -289,6 +300,7 @@ export class Game {
 
     if (config.bench > 0) {
       this.autopilot = new AIDriver(this.player, this.racingLine, this.track, { pace: 0.95, lane: 0, aggression: 0.5 });
+      this.autopilot.debris = this.debris;
       this.bench = new Benchmark(config.bench, {
         track: layout.id,
         car: car.id,
@@ -498,7 +510,8 @@ export class Game {
       temp: t.temp.map(band),
       tempC: [...t.temp],
       pit: phase ? pitText[phase] : null,
-      damage: [this.player.damage.front, this.player.damage.rear],
+      damage: [this.player.damage.front, this.player.damage.rear, this.player.damage.floor],
+      punctured: [...t.punctured],
       ahead: i > 0 ? interval(standings[i - 1], me) : null,
       behind: i < standings.length - 1 ? interval(me, standings[i + 1]) : null,
     });
@@ -508,14 +521,21 @@ export class Game {
   private servicePit = (v: Vehicle, compound: Compound): number => {
     v.tyres.fit(compound);
     v.visual.setCompound?.(COMPOUND_COLORS[compound]);
-    // New nose / rear wing: about six seconds more, like a real wing change.
+    // New nose / rear wing / floor repair: about six seconds more, like a real wing change.
     const repair = v.damage.any ? 6 + Math.random() * 1.5 : 0;
     if (repair) {
       v.damage.repair();
       v.visual.setDamage?.(0, 0);
     }
-    if (v === this.player) this.hud.toast(`타이어 교체: ${COMPOUND_NAMES[compound]}${repair ? ' + 날개 교체' : ''}`);
+    if (v === this.player) this.hud.toast(`타이어 교체: ${COMPOUND_NAMES[compound]}${repair ? ' + 파손 수리' : ''}`);
     return 2.1 + Math.random() * 0.8 + repair;
+  };
+
+  /** The player hears about a cut tyre or a damaged floor. */
+  private onDebris = (e: DebrisEvent): void => {
+    if (e.car !== this.player) return;
+    if (e.kind === 'puncture') this.hud.toast(`펑크! (${CORNER_NAMES[e.wheel]}) P로 피트인`);
+    else if (e.kind === 'floor') this.hud.toast(`바닥 파손 ${Math.round(e.car.damage.floor * 100)}%: 다운포스 감소`);
   };
 
   /** AI pit strategy: stop near the tyre cliff unless the race is about to end. */
@@ -523,7 +543,8 @@ export class Game {
     if (!this.pitStops || r.finished || this.pitStops.phase(r.vehicle)) return;
     const t = r.vehicle.tyres;
     const lapsLeft = this.race!.laps - this.race!.lapOf(r);
-    const broken = r.vehicle.damage.front > 0.35 || r.vehicle.damage.rear > 0.35;
+    // A puncture or broken bodywork means stopping now (a flat tyre is seconds a corner).
+    const broken = r.vehicle.damage.front > 0.35 || r.vehicle.damage.rear > 0.35 || r.vehicle.damage.floor > 0.4 || t.anyPuncture;
     if ((t.maxWear < 0.68 && !broken) || lapsLeft < 1) return;
     const compound: Compound = TRACK_GRIP.value < 0.95 ? 'wet' : lapsLeft > 4 ? 'hard' : lapsLeft > 2 ? 'medium' : 'soft';
     this.pitStops.request(r.vehicle, compound, this.teamBox.get(this.carOf.get(r.vehicle)?.id ?? '') ?? 0);
@@ -576,6 +597,7 @@ export class Game {
     for (const voice of this.voices.values()) voice.dispose();
     this.audio?.dispose();
     this.tyreSmoke.dispose();
+    this.debrisMesh.dispose();
     this.pitCrew?.dispose();
     this.drivingFx?.dispose();
     this.weatherFx?.dispose();
@@ -626,10 +648,16 @@ export class Game {
     for (const v of this.vehicles) v.snapshot();
     this.net?.afterStep(dt);
     if (!this.byCollider.size) for (const v of this.vehicles) this.byCollider.set(v.physics.collider.handle, v);
-    applyImpacts(this.physics, this.byCollider, dt, (v) => {
+    applyImpacts(this.physics, this.byCollider, dt, (v, _hit, before) => {
       v.visual.setDamage?.(v.damage.front, v.damage.rear);
+      // Shards for what broke; a wing that came off lies on the track (its own mesh).
+      const color = this.race?.racers.find((r) => r.vehicle === v)?.color ?? 0x222222;
+      for (const piece of this.debris.onDamage(v, before, color)) {
+        if (piece.kind === 'wing') piece.object = v.visual.takeDetachedWing?.() ?? undefined;
+      }
       if (v === this.player && (v.damage.front >= 0.6 || v.damage.rear >= 0.6)) this.hud.toast(v.damage.front >= 0.6 ? '앞날개 파손! P로 피트인' : '뒷날개 파손! P로 피트인');
     });
+    if (!frozen) this.debris.step(this.vehicles, dt, this.onDebris);
     if (this.race) {
       this.recoverAI(dt);
       this.race.update(dt);
@@ -693,6 +721,7 @@ export class Game {
     const speedRatio = this.player.physics.forwardSpeed / this.player.config.maxSpeed;
     this.followCamera.update(this.player.object3D, speedRatio, frameDt);
     this.tyreSmoke.update(frameDt, this.vehicles, this.followCamera.camera);
+    this.debrisMesh.update();
     this.drivingFx.update(frameDt, this.vehicles, this.player, this.followCamera, this.lapTimer, this.race);
     this.weatherFx?.update(frameDt, this.followCamera.camera, ['tcam', 'cockpit', 'driver', 'nose'].includes(this.followCamera.mode));
     this.environment.update(this.player.object3D.position);

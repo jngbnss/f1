@@ -9,6 +9,9 @@ import type { VehicleVisual } from './VehicleVisual';
 import { TyreSet } from './Tyres';
 import { DamageState } from './Damage';
 
+/** Grip left on a tyre rolling over carbon debris (it skates on the shards). */
+const DEBRIS_SLIDE_GRIP = 0.5;
+
 /**
  * One car = controller (intent -> commands) + physics (rigid body) + visual (meshes).
  * The visual is interpolated between the last two physics states so motion is
@@ -22,8 +25,10 @@ export class Vehicle {
   throttle = 0;
   /** Fitted tyres (compound, wear, temperature). */
   readonly tyres = new TyreSet('medium');
-  /** Wing damage (front / rear). */
+  /** Bodywork damage (front wing, rear wing, floor). */
   readonly damage = new DamageState();
+  /** Seconds of debris slide left per wheel (a carbon shard under the tyre). */
+  readonly debrisSlide = [0, 0, 0, 0];
 
   private readonly prevPos = new THREE.Vector3();
   private readonly prevQuat = new THREE.Quaternion();
@@ -69,10 +74,17 @@ export class Vehicle {
     this.physics.step(cmd, dt);
     this.tyres.update(this.physics, dt);
     const grip = this.physics.tyreGrip;
-    for (let i = 0; i < grip.length; i++) grip[i] = this.tyres.grip(i);
+    for (let i = 0; i < grip.length; i++) {
+      grip[i] = this.tyres.grip(i);
+      if (this.debrisSlide[i] > 0) {
+        grip[i] *= DEBRIS_SLIDE_GRIP;
+        this.debrisSlide[i] = Math.max(0, this.debrisSlide[i] - dt);
+      }
+    }
     const aero = this.damage.aero();
     this.physics.aero.front = aero.front;
     this.physics.aero.rear = aero.rear;
+    this.physics.bodyDrag = this.damage.drag();
     this.throttle = Math.abs(cmd.drive);
     this.gearbox?.update(this.physics.forwardSpeed, this.throttle, this.physics.groundedWheels > 0, dt);
   }
@@ -96,6 +108,7 @@ export class Vehicle {
   teleport(pose: Pose): void {
     this.physics.teleport(pose);
     this.controller.reset();
+    this.debrisSlide.fill(0);
     this.physics.getPose(this.currPos, this.currQuat);
     this.prevPos.copy(this.currPos);
     this.prevQuat.copy(this.currQuat);

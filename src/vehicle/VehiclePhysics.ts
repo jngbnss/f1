@@ -53,8 +53,11 @@ export function magicFormula(alpha: number): number {
 }
 /** tan of the slip angle where the contact patch starts to slide (~2.5°; ~0.9 of the peak force). */
 const SLIDE_START = Math.tan((2.5 * Math.PI) / 180);
-/** Friction lost per unit of load above the car's mean wheel load (slicks: ~0.1-0.2). */
-const LOAD_SENSITIVITY = 0.1;
+/**
+ * Friction lost per unit of load above the car's mean wheel load. TUMFTM's F1 tyres:
+ * dμ/dFz = -5e-5 /N at a 3 kN nominal load and μ ≈ 1.85, i.e. ~0.08.
+ */
+const LOAD_SENSITIVITY = 0.08;
 const _impulse = new THREE.Vector3();
 const _linvel = new THREE.Vector3();
 const _angvel = new THREE.Vector3();
@@ -118,6 +121,8 @@ export class VehiclePhysics {
    * multiplier per axle (< 1 = dirty air, the front wing suffers most).
    */
   readonly wake = { drag: 1, front: 1, rear: 1 };
+  /** Drag multiplier from broken bodywork (1 = intact). */
+  bodyDrag = 1;
   /** Aero efficiency per axle (1 = intact; damaged wings lose downforce on their end). */
   readonly aero = { front: 1, rear: 1 };
   /**
@@ -249,7 +254,10 @@ export class VehiclePhysics {
     if (cmd.drive > 0) {
       const v = Math.max(forwardSpeed, 1);
       const limiter = 1 - Math.min(Math.max((forwardSpeed - c.maxSpeed * 0.985) / (c.maxSpeed * 0.015), 0), 1);
-      driveForce = cmd.drive * Math.min(c.engineForce, c.enginePower / v) * limiter;
+      // Spinning up the engine, gearbox and wheels takes part of the force: more in the
+      // low gears (rotating-mass factor ~1.16 in first, ~1.07 in top, TUMFTM F1 data).
+      const rotating = 1.07 + 0.09 * Math.max(0, 1 - forwardSpeed / (c.maxSpeed * 0.3));
+      driveForce = (cmd.drive * Math.min(c.engineForce, c.enginePower / v) * limiter) / rotating;
     } else if (cmd.drive < 0) {
       const r = Math.min(Math.max(-forwardSpeed, 0) / c.maxReverseSpeed, 1);
       driveForce = cmd.drive * c.reverseForce * (1 - r * r);
@@ -436,7 +444,7 @@ export class VehiclePhysics {
     // --- body forces -----------------------------------------------
     if (speed > 0.01) {
       // Aerodynamic drag opposing velocity: F = -c * |v| * v.
-      _impulse.copy(_linvel).multiplyScalar(-c.dragCoefficient * this.wake.drag * speed * dt);
+      _impulse.copy(_linvel).multiplyScalar(-c.dragCoefficient * this.wake.drag * this.bodyDrag * speed * dt);
       body.applyImpulse(_impulse, true);
     }
     if (surfaceDrag > 0 && speed > 0.1) {
@@ -449,17 +457,14 @@ export class VehiclePhysics {
     // Not for a car on its side or roof, nor one riding on another car (pressing it down there
     // would only turn a touch into a crash).
     if (grounded > 0 || (this.aeroInAir && _up.y > 0.5 && !this.onAnotherCar())) {
+      // Downforce acts on each axle by the aero balance (front share); wing damage and
+      // dirty air take away that axle's part.
       const down = c.downforce * speed * speed * dt;
-      _impulse.copy(_up).multiplyScalar(-down);
-      body.applyImpulse(_impulse, true);
-      // Wing damage and dirty air: half of the downforce works on each axle; give back the lost share there.
-      for (const [axle, z] of [['front', -1], ['rear', 1]] as const) {
-        const lost = 1 - this.aero[axle] * this.wake[axle];
-        if (lost <= 0) continue;
-        const mount = c.wheels[z < 0 ? 0 : c.wheels.length - 1].position;
-        _origin.set(0, mount.y, mount.z);
-        _origin.applyQuaternion(_quat).add(_pos);
-        _impulse.copy(_up).multiplyScalar(down * 0.5 * lost);
+      for (const axle of ['front', 'rear'] as const) {
+        const share = axle === 'front' ? c.aeroBalance : 1 - c.aeroBalance;
+        const mount = c.wheels[axle === 'front' ? 0 : c.wheels.length - 1].position;
+        _origin.set(0, mount.y, mount.z).applyQuaternion(_quat).add(_pos);
+        _impulse.copy(_up).multiplyScalar(-down * share * this.aero[axle] * this.wake[axle]);
         body.applyImpulseAtPoint(_impulse, _origin, true);
       }
     }
