@@ -147,7 +147,8 @@ export class AIDriver {
     // The line was planned on fresh tyres and intact wings: corner speed scales with
     // sqrt(grip), so cold or worn tyres and a broken wing mean braking earlier.
     const ph = v.physics;
-    const grip = Math.min(ph.tyreGrip.front * (0.5 + 0.5 * ph.aero.front), ph.tyreGrip.rear * (0.5 + 0.5 * ph.aero.rear));
+    const g = ph.tyreGrip;
+    const grip = Math.min(Math.min(g[0], g[1]) * (0.5 + 0.5 * ph.aero.front), Math.min(g[2], g[3]) * (0.5 + 0.5 * ph.aero.rear));
     const pace = this.profile.pace * Math.sqrt(Math.min(1, grip));
     let target = line.speeds[this.index] * pace;
     let dist = 0;

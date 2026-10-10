@@ -35,7 +35,7 @@ for (const assist of [true, false]) {
   v.physics.brakeAssist = assist;
   v.tyres.fit('medium');
   // Warm tyres: braking is measured at racing temperature.
-  v.tyres.temp.front = v.tyres.temp.rear = 100;
+  v.tyres.temp.fill(100);
   const ai = new AIDriver(v, line, track, { pace: 1, lane: 0, aggression: 0 });
   // The AI only steers here; the pedal is a human foot (with its build-up).
   v.controller.brakeRamp = true;

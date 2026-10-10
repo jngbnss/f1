@@ -13,6 +13,8 @@ export interface WheelState {
   steerAngle: number;
   /** Lateral slip speed at the contact patch (m/s); useful for skid FX/audio. */
   slip: number;
+  /** Vertical load on the tyre in the last step (N); 0 in the air. */
+  load: number;
   /** Brake torque beyond what the tyre can take: the wheel has stopped turning and slides. */
   locked: boolean;
 }
@@ -75,8 +77,8 @@ export class VehiclePhysics {
   surfaceAt: ((x: number, z: number, y?: number) => SurfaceSample) | null = null;
   /** Average surface grip under the grounded wheels in the last step (1 = asphalt). */
   surfaceGrip = 1;
-  /** Tyre state (compound, wear, temperature) per axle, multiplies tyre friction. */
-  readonly tyreGrip = { front: 1, rear: 1 };
+  /** Tyre state (compound, wear, temperature) per wheel, multiplies tyre friction. */
+  readonly tyreGrip: number[];
   /** Aero efficiency per axle (1 = intact; damaged wings lose downforce on their end). */
   readonly aero = { front: 1, rear: 1 };
   /**
@@ -141,6 +143,7 @@ export class VehiclePhysics {
     this.ray = new rapier.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
     this.massPerWheel = c.mass / c.wheels.length;
     this.drivenCount = c.wheels.filter((wc) => wc.driven).length || 1;
+    this.tyreGrip = c.wheels.map(() => 1);
     this.wheels = c.wheels.map(() => ({
       grounded: false,
       suspensionLength: c.suspensionRestLength,
@@ -148,6 +151,7 @@ export class VehiclePhysics {
       steerAngle: 0,
       slip: 0,
       locked: false,
+      load: 0,
     }));
   }
 
@@ -229,6 +233,7 @@ export class VehiclePhysics {
         ws.suspensionLength = c.suspensionRestLength;
         ws.slip = 0;
         ws.locked = false;
+        ws.load = 0;
         continue;
       }
 
@@ -260,6 +265,7 @@ export class VehiclePhysics {
       const vLong = _vel.dot(_wheelFwd);
       const vLat = _vel.dot(_wheelRight);
       ws.slip = vLat;
+      ws.load = load;
 
       // --- surface under this wheel -----------------------------------
       let surfGrip = 1;
@@ -274,7 +280,7 @@ export class VehiclePhysics {
 
       // --- tyre forces inside the friction circle -----------------------
       const isFront = wc.steerable;
-      const tyre = isFront ? this.tyreGrip.front : this.tyreGrip.rear;
+      const tyre = this.tyreGrip[i];
       let grip = (isFront ? c.frontGrip : c.rearGrip) * Math.min(1, 0.35 + 0.65 * surfGrip) * Math.min(1, tyre);
       let mu = (isFront ? c.frontFriction * this.frontGripScale : c.rearFriction) * surfGrip * tyre;
       if (wc.handbrake && cmd.handbrake > 0) {
@@ -402,6 +408,7 @@ export class VehiclePhysics {
       w.grounded = false;
       w.suspensionLength = this.config.suspensionRestLength;
       w.slip = 0;
+      w.load = 0;
     }
   }
 

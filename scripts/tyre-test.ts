@@ -7,7 +7,7 @@
 import { PhysicsWorld } from '../src/physics/PhysicsWorld';
 import { AIDriver } from '../src/race/AIDriver';
 import { findCar } from '../src/vehicle/cars';
-import { COMPOUNDS, TRACK_GRIP, type Compound } from '../src/vehicle/Tyres';
+import { COMPOUNDS, CORNERS, TRACK_GRIP, type Compound } from '../src/vehicle/Tyres';
 import { Vehicle } from '../src/vehicle/Vehicle';
 import { RacingLine } from '../src/world/RacingLine';
 import { racingLineFor } from '../src/world/RacingLineOptimizer';
@@ -47,7 +47,7 @@ for (const compound of Object.keys(COMPOUNDS) as Compound[]) {
     t += dt;
     if (progress >= n * (out.length + 1)) {
       const ty = v.tyres;
-      out.push(`lap ${out.length + 1}: ${(t - lapStart).toFixed(2)} s, wear F ${(ty.wear.front * 100).toFixed(0)}% R ${(ty.wear.rear * 100).toFixed(0)}%, temp F ${ty.temp.front.toFixed(0)} R ${ty.temp.rear.toFixed(0)} °C, grip F ${ty.grip('front').toFixed(3)} R ${ty.grip('rear').toFixed(3)}`);
+      out.push(`lap ${out.length + 1}: ${(t - lapStart).toFixed(2)} s, wear ${CORNERS.map((c, i) => `${c} ${(ty.wear[i] * 100).toFixed(0)}%`).join(' ')}, temp ${ty.temp.map((x) => x.toFixed(0)).join('/')} °C, grip ${ty.wear.map((_, i) => ty.grip(i).toFixed(3)).join('/')}`);
       lapStart = t;
     }
   }

@@ -29,7 +29,7 @@ export class DashFeed {
     s.lap = lap;
     s.totalLaps = totalLaps;
     const t = car.tyres;
-    s.tyreLabel = `${COMPOUND_LABELS[t.compound]} ${Math.round(Math.max(t.wear.front, t.wear.rear) * 100)}%`;
+    s.tyreLabel = `${COMPOUND_LABELS[t.compound]} ${Math.round(t.maxWear * 100)}%`;
     return s;
   }
 }

@@ -483,9 +483,9 @@ export class Game {
     this.hud.updateCar({
       compound: COMPOUND_LABELS[t.compound],
       compoundColor: `#${COMPOUND_COLORS[t.compound].toString(16).padStart(6, '0')}`,
-      wear: [t.wear.front, t.wear.rear],
-      temp: [band(t.temp.front), band(t.temp.rear)],
-      tempC: [t.temp.front, t.temp.rear],
+      wear: [...t.wear],
+      temp: t.temp.map(band),
+      tempC: [...t.temp],
       pit: phase ? pitText[phase] : null,
       damage: [this.player.damage.front, this.player.damage.rear],
       ahead: i > 0 ? interval(standings[i - 1], me) : null,
@@ -513,7 +513,7 @@ export class Game {
     const t = r.vehicle.tyres;
     const lapsLeft = this.race!.laps - this.race!.lapOf(r);
     const broken = r.vehicle.damage.front > 0.35 || r.vehicle.damage.rear > 0.35;
-    if ((Math.max(t.wear.front, t.wear.rear) < 0.68 && !broken) || lapsLeft < 1) return;
+    if ((t.maxWear < 0.68 && !broken) || lapsLeft < 1) return;
     const compound: Compound = TRACK_GRIP.value < 0.95 ? 'wet' : lapsLeft > 4 ? 'hard' : lapsLeft > 2 ? 'medium' : 'soft';
     this.pitStops.request(r.vehicle, compound, this.teamBox.get(this.carOf.get(r.vehicle)?.id ?? '') ?? 0);
   }

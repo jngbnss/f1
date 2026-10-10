@@ -68,8 +68,8 @@ export class Vehicle {
     const cmd = this.controller.update(input, this.physics.forwardSpeed, dt);
     this.physics.step(cmd, dt);
     this.tyres.update(this.physics, dt);
-    this.physics.tyreGrip.front = this.tyres.grip('front');
-    this.physics.tyreGrip.rear = this.tyres.grip('rear');
+    const grip = this.physics.tyreGrip;
+    for (let i = 0; i < grip.length; i++) grip[i] = this.tyres.grip(i);
     const aero = this.damage.aero();
     this.physics.aero.front = aero.front;
     this.physics.aero.rear = aero.rear;
