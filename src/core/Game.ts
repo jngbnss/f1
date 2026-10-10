@@ -38,6 +38,7 @@ import { LapTimer } from '../race/LapTimer';
 import { RaceManager, type Racer } from '../race/RaceManager';
 import { Penalties, WARNINGS } from '../race/Penalties';
 import { RaceControl, VSC_SPEED } from '../race/RaceControl';
+import { SafetyCar } from '../race/SafetyCar';
 import { RaceEngineer } from '../race/RaceEngineer';
 import type { VehicleInput } from '../input/VehicleInput';
 import { Environment } from '../world/Environment';
@@ -126,6 +127,10 @@ export class Game {
   private raceControl: RaceControl | null = null;
   /** Player's place on the racing line (VSC speed). */
   private vscIndex = -1;
+  /** The safety car, and its bookkeeping (leader lap at the restart, gone for this incident). */
+  private safetyCar: SafetyCar | null = null;
+  private scLeaderLap = 0;
+  private scDone = false;
   private readonly teamBox: Map<string, number>;
   /** Compound the player will get at the next stop. */
   private nextCompound: Compound = 'hard';
@@ -301,8 +306,16 @@ export class Game {
         this.hud.toast(e.kind === 'warning' ? `트랙 리밋 경고 ${e.strike}/${WARNINGS} · 랩 기록 삭제` : `트랙 리밋 페널티 +5초 (합계 ${e.seconds}초)`);
       };
       this.raceControl = new RaceControl(this.track);
+      this.safetyCar = new SafetyCar(this.physics, this.track, this.scene);
       this.raceControl.onMessage = (m) => {
-        const text = { yellow: '노란 깃발 · 감속, 추월 금지', vsc: 'VSC · 가상 세이프티카 · 추월 금지', 'vsc-ending': 'VSC 종료 예정', green: '그린 플래그 · 레이스 재개' }[m];
+        const text = {
+          yellow: '노란 깃발 · 감속, 추월 금지',
+          vsc: 'VSC · 가상 세이프티카 · 추월 금지',
+          'vsc-ending': 'VSC 종료 예정',
+          sc: '세이프티카 · 추월 금지, 줄 서서 따라가기',
+          'sc-in': '세이프티카 이번 랩 복귀 · 결승선에서 재출발',
+          green: '그린 플래그 · 레이스 재개',
+        }[m];
         this.hud.flag(m === 'green' ? 'green' : m === 'yellow' ? 'yellow' : 'vsc', text);
       };
     }
@@ -640,18 +653,39 @@ export class Game {
     else if (was === 'requested') this.hud.toast('피트 요청 취소');
   }
 
-  /** AI cars that are flipped, off the world or hopelessly stuck go back on track. */
-  /** Yellow flags and the VSC: AI pace and passing, the player's speed limit, overtakes. */
+  /** Every car the AI must keep clear of (the safety car too, while it is out). */
+  private trafficFor(): readonly Vehicle[] {
+    const sc = this.safetyCar?.vehicle;
+    return sc ? [...this.vehicles, sc] : this.vehicles;
+  }
+
+  /** Yellow flags, the VSC and the safety car: AI pace and passing, the player's speed limit, overtakes. */
   private applyRaceControl(dt: number): void {
     const rc = this.raceControl;
     const race = this.race;
     if (!rc || !race) return;
     const inPit = (r: Racer) => this.pitStops?.driving(r.vehicle) ?? false;
     rc.update(dt, race.racers, race.time, this.debris, inPit);
-    const vsc = rc.flag !== 'green';
+    const standings = race.standings();
+    const leader = standings.find((r) => !r.finished) ?? standings[0];
+    // Safety car: out ahead of the leader, in at the pit entry when called in; green when
+    // the leader crosses the line after it has gone.
+    const sc = this.safetyCar;
+    if (sc) {
+      if (rc.flag === 'sc' && !sc.out && !this.scDone) sc.deploy(leader.vehicle.position);
+      if (rc.flag === 'sc-in') sc.callIn();
+      const lap = Math.floor(leader.progress / this.track.getCenterline().length);
+      if (rc.flag === 'sc-in' && !sc.out && lap > this.scLeaderLap) rc.restart();
+      this.scLeaderLap = lap;
+      if (rc.flag === 'green') this.scDone = false;
+    }
+    const vsc = rc.flag === 'vsc' || rc.flag === 'vsc-ending';
     for (const r of race.racers) {
       if (!r.ai) continue;
-      r.ai.rules.speedFactor = vsc ? VSC_SPEED : rc.inYellow(r) ? 0.8 : 1;
+      // Behind the safety car the field closes up at racing pace and queues (car following);
+      // once it has gone in, the leader sets a slow pace until the line.
+      const scPace = rc.flag === 'sc-in' && !sc?.out && r === leader ? VSC_SPEED : 1;
+      r.ai.rules.speedFactor = vsc ? VSC_SPEED : rc.inYellow(r) ? 0.8 : scPace;
       r.ai.rules.noPassing = rc.noOvertaking(r);
     }
     // The player gets a limiter at the VSC speed for that point of the lap (the F1 games
@@ -661,10 +695,11 @@ export class Game {
       this.vscIndex = this.racingLine.nearestFrom(this.player.position, this.vscIndex);
       this.player.physics.speedCap = Math.max(15, this.racingLine.speeds[this.vscIndex] * VSC_SPEED);
     } else this.player.physics.speedCap = Infinity;
-    if (me) this.hud.setFlagLocal(!vsc && rc.inYellow(me));
+    if (me) this.hud.setFlagLocal(rc.flag === 'green' && rc.inYellow(me));
     for (const r of rc.overtakes(race.racers, inPit)) this.penalties?.overtake(r);
   }
 
+  /** AI cars that are flipped, off the world or hopelessly stuck go back on track. */
   private recoverAI(dt: number): void {
     for (const r of this.race!.racers) {
       if (!r.ai) continue;
@@ -697,6 +732,7 @@ export class Game {
     this.tyreSmoke.dispose();
     this.debrisMesh.dispose();
     this.pitCrew?.dispose();
+    this.safetyCar?.dispose();
     this.drivingFx?.dispose();
     this.weatherFx?.dispose();
     this.landmarks?.dispose();
@@ -738,18 +774,21 @@ export class Game {
     const frozen = this.race?.frozen ?? false;
     // The pit controller drives cars in the pit lane (player included).
     const pitPlayer = frozen ? null : (this.pitStops?.update(this.player, dt) ?? null);
+    // The safety car drives itself (before the step), and the AI follow it like a car.
+    if (!frozen && this.safetyCar?.fixedUpdate(dt)) this.scDone = true;
     const playerInput = pitPlayer ?? (this.autopilot ? this.autopilot.update(dt, this.vehicles) : input);
     this.player.fixedUpdate(frozen ? HOLD : playerInput, dt);
     if (this.race) {
       for (const r of this.race.racers) {
         if (!r.ai) continue;
         const pitAi = frozen ? null : (this.pitStops?.update(r.vehicle, dt) ?? null);
-        r.vehicle.fixedUpdate(frozen ? HOLD : (pitAi ?? r.ai.update(dt, this.vehicles)), dt);
+        r.vehicle.fixedUpdate(frozen ? HOLD : (pitAi ?? r.ai.update(dt, this.trafficFor())), dt);
         if (!frozen) this.aiStrategy(r);
       }
     }
     this.physics.step();
     for (const v of this.vehicles) v.snapshot();
+    this.safetyCar?.afterStep();
     this.net?.afterStep(dt);
     if (!this.byCollider.size) for (const v of this.vehicles) this.byCollider.set(v.physics.collider.handle, v);
     applyImpacts(this.physics, this.byCollider, dt, (v, _hit, before) => {
@@ -823,6 +862,7 @@ export class Game {
     this.qualityGovernor?.update(this.perf.snapshot);
     this.perf.snapshot.pixelRatio = this.renderer.getPixelRatio();
     for (const v of this.vehicles) v.render(alpha);
+    this.safetyCar?.render(alpha, frameDt);
     if (this.pitStops) this.pitCrew?.update(frameDt, this.pitStops);
     // Car LOD: beyond ~70 m (less on weaker devices) wheel rims and brake discs are a few pixels; hide them.
     const cam = this.followCamera.camera.position;

@@ -182,7 +182,10 @@ export class AIDriver {
       // Braking depends on speed (downforce: ~5 g at 300 km/h, ~1.5 g in a hairpin), and
       // in its dirty air we brake weaker than the car ahead. Moving out of its lane (a pass)
       // lifts the limit.
-      if (Math.abs(side) < OVERLAP) {
+      // Where passing is not allowed (safety car, VSC, yellow) every car ahead is followed,
+      // wherever it is across the track: the safety car runs off our line at low speed.
+      // A stopped car is still driven round.
+      if (Math.abs(side) < (this.rules.noPassing && otherSpeed >= 8 ? 4.5 : OVERLAP)) {
         const aMe = this.line.brakeAt(Math.min(speed, otherSpeed)) * 0.8 * gripNow;
         const aAhead = this.line.brakeAt(otherSpeed);
         const tau = street ? 0.45 : 0.3;
