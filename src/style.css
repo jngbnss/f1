@@ -91,6 +91,14 @@ html, body {
   font-weight: 700; pointer-events: none; transition: opacity 0.25s, transform 0.25s;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.radio-subtitle {
+  position: fixed; bottom: 92px; left: 50%; transform: translateX(-50%); max-width: min(720px, calc(100vw - 32px));
+  background: rgba(10, 14, 20, 0.78); color: #fff; padding: 8px 16px; border-radius: 8px; border-left: 4px solid #ffd400;
+  font-size: 17px; font-weight: 600; pointer-events: none; text-align: left; z-index: 20;
+}
+.radio-subtitle b { color: #ffd400; margin-right: 8px; font-size: 14px; }
+.radio-subtitle small { display: block; margin-top: 2px; font-size: 13px; font-weight: 500; color: #b8c2cc; }
+.radio-subtitle[hidden] { display: none; }
 .center-hint {
   position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%) scale(0.96); opacity: 0;
   background: rgba(10, 14, 20, 0.8); color: #fff; padding: 14px 22px; border-radius: 10px; font-size: 20px; font-weight: 700;
