@@ -21,6 +21,7 @@
     "damage:test": "tsx scripts/damage-test.ts",
     "debris:test": "tsx scripts/debris-test.ts",
     "ers:test": "tsx scripts/ers-test.ts",
+    "teamline:test": "tsx scripts/teamline-test.ts",
     "tyre:test": "tsx scripts/tyre-test.ts",
     "brake:test": "tsx scripts/brake-test.ts",
     "load:test": "tsx scripts/load-test.ts",
@@ -30,6 +31,7 @@
     "bench": "tsx scripts/bench.ts",
     "quality:test": "tsx scripts/quality-test.ts",
     "raceline:bake": "tsx scripts/bake-raceline.ts",
+    "raceline:bake:teams": "tsx scripts/bake-team-lines.ts",
     "raceline:bake:all": "tsx scripts/bake-raceline.ts melbourne && tsx scripts/bake-raceline.ts shanghai && tsx scripts/bake-raceline.ts suzuka && tsx scripts/bake-raceline.ts sakhir && tsx scripts/bake-raceline.ts jeddah && tsx scripts/bake-raceline.ts miami && tsx scripts/bake-raceline.ts montreal && tsx scripts/bake-raceline.ts monaco && tsx scripts/bake-raceline.ts catalunya && tsx scripts/bake-raceline.ts spielberg && tsx scripts/bake-raceline.ts silverstone && tsx scripts/bake-raceline.ts spa && tsx scripts/bake-raceline.ts budapest && tsx scripts/bake-raceline.ts zandvoort && tsx scripts/bake-raceline.ts monza && tsx scripts/bake-raceline.ts madrid && tsx scripts/bake-raceline.ts baku && tsx scripts/bake-raceline.ts singapore && tsx scripts/bake-raceline.ts austin && tsx scripts/bake-raceline.ts mexicocity && tsx scripts/bake-raceline.ts saopaulo && tsx scripts/bake-raceline.ts lasvegas && tsx scripts/bake-raceline.ts lusail && tsx scripts/bake-raceline.ts yasmarina",
     "elevation:bake": "tsx scripts/bake-elevation.ts spa Spa && tsx scripts/bake-elevation.ts suzuka Suzuka && tsx scripts/bake-elevation.ts monaco Monaco && tsx scripts/bake-elevation.ts sakhir Sakhir && tsx scripts/bake-elevation.ts catalunya Catalunya 0.08 && tsx scripts/bake-elevation.ts spielberg Spielberg && tsx scripts/bake-elevation.ts silverstone Silverstone && tsx scripts/bake-elevation.ts budapest Budapest && tsx scripts/bake-elevation.ts austin Austin && tsx scripts/bake-elevation.ts mexicocity MexicoCity && tsx scripts/bake-elevation.ts saopaulo SaoPaulo",
     "model:f1": "tsx scripts/build-f1-model.ts"

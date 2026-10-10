@@ -8,7 +8,8 @@ import { readFileSync } from 'node:fs';
 import { PhysicsWorld } from '../src/physics/PhysicsWorld';
 import { AIDriver } from '../src/race/AIDriver';
 import { RaceManager, type Racer } from '../src/race/RaceManager';
-import { findCar } from '../src/vehicle/cars';
+import { CARS, findCar, type CarDefinition } from '../src/vehicle/cars';
+import { teamLinePath } from '../src/world/TeamLines';
 import { applyImpacts } from '../src/race/Impacts';
 import { DebrisField } from '../src/race/Debris';
 import { straightZones, updateRules2026 } from '../src/race/Rules2026';
@@ -27,20 +28,36 @@ const dt = 1 / 60;
 const physics = await PhysicsWorld.create(dt);
 const track = new ProceduralTrack(physics, layout, { treesPerKm: 0 });
 const car = findCar(carId);
-const linePath = racingLineFor(track);
-const line = new RacingLine(linePath, car.physics, { heights: track.heightsFor(linePath) });
+// GRID=teams: the real field, two cars per team, each on its team's line (as in the game:
+// the baked min-time line refined per team; TEAM_LINES=0 puts every team on the shared line).
+const teamGrid = process.env.GRID === 'teams';
+// Quicker cars further up the grid, as the game orders it.
+const teams = CARS.filter((c) => c.spec.cls === 'formula').sort((a, b) => b.stats.pi - a.stats.pi);
+// LINE=mintime: the baked min-time line the game drives (default: the min-curvature line).
+const sharedPath = teamGrid || process.env.LINE === 'mintime' ? (layout.minTimeLine ?? racingLineFor(track)) : racingLineFor(track);
+const lines = new Map<string, RacingLine>();
+const lineFor = (def: CarDefinition) => {
+  let l = lines.get(def.id);
+  if (!l) {
+    const path = (teamGrid && process.env.TEAM_LINES !== '0' && teamLinePath(layout.teamLines, def.id, track, sharedPath)) || sharedPath;
+    lines.set(def.id, (l = new RacingLine(path, def.physics, { heights: track.heightsFor(path) })));
+  }
+  return l;
+};
 const total = Number(carsArg);
 const racers: Racer[] = [];
 const vehicles: Vehicle[] = [];
 for (let slot = 0; slot < total; slot++) {
-  const v = new Vehicle(physics, car.physics, car.createVisual(), track.gridPose(slot), car.gearbox);
+  const def = teamGrid ? teams[Math.floor(slot / 2) % teams.length] : car;
+  const line = lineFor(def);
+  const v = new Vehicle(physics, def.physics, def.createVisual(), track.gridPose(slot), def.gearbox);
   v.physics.aeroInAir = track.elevated;
   // SEED=n reshuffles the drivers (race outcomes are chaotic: compare several seeds).
   const r = Math.sin((slot + Number(process.env.SEED ?? 0) * 7.31) * 12.9898) * 43758.5453;
   const rand = r - Math.floor(r);
   const ai = new AIDriver(v, line, track, { pace: 0.97 - (slot / total) * 0.07 + (rand - 0.5) * 0.04, lane: (rand - 0.5) * 2.4, aggression: rand });
   vehicles.push(v);
-  racers.push({ name: `CAR${slot + 1}`, vehicle: v, ai, isPlayer: slot === 0, progress: 0, lastIndex: 0, finished: false, finishTime: 0, color: 0 });
+  racers.push({ name: teamGrid ? `${def.spec.brand.replace(/ /g, '')}${(slot % 2) + 1}` : `CAR${slot + 1}`, vehicle: v, ai, isPlayer: slot === 0, progress: 0, lastIndex: 0, finished: false, finishTime: 0, color: 0 });
 }
 const broken = new Set<Vehicle>();
 const zones = straightZones(track);

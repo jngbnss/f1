@@ -32,6 +32,7 @@ import { PitCrew } from '../world/PitCrew';
 import { applyImpacts } from '../race/Impacts';
 import { DebrisField, type DebrisEvent } from '../race/Debris';
 import { straightZones, updateRules2026 } from '../race/Rules2026';
+import { teamLinePath } from '../world/TeamLines';
 import { DebrisMesh } from '../render/DebrisMesh';
 import { AIDriver } from '../race/AIDriver';
 import { LapTimer } from '../race/LapTimer';
@@ -153,6 +154,9 @@ export class Game {
   private readonly carOf = new Map<Vehicle, CarDefinition>();
   /** Speed profiles per car model (the player's one is also the visible line). */
   private readonly rivalLines = new Map<string, RacingLine>();
+  /** The circuit's shared racing line and the per-team refinements of it. */
+  private sharedLinePath: [number, number][] = [];
+  private teamLines: TrackLayout['teamLines'];
   /** Benchmark mode: the player's car is driven by an AI and frames are recorded. */
   private readonly autopilot: AIDriver | null = null;
   private readonly bench: Benchmark | null = null;
@@ -224,8 +228,10 @@ export class Game {
     this.landmarks = landmarks;
     // Racing line computed on the game's own (widened) road, not the real-width dataset line.
     // Baked minimum-lap-time line when the circuit has one, else minimum curvature.
-    const linePath = layout.minTimeLine ?? racingLineFor(this.track);
-    this.racingLine = new RacingLine(linePath, car.physics, { heights: this.track.heightsFor(linePath) });
+    // Shared line for the circuit; every team drives its own refinement of it where baked.
+    this.sharedLinePath = layout.minTimeLine ?? racingLineFor(this.track);
+    this.teamLines = layout.teamLines;
+    this.racingLine = this.lineFor(car);
     this.scene.add(this.racingLine.mesh);
     this.lapTimer = new LapTimer(this.track.getCenterline().length, this.track.spawnIndex, `best:${car.id}:${layout.id}`);
 
@@ -267,7 +273,7 @@ export class Game {
         this.vehicles.push(vehicle);
         this.carOf.set(vehicle, def);
         let line = lines.get(def.id);
-        if (!line) lines.set(def.id, (line = new RacingLine(this.racingLine.path, def.physics, { heights: this.racingLine.heights })));
+        if (!line) lines.set(def.id, (line = this.lineFor(def)));
         // Front of the grid = faster drivers, with some randomness.
         const r = Math.sin(slot * 12.9898) * 43758.5453;
         const rand = r - Math.floor(r);
@@ -517,13 +523,19 @@ export class Game {
       let ai: AIDriver | null = null;
       if (slot.ai && net.ownsSlot(i)) {
         let line = this.rivalLines.get(def.id);
-        if (!line) this.rivalLines.set(def.id, (line = new RacingLine(this.racingLine.path, def.physics, { heights: this.racingLine.heights })));
+        if (!line) this.rivalLines.set(def.id, (line = this.lineFor(def)));
         const r = Math.sin(i * 12.9898) * 43758.5453;
         const rand = r - Math.floor(r);
         ai = new AIDriver(vehicle, line, this.track, { pace: 0.96 + (rand - 0.5) * 0.04, lane: (rand - 0.5) * 2.4, aggression: rand });
       }
       return this.racer(name, vehicle, ai, false, color);
     });
+  }
+
+  /** Racing line and speed profile for a car: its team's own line if baked, else the shared one. */
+  private lineFor(def: CarDefinition): RacingLine {
+    const path = teamLinePath(this.teamLines, def.id, this.track, this.sharedLinePath) ?? this.sharedLinePath;
+    return new RacingLine(path, def.physics, { heights: this.track.heightsFor(path) });
   }
 
   private racer(name: string, vehicle: Vehicle, ai: AIDriver | null, isPlayer: boolean, color: number): Racer {
