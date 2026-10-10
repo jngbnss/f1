@@ -44,6 +44,12 @@ export class RacingLine {
   readonly mesh: THREE.Mesh;
   /** Target speed (m/s) per sample — usable for AI drivers later. */
   readonly speeds: Float32Array;
+  /**
+   * Speed the car must be down to at each point (corner limits and braking only, no
+   * acceleration pass). The AI drives to this: below it, flat out; how fast it actually
+   * accelerates is the physics' business (a tow down the straight, a damaged car).
+   */
+  readonly limits: Float32Array;
   readonly points: THREE.Vector3[];
 
   private readonly colors: Float32Array;
@@ -142,6 +148,15 @@ export class RacingLine {
       const denom = curvature[i] - km * mu * (aero + vertical[i]);
       v[i] = denom > 1e-6 ? Math.min(vMax, Math.sqrt((km * mu * G) / denom)) : vMax;
     }
+    const limits = v.slice();
+    for (let lap = 0; lap < 2; lap++) {
+      for (let i = count - 1; i >= 0; i--) {
+        const j = (i + 1) % count;
+        const b = Math.max(this.brakeAt(limits[j]) + BRAKE_MARGIN * mu * vertical[j] * limits[j] * limits[j] + G * grade[i], 1);
+        limits[i] = Math.min(limits[i], Math.sqrt(limits[j] * limits[j] + 2 * b * this.segLen[i]));
+      }
+    }
+    this.limits = limits;
     // Two laps of each pass so the closed loop converges.
     for (let lap = 0; lap < 2; lap++) {
       for (let i = 0; i < count; i++) {

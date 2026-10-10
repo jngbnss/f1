@@ -14,6 +14,7 @@
     "barrier:test": "tsx scripts/barrier-test.ts",
     "pit:test": "tsx scripts/pit-test.ts",
     "pit:circuits": "tsx scripts/pit-test.ts melbourne && tsx scripts/pit-test.ts shanghai && tsx scripts/pit-test.ts spa && tsx scripts/pit-test.ts suzuka && tsx scripts/pit-test.ts monaco",
+    "slip:test": "tsx scripts/slip-test.ts",
     "pit:queue": "tsx scripts/pit-queue-test.ts monza && tsx scripts/pit-queue-test.ts monaco",
     "damage:test": "tsx scripts/damage-test.ts",
     "tyre:test": "tsx scripts/tyre-test.ts",

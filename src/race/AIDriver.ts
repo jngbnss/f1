@@ -127,7 +127,7 @@ export class AIDriver {
     const length = this.track.length;
     const ph0 = v.physics;
     const tyre = ph0.tyreGrip;
-    const gripNow = Math.min(1, ((tyre[0] + tyre[1] + tyre[2] + tyre[3]) / 4) * (0.5 + 0.5 * Math.min(ph0.aero.front, ph0.aero.rear)));
+    const gripNow = Math.min(1, ((tyre[0] + tyre[1] + tyre[2] + tyre[3]) / 4) * (0.5 + 0.5 * Math.min(ph0.aero.front * ph0.wake.front, ph0.aero.rear * ph0.wake.rear)));
     for (const o of others) {
       if (o === v) continue;
       const op = this.trackPos(o);
@@ -159,16 +159,19 @@ export class AIDriver {
       if (room > passRoom && ahead > 3) {
         desiredOffset = otherLat - lineLateral + passSide * 3.4;
       }
-      // In its lane: never close faster than we can brake. The braking a car can do
-      // depends on speed (downforce): ~5 g at 300 km/h, ~1.5 g in a hairpin, so the
-      // gap is planned with the deceleration at the car ahead's speed, plus a
-      // reaction margin. Moving out of its lane (a pass) lifts the limit.
+      // In its lane: keep a gap from which we can still stop if the car ahead brakes as
+      // hard as it can (the Gipps car-following model, as in the SUMO traffic simulator):
+      //   v²/2a_me + v·τ + margin <= gap + v_ahead²/2a_ahead
+      // Braking depends on speed (downforce: ~5 g at 300 km/h, ~1.5 g in a hairpin), and
+      // in its dirty air we brake weaker than the car ahead. Moving out of its lane (a pass)
+      // lifts the limit.
       if (Math.abs(side) < OVERLAP) {
-        const closing = Math.max(0, speed - otherSpeed);
-        const decel = this.line.brakeAt(otherSpeed) * 0.75 * gripNow;
-        const margin = (this.track.street ? 4 : 2.5) + 0.35 * closing;
-        const gap = ahead - CAR_LENGTH - margin;
-        followSpeed = Math.min(followSpeed, Math.sqrt(otherSpeed * otherSpeed + 2 * decel * Math.max(0, gap)));
+        const aMe = this.line.brakeAt(Math.min(speed, otherSpeed)) * 0.8 * gripNow;
+        const aAhead = this.line.brakeAt(otherSpeed);
+        const tau = street ? 0.45 : 0.3;
+        const reach = ahead - CAR_LENGTH - (street ? 3 : 2) + (otherSpeed * otherSpeed) / (2 * aAhead);
+        const safe = reach > 0 ? aMe * (-tau + Math.sqrt(tau * tau + (2 * reach) / aMe)) : 0;
+        followSpeed = Math.min(followSpeed, safe);
       }
     }
     desiredOffset = (desiredOffset + sideNudge) * laneScale;
@@ -181,20 +184,37 @@ export class AIDriver {
     inp.steer = THREE.MathUtils.clamp(this.steerTowards(this.lookaheadPoint(speed)) * 2.6, -1, 1);
 
     // --- speed: brake for the slowest point within braking distance ----
-    // Braking grip is planned at the (lower) target speed: conservative with aero.
-    // The line was planned on fresh tyres and intact wings: corner speed scales with
-    // sqrt(grip), so cold or worn tyres and a broken wing mean braking earlier.
+    // The line was planned on fresh tyres, intact wings and clean air. Grip = tyre x
+    // (mechanical + aero share), and the aero share grows with speed (brakeAt(v) =
+    // mu(g + aero v²)): a broken wing or another car's dirty air costs little in a
+    // hairpin but a lot in a 300 km/h corner like Blanchimont. Corner speed scales with
+    // sqrt(grip), braking with grip.
     const ph = v.physics;
     const g = ph.tyreGrip;
-    const grip = Math.min(((g[0] + g[1]) / 2) * (0.5 + 0.5 * ph.aero.front), ((g[2] + g[3]) / 2) * (0.5 + 0.5 * ph.aero.rear));
-    const pace = this.profile.pace * Math.sqrt(Math.min(1, grip));
-    let target = line.speeds[this.index] * pace;
+    const tyreGrip = Math.min(1, (g[0] + g[1]) / 2, (g[2] + g[3]) / 2);
+    const aeroLeft = Math.min(ph.aero.front * ph.wake.front, ph.aero.rear * ph.wake.rear);
+    const b0 = line.brakeAt(0);
+    const gripAt = (s: number) => {
+      const b = line.brakeAt(s);
+      return (tyreGrip * (b0 + aeroLeft * (b - b0))) / b;
+    };
+    const pace = this.profile.pace;
+    // The plan's speeds assume clean-air acceleration. In a tow the car really accelerates
+    // harder, so it drives to the corner / braking limits instead (it can only go as fast
+    // as the physics lets it). Flat-out straights stay flat out.
+    const profile = ph.wake.drag < 0.97 ? line.limits : line.speeds;
+    const vTop = v.config.maxSpeed * 0.999;
+    const cornerAt = (j: number) => {
+      const lim = profile[j];
+      return lim >= vTop ? lim * pace : lim * pace * Math.sqrt(gripAt(lim * pace));
+    };
+    let target = cornerAt(this.index);
     let dist = 0;
     for (let k = 1; k < 160 && dist < 320; k++) {
       dist += line.segmentLength(this.index + k - 1);
       const j = (this.index + k) % count;
-      const vj = line.speeds[j] * pace;
-      const allowed = Math.sqrt(vj * vj + 2 * line.brakeAt(vj) * 0.9 * Math.min(1, grip) * dist);
+      const vj = cornerAt(j);
+      const allowed = Math.sqrt(vj * vj + 2 * line.brakeAt(vj) * 0.9 * gripAt(vj) * dist);
       if (allowed < target) target = allowed;
     }
     target = Math.min(target, followSpeed);
