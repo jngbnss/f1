@@ -42,6 +42,7 @@ const _linvel = new THREE.Vector3();
 const _angvel = new THREE.Vector3();
 const _com = new THREE.Vector3();
 const _steerQuat = new THREE.Quaternion();
+const _contact = new THREE.Vector3();
 
 /** Grip multiplier and extra deceleration (m/s²) of the ground under one wheel. */
 export interface SurfaceSample {
@@ -53,7 +54,9 @@ export interface SurfaceSample {
  * Raycast vehicle on top of a single Rapier rigid body.
  *
  * - Chassis = one dynamic box (collides with barriers, falls with gravity).
- * - Each wheel = a downward ray; a spring-damper pushes the chassis up.
+ * - Each wheel = a downward ray; a spring-damper (plus an anti-roll bar per axle)
+ *   pushes the chassis up. Tyre forces act at the road (cgHeight below the centre
+ *   of mass), so the body rolls and pitches and the load moves where it should.
  * - Engine = constant power (force = P / v) limited by a max tractive force,
  *   so acceleration and top speed come out of power, drag and mass.
  * - Tyre model = per-wheel impulses: cancel a fraction of lateral slip, plus
@@ -73,6 +76,8 @@ export class VehiclePhysics {
   private readonly ray: RAPIER.Ray;
   private readonly massPerWheel: number;
   private readonly drivenCount: number;
+  /** Ground normal under each wheel from this step's suspension ray. */
+  private readonly normals: THREE.Vector3[];
   /** Ground under a wheel contact (x, z). Unset = asphalt everywhere. */
   surfaceAt: ((x: number, z: number, y?: number) => SurfaceSample) | null = null;
   /** Average surface grip under the grounded wheels in the last step (1 = asphalt). */
@@ -144,6 +149,7 @@ export class VehiclePhysics {
     this.massPerWheel = c.mass / c.wheels.length;
     this.drivenCount = c.wheels.filter((wc) => wc.driven).length || 1;
     this.tyreGrip = c.wheels.map(() => 1);
+    this.normals = c.wheels.map(() => new THREE.Vector3(0, 1, 0));
     this.wheels = c.wheels.map(() => ({
       grounded: false,
       suspensionLength: c.suspensionRestLength,
@@ -218,19 +224,26 @@ export class VehiclePhysics {
     let gripSum = 0;
     let dragSum = 0;
 
-    for (let i = 0; i < c.wheels.length; i++) {
+    // Pass 1: suspension rays (the anti-roll bars need both wheels of an axle).
+    const n = c.wheels.length;
+    for (let i = 0; i < n; i++) {
       const wc = c.wheels[i];
       const ws = this.wheels[i];
-      ws.steerAngle = wc.steerable ? cmd.steerAngle : 0;
-
       _origin.set(wc.position.x, wc.position.y, wc.position.z).applyQuaternion(_quat).add(_pos);
       this.ray.origin = _origin;
       this.ray.dir = _down;
       const hit = world.castRayAndGetNormal(this.ray, maxRay, true, undefined, SUSPENSION_RAY_GROUPS, undefined, body);
+      ws.grounded = !!hit;
+      ws.suspensionLength = hit ? Math.max(hit.timeOfImpact - c.wheelRadius, 0) : c.suspensionRestLength;
+      if (hit) this.normals[i].set(hit.normal.x, hit.normal.y, hit.normal.z);
+    }
 
-      if (!hit) {
-        ws.grounded = false;
-        ws.suspensionLength = c.suspensionRestLength;
+    for (let i = 0; i < n; i++) {
+      const wc = c.wheels[i];
+      const ws = this.wheels[i];
+      ws.steerAngle = wc.steerable ? cmd.steerAngle : 0;
+
+      if (!ws.grounded) {
         ws.slip = 0;
         ws.locked = false;
         ws.load = 0;
@@ -238,17 +251,23 @@ export class VehiclePhysics {
       }
 
       grounded++;
-      ws.grounded = true;
-      const springLength = Math.max(hit.timeOfImpact - c.wheelRadius, 0);
-      ws.suspensionLength = springLength;
-      _normal.set(hit.normal.x, hit.normal.y, hit.normal.z);
+      _origin.set(wc.position.x, wc.position.y, wc.position.z).applyQuaternion(_quat).add(_pos);
+      const springLength = ws.suspensionLength;
+      _normal.copy(this.normals[i]);
 
       // --- suspension (spring-damper along chassis up) --------------
       // v = v_lin + w x (p - com)
       _vel.subVectors(_origin, _com).crossVectors(_angvel, _vel).add(_linvel);
       const compression = c.suspensionRestLength - springLength;
       const compressionVel = -_vel.dot(_up);
-      const load = Math.max(c.suspensionStiffness * compression + c.suspensionDamping * compressionVel, 0);
+      let spring = c.suspensionStiffness * compression + c.suspensionDamping * compressionVel;
+      // Anti-roll bar: the more compressed side of the axle pushes up harder, the other less.
+      const mate = i ^ 1; // wheels come in left/right pairs per axle
+      if (mate < n && this.wheels[mate].grounded) {
+        const arb = wc.steerable ? c.antiRollFront : c.antiRollRear;
+        spring += arb * (this.wheels[mate].suspensionLength - springLength);
+      }
+      const load = Math.max(spring, 0);
       _impulse.copy(_up).multiplyScalar(load * dt);
       body.applyImpulseAtPoint(_impulse, _origin, true);
 
@@ -336,8 +355,11 @@ export class VehiclePhysics {
         longitudinal -= Math.sign(vLong) * Math.min(resist, stop);
       }
 
+      // Tyre forces act cgHeight below the centre of mass (at the road, as on a real car), so
+      // they roll the body outwards and load the outside wheels; braking pitches it forward.
       _impulse.copy(_wheelRight).multiplyScalar(lateralF * dt).addScaledVector(_wheelFwd, longitudinal);
-      body.applyImpulseAtPoint(_impulse, _origin, true);
+      _contact.set(wc.position.x, c.centerOfMass.y - c.cgHeight, wc.position.z).applyQuaternion(_quat).add(_pos);
+      body.applyImpulseAtPoint(_impulse, _contact, true);
     }
     this.surfaceGrip = grounded > 0 ? gripSum / grounded : 1;
     const surfaceDrag = grounded > 0 ? dragSum / c.wheels.length : 0;
