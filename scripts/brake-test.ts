@@ -17,6 +17,7 @@ import { RacingLine } from '../src/world/RacingLine';
 import { racingLineFor } from '../src/world/RacingLineOptimizer';
 import { ProceduralTrack } from '../src/world/Track';
 import { loadLayout } from './tracks-node';
+import { straightZones, updateRules2026 } from '../src/race/Rules2026';
 
 const [carId = 'f1-ferrari'] = process.argv.slice(2);
 const dt = 1 / 120;
@@ -63,7 +64,10 @@ for (const assist of [true, false]) {
   const lockBands = [0, 0, 0];
   let peak = 0;
   let brakeSteps = 0;
+  const zones = straightZones(track);
   while (phase !== 'done' && t < 60) {
+    // 2026 active aero: straight mode on the main straight, as in a race.
+    updateRules2026(track, zones, [v], null);
     const inp = { ...ai.update(dt, [v]) };
     const kmh = v.physics.forwardSpeed * 3.6;
     if (phase === 'accel' && kmh >= 300) {

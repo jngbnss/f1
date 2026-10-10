@@ -123,6 +123,12 @@ export class VehiclePhysics {
   readonly wake = { drag: 1, front: 1, rear: 1 };
   /** Drag multiplier from broken bodywork (1 = intact). */
   bodyDrag = 1;
+  /** 2026 active aero: drag and downforce multipliers (1 = corner mode, below 1 on straights). */
+  readonly activeAero = { drag: 1, downforce: 1 };
+  /** Power at the wheels the power unit can give this step (W; the battery may limit it). */
+  availablePower: number;
+  /** Drive power actually asked of the power unit in the last step (W). */
+  drivePower = 0;
   /** Aero efficiency per axle (1 = intact; damaged wings lose downforce on their end). */
   readonly aero = { front: 1, rear: 1 };
   /**
@@ -189,6 +195,7 @@ export class VehiclePhysics {
     this.massPerWheel = c.mass / c.wheels.length;
     this.drivenCount = c.wheels.filter((wc) => wc.driven).length || 1;
     this.tyreGrip = c.wheels.map(() => 1);
+    this.availablePower = c.enginePower;
     this.normals = c.wheels.map(() => new THREE.Vector3(0, 1, 0));
     this.wheels = c.wheels.map(() => ({
       grounded: false,
@@ -257,11 +264,12 @@ export class VehiclePhysics {
       // Spinning up the engine, gearbox and wheels takes part of the force: more in the
       // low gears (rotating-mass factor ~1.16 in first, ~1.07 in top, TUMFTM F1 data).
       const rotating = 1.07 + 0.09 * Math.max(0, 1 - forwardSpeed / (c.maxSpeed * 0.3));
-      driveForce = (cmd.drive * Math.min(c.engineForce, c.enginePower / v) * limiter) / rotating;
+      driveForce = (cmd.drive * Math.min(c.engineForce, this.availablePower / v) * limiter) / rotating;
     } else if (cmd.drive < 0) {
       const r = Math.min(Math.max(-forwardSpeed, 0) / c.maxReverseSpeed, 1);
       driveForce = cmd.drive * c.reverseForce * (1 - r * r);
     }
+    this.drivePower = Math.max(0, driveForce) * Math.max(forwardSpeed, 0);
     const maxRay = c.suspensionRestLength + c.wheelRadius;
     let grounded = 0;
     let gripSum = 0;
@@ -448,7 +456,7 @@ export class VehiclePhysics {
     // --- body forces -----------------------------------------------
     if (speed > 0.01) {
       // Aerodynamic drag opposing velocity: F = -c * |v| * v.
-      _impulse.copy(_linvel).multiplyScalar(-c.dragCoefficient * this.wake.drag * this.bodyDrag * speed * dt);
+      _impulse.copy(_linvel).multiplyScalar(-c.dragCoefficient * this.wake.drag * this.bodyDrag * this.activeAero.drag * speed * dt);
       body.applyImpulse(_impulse, true);
     }
     if (surfaceDrag > 0 && speed > 0.1) {
@@ -463,7 +471,7 @@ export class VehiclePhysics {
     if (grounded > 0 || (this.aeroInAir && _up.y > 0.5 && !this.onAnotherCar())) {
       // Downforce acts on each axle by the aero balance (front share); wing damage and
       // dirty air take away that axle's part.
-      const down = c.downforce * speed * speed * dt;
+      const down = c.downforce * this.activeAero.downforce * speed * speed * dt;
       for (const axle of ['front', 'rear'] as const) {
         const share = axle === 'front' ? c.aeroBalance : 1 - c.aeroBalance;
         const mount = c.wheels[axle === 'front' ? 0 : c.wheels.length - 1].position;

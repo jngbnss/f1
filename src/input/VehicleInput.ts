@@ -15,7 +15,7 @@ export interface VehicleInput {
 }
 
 /** One-shot actions (edge-triggered, consumed once per poll). */
-export type InputAction = 'reset';
+export type InputAction = 'reset' | 'overtake';
 
 export function emptyInput(): VehicleInput {
   return { throttle: 0, brake: 0, steer: 0, handbrake: 0 };

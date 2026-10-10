@@ -48,14 +48,16 @@ export class TouchControls {
     const pause = button('tc-small', '⏸', '일시정지');
     const cam = button('tc-small', '🎥', '시점');
     const reset = button('tc-small', '↺', '리셋');
+    const overtake = button('tc-small', 'OT', '오버테이크 모드');
     const board = button('tc-small', '☰', '순위표');
     const gear = button('tc-small', '⚙', '설정');
     tap(pause, () => this.setPaused(true));
     tap(cam, () => key('KeyC'));
     tap(reset, () => this.input.requestReset());
+    tap(overtake, () => this.input.requestOvertake());
     tap(board, () => document.body.classList.toggle('board-full'));
     tap(gear, () => this.openSettings());
-    bar.append(pause, cam, reset, board, gear);
+    bar.append(pause, cam, reset, overtake, board, gear);
 
     root.append(left, right, gas, brake, drift, bar);
 

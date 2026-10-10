@@ -11,6 +11,7 @@ import { RaceManager, type Racer } from '../src/race/RaceManager';
 import { findCar } from '../src/vehicle/cars';
 import { applyImpacts } from '../src/race/Impacts';
 import { DebrisField } from '../src/race/Debris';
+import { straightZones, updateRules2026 } from '../src/race/Rules2026';
 import { updateSlipstream } from '../src/race/Slipstream';
 import { Vehicle } from '../src/vehicle/Vehicle';
 import { racingLineFor } from '../src/world/RacingLineOptimizer';
@@ -42,6 +43,10 @@ for (let slot = 0; slot < total; slot++) {
   racers.push({ name: `CAR${slot + 1}`, vehicle: v, ai, isPlayer: slot === 0, progress: 0, lastIndex: 0, finished: false, finishTime: 0, color: 0 });
 }
 const broken = new Set<Vehicle>();
+const zones = straightZones(track);
+let straightSteps = 0;
+let carSteps = 0;
+let minCharge = 1;
 const debris = process.env.NO_DEBRIS ? null : new DebrisField(1 + Number(process.env.SEED ?? 0));
 let debrisSlides = 0;
 let maxDebris = 0;
@@ -61,6 +66,7 @@ let t = 0;
 while (t < limit && !racers.every((r) => r.finished)) {
   const t0 = performance.now();
   if (!process.env.NO_SLIP) updateSlipstream(vehicles);
+  if (!process.env.NO_2026) updateRules2026(track, zones, vehicles, race);
   for (const r of racers) r.vehicle.fixedUpdate(race.frozen ? HOLD : r.ai!.update(dt, vehicles), dt);
   physics.step();
   for (const v of vehicles) v.snapshot();
@@ -105,6 +111,13 @@ while (t < limit && !racers.every((r) => r.finished)) {
     if (process.env.RESET_LOG && e.kind === 'puncture') console.log(`  puncture ${racers.find((r) => r.vehicle === e.car)!.name} wheel ${e.wheel} t=${t.toFixed(1)}s`);
   });
   if (debris) maxDebris = Math.max(maxDebris, debris.pieces.length);
+  if (!race.frozen) {
+    for (const v of vehicles) {
+      carSteps++;
+      if (v.aeroMode > 0.5) straightSteps++;
+      minCharge = Math.min(minCharge, v.ers.charge);
+    }
+  }
   race.update(dt);
   stepMs += performance.now() - t0;
   steps++;
@@ -115,11 +128,15 @@ const standings = race.standings();
 console.log(`${layout.name} (${(track.length / 1000).toFixed(2)} km), ${total} cars, ${lapsArg} laps, car ${car.name}`);
 console.log(`finished ${finished.length}/${total} in ${t.toFixed(0)} s sim time; resets ${resets}`);
 console.log(`winner ${standings[0].name} ${standings[0].finishTime.toFixed(1)} s, last ${finished.length ? Math.max(...finished.map((r) => r.finishTime)).toFixed(1) : '-'} s`);
+if (process.env.FINISH_LOG) console.log('finish times', standings.map((r) => `${r.name}:${r.finished ? r.finishTime.toFixed(1) : 'DNF'}${r.vehicle.damage.any ? '*' : ''}`).join(' '));
 console.log(`wing damage: ${vehicles.filter((v) => v.damage.any).length} cars touched, ${vehicles.filter((v) => v.damage.front >= 0.6 || v.damage.rear >= 0.6).length} lost a wing`);
 const spots = new Map<number, number>();
 for (const m of offAt) spots.set(Math.round(m / 100) * 100, (spots.get(Math.round(m / 100) * 100) ?? 0) + 1);
 const worst = [...spots].sort((x, y) => y[1] - x[1]).slice(0, 4).map(([m, k]) => `${k}x @${m} m`);
 console.log(`track limits: ${offAt.length} times off with all four wheels, ${offSide.inside} inside / ${offSide.outside} outside of a bend${worst.length ? ` (${worst.join(', ')})` : ''}`);
+const zoneShare = zones.reduce((a, b) => a + b, 0) / zones.length;
+const charge = vehicles.reduce((a, v) => a + v.ers.charge, 0) / vehicles.length;
+console.log(`2026: straight-mode zones ${(zoneShare * 100).toFixed(0)} % of the lap, cars in straight mode ${((straightSteps / Math.max(carSteps, 1)) * 100).toFixed(0)} % of the time, battery at the end ${(charge * 100).toFixed(0)} % (lowest ${(minCharge * 100).toFixed(0)} %), overtake mode used ${vehicles.reduce((a, v) => a + v.ers.overtakeUses, 0)} times`);
 if (debris) console.log(`debris: up to ${maxDebris} pieces on track, ${debrisSlides} tyre slides on it, ${debris.punctures} punctures`);
 console.log(`CPU per physics step (all ${total} cars + AI): ${(stepMs / steps).toFixed(2)} ms`);
 process.exit(finished.length >= total * 0.9 && resets <= total ? 0 : 1);
