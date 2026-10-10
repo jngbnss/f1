@@ -11,7 +11,7 @@ import { PhysicsWorld } from '../src/physics/PhysicsWorld';
 import { findCar } from '../src/vehicle/cars';
 import { optimizeMinTime } from '../src/world/MinTimeLine';
 import { RacingLine } from '../src/world/RacingLine';
-import { minCurvatureOffsets } from '../src/world/RacingLineOptimizer';
+import { minCurvatureOffsets, STREET_MARGIN } from '../src/world/RacingLineOptimizer';
 import { ProceduralTrack } from '../src/world/Track';
 import { CIRCUITS } from './fetch-osm';
 import { loadLayout } from './tracks-node';
@@ -21,7 +21,7 @@ const file = CIRCUITS.find((c) => c.id === id)!.file;
 const physics = await PhysicsWorld.create(1 / 60);
 const track = new ProceduralTrack(physics, loadLayout(id), { treesPerKm: 0 });
 const car = findCar('f1-ferrari').physics;
-const input = { points: track.getCenterline(), rights: track.getRights(), halfWidth: track.halfWidth };
+const input = { points: track.getCenterline(), rights: track.getRights(), halfWidth: track.halfWidth, margin: track.street ? STREET_MARGIN : undefined };
 const start = minCurvatureOffsets(input);
 const t0 = performance.now();
 // Objective = the game's own speed model (RacingLine), so what is optimized is what the AI drives.

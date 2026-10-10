@@ -16,6 +16,7 @@ import { buildFerrisWheel } from './FerrisWheel';
 import { findCrossings, loopGap } from './Elevation';
 import type { Ground, RealTerrain } from './RealTerrain';
 import { drapeObject, elevatedGround } from './TrackGround';
+import { QUALITY } from '../performance/Quality';
 
 export type Surface = 'asphalt' | 'kerb' | 'grass' | 'gravel';
 
@@ -501,7 +502,9 @@ export class ProceduralTrack implements Track {
     this.crowdMaterial.setTime(time);
     for (const a of this.animations) a(time);
     if (camera) {
-      for (const c of this.cullables) c.object.visible = c.center.distanceTo(camera) - c.radius < c.distance;
+      // Weaker devices (quality tier, runtime governor) draw a shorter distance.
+      const scale = QUALITY.viewDistance;
+      for (const c of this.cullables) c.object.visible = c.center.distanceTo(camera) - c.radius < c.distance * scale;
     }
   }
 

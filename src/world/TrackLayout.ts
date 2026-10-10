@@ -157,6 +157,48 @@ export const FAMOUS_STANDS: Record<string, StandSpec[]> = {
     { at: 2630, length: 130, depth: 16, height: 10, side: 1 },
     { at: 4340, length: 140, depth: 16, height: 10, side: -1 },
   ],
+  jeddah: [
+    { at: 120, length: 220, depth: 24, height: 15, side: -1 },
+    { at: 710, length: 130, depth: 16, height: 10, side: -1 },
+    { at: 2610, length: 160, depth: 16, height: 10, side: 1 },
+    { at: 5690, length: 160, depth: 16, height: 10, side: 1 },
+  ],
+  miami: [
+    { at: 120, length: 220, depth: 24, height: 15, side: -1 },
+    { at: 3030, length: 140, depth: 16, height: 10, side: 1 },
+    { at: 3300, length: 160, depth: 16, height: 10, side: 1 },
+    { at: 4800, length: 160, depth: 16, height: 10, side: 1 },
+  ],
+  madrid: [
+    { at: 120, length: 220, depth: 24, height: 15, side: -1 },
+    { at: 3190, length: 150, depth: 16, height: 10, side: 1 },
+    { at: 3880, length: 130, depth: 16, height: 10, side: -1 },
+    { at: 4650, length: 140, depth: 16, height: 10, side: 1 },
+  ],
+  baku: [
+    { at: 120, length: 220, depth: 24, height: 15, side: 1 },
+    { at: 1670, length: 140, depth: 16, height: 10, side: -1 },
+    { at: 2450, length: 150, depth: 16, height: 10, side: -1 },
+    { at: 2830, length: 130, depth: 16, height: 10, side: 1 },
+  ],
+  singapore: [
+    { at: 120, length: 220, depth: 24, height: 15, side: 1 },
+    { at: 490, length: 160, depth: 16, height: 10, side: 1 },
+    { at: 2940, length: 140, depth: 16, height: 10, side: 1 },
+    { at: 3480, length: 140, depth: 16, height: 10, side: -1 },
+  ],
+  lasvegas: [
+    { at: 120, length: 220, depth: 24, height: 15, side: 1 },
+    { at: 1480, length: 140, depth: 16, height: 10, side: -1 },
+    { at: 2000, length: 130, depth: 16, height: 10, side: -1 },
+    { at: 2120, length: 150, depth: 16, height: 10, side: 1 },
+  ],
+  lusail: [
+    { at: 120, length: 220, depth: 24, height: 15, side: 1 },
+    { at: 1990, length: 160, depth: 16, height: 10, side: 1 },
+    { at: 2390, length: 160, depth: 16, height: 10, side: -1 },
+    { at: 2960, length: 160, depth: 16, height: 10, side: 1 },
+  ],
   suzuka: [
     { at: 120, length: 260, depth: 28, height: 16, side: -1 },
     { at: 720, length: 140, depth: 22, height: 12, side: -1 },
@@ -176,6 +218,7 @@ export const FERRIS_WHEELS: Record<string, { at: number; side: number; distance:
 /** Side of the pit lane on the start/finish straight (+1 right), where the real one is. */
 export const PIT_SIDE: Record<string, number> = { monza: 1, spa: 1, suzuka: 1, monaco: 1, melbourne: 1, shanghai: 1,
   sakhir: 1, montreal: -1, catalunya: 1, spielberg: 1, silverstone: 1, budapest: 1, zandvoort: 1, austin: -1, mexicocity: 1, saopaulo: -1, yasmarina: -1,
+  jeddah: 1, miami: 1, madrid: 1, baku: -1, singapore: -1, lasvegas: -1, lusail: -1,
 };
 
 /**
@@ -204,6 +247,14 @@ export const PIT_LANE: Record<string, { entry: number; exit: number; boxes: numb
   austin: { entry: 120, exit: 520, boxes: 200 },
   saopaulo: { entry: 350, exit: 250, boxes: 0 },
   yasmarina: { entry: 110, exit: 300, boxes: 90 },
+  // OSM-built circuits: the line sits at the middle of the mapped pit road.
+  jeddah: { entry: 320, exit: 140, boxes: -40 },
+  miami: { entry: 400, exit: 240, boxes: -80 },
+  madrid: { entry: 220, exit: 280, boxes: 0 },
+  baku: { entry: 380, exit: 200, boxes: -60 },
+  singapore: { entry: 190, exit: 280, boxes: 0 },
+  lasvegas: { entry: 255, exit: 150, boxes: -40 },
+  lusail: { entry: 400, exit: 450, boxes: 0 },
 };
 
 /** Per-circuit layout overrides that the CSV can't carry. */
@@ -214,6 +265,16 @@ export function applyCircuitSpecifics(layout: TrackLayout): void {
     layout.roadWidth = 13.5;
     layout.runoff = 1.6;
     layout.street = true;
+    layout.attribution = 'Track & scenery: © OpenStreetMap contributors (ODbL)';
+  }
+  if (['jeddah', 'baku', 'singapore', 'lasvegas'].includes(layout.id)) {
+    // Street circuits: walls at the kerb like Monaco, on 12-15 m roads (wider than Monaco's).
+    layout.roadWidth = 16;
+    layout.runoff = 1.6;
+    layout.street = true;
+  }
+  if (['jeddah', 'miami', 'madrid', 'baku', 'singapore', 'lasvegas', 'lusail'].includes(layout.id)) {
+    // Not in TUMFTM: built from OSM (scripts/build-osm-circuit.ts).
     layout.attribution = 'Track & scenery: © OpenStreetMap contributors (ODbL)';
   }
   if (layout.id === 'catalunya' || layout.id === 'yasmarina') {

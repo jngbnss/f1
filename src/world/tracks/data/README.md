@@ -40,6 +40,16 @@ reality, was a 41 m-radius line at 100 km/h). With it their ideal laps sit at
 frame as before; their widths come from the TUMFTM files they replaced
 (LGPL-3.0). `Monaco.csv` is built from OSM too (`scripts/fetch-monaco.ts`).
 
+`Jeddah`, `Miami`, `Madrid`, `Baku`, `Singapore`, `LasVegas` and `Lusail` are
+not in TUMFTM: `scripts/build-osm-circuit.ts` builds them from OpenStreetMap
+raceway ways / circuit relations (© OpenStreetMap contributors, ODbL) in the
+projector's frame with an exact georeference (`<Name>_geo.json`). Lap lengths
+are within 2 % of the real ones; the start line sits at the middle of the
+mapped pit road, widths are defaults (12-14 m) where OSM has none, Jeddah,
+Baku, Singapore and Las Vegas use the street-circuit mode (walls at the kerb).
+Las Vegas has two straight stretches of the Strip (250-330 m) that OSM maps as
+plain road; they are bridged straight.
+
 Elevation (`*_elev.json`, `scripts/bake-elevation.ts`) is used where the DEM
 agrees with the real circuit; Albert Park, Montréal and Yas Marina stay flat
 (the DEM's tree canopy and buildings made up 7-11 % grades there), Zandvoort too (its

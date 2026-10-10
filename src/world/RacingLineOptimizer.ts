@@ -150,11 +150,19 @@ function shiftApexes(alpha: Float64Array, cx: Float64Array, cz: Float64Array, rx
   return out;
 }
 
+/**
+ * Room kept between the line and the road edge on street circuits, where the wall is
+ * the edge: with path-tracking AI a car runs up to ~2 m off its line at a slow
+ * corner's exit, which put Jeddah's, Baku's and Las Vegas's T1 walls in reach at 1.6 m.
+ */
+export const STREET_MARGIN = 3;
+
 /** Racing line for a built track (uses its centerline, right vectors and road width). */
 export function racingLineFor(track: {
   getCenterline(): readonly THREE.Vector3[];
   getRights(): readonly THREE.Vector3[];
   readonly halfWidth: number;
+  readonly street?: boolean;
 }): [number, number][] {
-  return optimizeRacingLine({ points: track.getCenterline(), rights: track.getRights(), halfWidth: track.halfWidth });
+  return optimizeRacingLine({ points: track.getCenterline(), rights: track.getRights(), halfWidth: track.halfWidth, margin: track.street ? STREET_MARGIN : undefined });
 }
