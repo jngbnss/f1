@@ -63,6 +63,8 @@ export const TRACK_GRIP = { value: 1 };
 export const WEAR_MULTIPLIER = 4;
 const AMBIENT = 25;
 const FRONT_SLIP_WEIGHT = 0.35;
+/** Grip of a punctured tyre (rim and flapping rubber). */
+const PUNCTURED_GRIP = 0.3;
 /** Tyre blankets: fitted tyres start warm but below the window. */
 const BLANKET = 75;
 
@@ -75,6 +77,8 @@ export class TyreSet {
   readonly wear = [0, 0, 0, 0];
   /** Carcass temperature (°C) per wheel. */
   readonly temp = [BLANKET, BLANKET, BLANKET, BLANKET];
+  /** Punctured (debris cut) per wheel: the tyre deflates and has little grip left. */
+  readonly punctured = [false, false, false, false];
   /** Distance on this set (m). */
   distance = 0;
   /** Car-specific wear rate (team character). */
@@ -89,7 +93,17 @@ export class TyreSet {
     this.compound = compound;
     this.wear.fill(0);
     this.temp.fill(BLANKET);
+    this.punctured.fill(false);
     this.distance = 0;
+  }
+
+  /** A debris cut deflates this tyre (until the next set is fitted). */
+  puncture(wheel: number): void {
+    this.punctured[wheel] = true;
+  }
+
+  get anyPuncture(): boolean {
+    return this.punctured.some(Boolean);
   }
 
   /** Most worn tyre (pit strategy, dash). */
@@ -99,6 +113,8 @@ export class TyreSet {
 
   /** Grip multiplier of one wheel (compound x temperature x wear). */
   grip(wheel: number): number {
+    // A deflated tyre rolls on its sidewall and rim: a fraction of the grip.
+    if (this.punctured[wheel]) return PUNCTURED_GRIP;
     const spec = COMPOUNDS[this.compound];
     const t = this.temp[wheel];
     const [lo, hi] = spec.window;

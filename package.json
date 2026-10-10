@@ -17,6 +17,7 @@
     "slip:test": "tsx scripts/slip-test.ts",
     "pit:queue": "tsx scripts/pit-queue-test.ts monza && tsx scripts/pit-queue-test.ts monaco",
     "damage:test": "tsx scripts/damage-test.ts",
+    "debris:test": "tsx scripts/debris-test.ts",
     "tyre:test": "tsx scripts/tyre-test.ts",
     "brake:test": "tsx scripts/brake-test.ts",
     "load:test": "tsx scripts/load-test.ts",

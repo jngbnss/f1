@@ -10,6 +10,7 @@ import { AIDriver } from '../src/race/AIDriver';
 import { RaceManager, type Racer } from '../src/race/RaceManager';
 import { findCar } from '../src/vehicle/cars';
 import { applyImpacts } from '../src/race/Impacts';
+import { DebrisField } from '../src/race/Debris';
 import { updateSlipstream } from '../src/race/Slipstream';
 import { Vehicle } from '../src/vehicle/Vehicle';
 import { racingLineFor } from '../src/world/RacingLineOptimizer';
@@ -41,6 +42,9 @@ for (let slot = 0; slot < total; slot++) {
   racers.push({ name: `CAR${slot + 1}`, vehicle: v, ai, isPlayer: slot === 0, progress: 0, lastIndex: 0, finished: false, finishTime: 0, color: 0 });
 }
 const broken = new Set<Vehicle>();
+const debris = process.env.NO_DEBRIS ? null : new DebrisField(1 + Number(process.env.SEED ?? 0));
+let debrisSlides = 0;
+let maxDebris = 0;
 // Track limits: all four wheels past the asphalt edge (car centre > half width + ~1 m).
 const offTrack = new Set<Vehicle>();
 const offAt: number[] = [];
@@ -60,7 +64,8 @@ while (t < limit && !racers.every((r) => r.finished)) {
   for (const r of racers) r.vehicle.fixedUpdate(race.frozen ? HOLD : r.ai!.update(dt, vehicles), dt);
   physics.step();
   for (const v of vehicles) v.snapshot();
-  applyImpacts(physics, byCollider, dt, (v, hit) => {
+  applyImpacts(physics, byCollider, dt, (v, hit, before) => {
+    debris?.onDamage(v, before);
     if (process.env.RESET_LOG && (v.damage.front >= 0.6 || v.damage.rear >= 0.6) && !broken.has(v)) {
       broken.add(v);
       console.log(`  wing off (${hit}) ${racers.find((r) => r.vehicle === v)!.name} t=${t.toFixed(1)}s at sample ${track.nearestIndex(v.position)} front ${v.damage.front.toFixed(2)} rear ${v.damage.rear.toFixed(2)}, ${(v.physics.speed * 3.6).toFixed(0)} km/h, lateral ${track.lateral(v.position).toFixed(1)} m`);
@@ -95,6 +100,11 @@ while (t < limit && !racers.every((r) => r.finished)) {
       else offTrack.delete(v);
     }
   }
+  debris?.step(vehicles, dt, (e) => {
+    if (e.kind === 'slide') debrisSlides++;
+    if (process.env.RESET_LOG && e.kind === 'puncture') console.log(`  puncture ${racers.find((r) => r.vehicle === e.car)!.name} wheel ${e.wheel} t=${t.toFixed(1)}s`);
+  });
+  if (debris) maxDebris = Math.max(maxDebris, debris.pieces.length);
   race.update(dt);
   stepMs += performance.now() - t0;
   steps++;
@@ -110,5 +120,6 @@ const spots = new Map<number, number>();
 for (const m of offAt) spots.set(Math.round(m / 100) * 100, (spots.get(Math.round(m / 100) * 100) ?? 0) + 1);
 const worst = [...spots].sort((x, y) => y[1] - x[1]).slice(0, 4).map(([m, k]) => `${k}x @${m} m`);
 console.log(`track limits: ${offAt.length} times off with all four wheels, ${offSide.inside} inside / ${offSide.outside} outside of a bend${worst.length ? ` (${worst.join(', ')})` : ''}`);
+if (debris) console.log(`debris: up to ${maxDebris} pieces on track, ${debrisSlides} tyre slides on it, ${debris.punctures} punctures`);
 console.log(`CPU per physics step (all ${total} cars + AI): ${(stepMs / steps).toFixed(2)} ms`);
 process.exit(finished.length >= total * 0.9 && resets <= total ? 0 : 1);

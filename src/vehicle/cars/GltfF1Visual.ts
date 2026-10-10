@@ -331,6 +331,11 @@ export class GltfF1Visual implements VehicleVisual {
     }
   }
 
+  takeDetachedWing(): THREE.Object3D | null {
+    const d = this.debris.pop();
+    return d ? d.object : null;
+  }
+
   /** Droops a damaged wing; past DETACH it breaks off as debris (once). */
   private wingDamage(wing: THREE.Group, amount: number, side: 1 | -1): void {
     if (amount >= DETACH) {

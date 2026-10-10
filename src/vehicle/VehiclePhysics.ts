@@ -121,6 +121,8 @@ export class VehiclePhysics {
    * multiplier per axle (< 1 = dirty air, the front wing suffers most).
    */
   readonly wake = { drag: 1, front: 1, rear: 1 };
+  /** Drag multiplier from broken bodywork (1 = intact). */
+  bodyDrag = 1;
   /** Aero efficiency per axle (1 = intact; damaged wings lose downforce on their end). */
   readonly aero = { front: 1, rear: 1 };
   /**
@@ -433,7 +435,7 @@ export class VehiclePhysics {
     // --- body forces -----------------------------------------------
     if (speed > 0.01) {
       // Aerodynamic drag opposing velocity: F = -c * |v| * v.
-      _impulse.copy(_linvel).multiplyScalar(-c.dragCoefficient * this.wake.drag * speed * dt);
+      _impulse.copy(_linvel).multiplyScalar(-c.dragCoefficient * this.wake.drag * this.bodyDrag * speed * dt);
       body.applyImpulse(_impulse, true);
     }
     if (surfaceDrag > 0 && speed > 0.1) {

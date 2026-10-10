@@ -20,8 +20,10 @@ export interface CarPanelState {
   temp: number[];
   tempC: number[];
   pit: string | null;
-  /** Wing damage 0..1 (front, rear). */
-  damage: [number, number];
+  /** Bodywork damage 0..1 (front wing, rear wing, floor). */
+  damage: [number, number, number];
+  /** Punctured tyre per wheel. */
+  punctured: boolean[];
   ahead: number | null;
   behind: number | null;
 }
@@ -290,14 +292,15 @@ export class HUD {
     // F1-game style: four tyres around the car, each coloured by its wear.
     const wearColor = (w: number) => (w < 0.3 ? '#2bd56f' : w < 0.55 ? '#d9e021' : w < 0.75 ? '#ffb020' : '#ff4a3d');
     const corner = (k: number) =>
-      `<div class="corner ${k % 2 ? 'r' : 'l'}"><i style="background:${wearColor(s.wear[k])}"></i><span><b>${Math.round(s.wear[k] * 100)}%</b><em class="${tempClass(s.temp[k])}">${Math.round(s.tempC[k])}°</em></span></div>`;
+      s.punctured[k]
+        ? `<div class="corner ${k % 2 ? 'r' : 'l'} flat"><i></i><span><b>펑크</b></span></div>`
+        : `<div class="corner ${k % 2 ? 'r' : 'l'}"><i style="background:${wearColor(s.wear[k])}"></i><span><b>${Math.round(s.wear[k] * 100)}%</b><em class="${tempClass(s.temp[k])}">${Math.round(s.tempC[k])}°</em></span></div>`;
+    const part = (label: string, d: number, detach: number) => (d > 0.02 ? `<span class="${d >= detach ? 'bad' : 'warn'}">${label} ${Math.round(d * 100)}%</span>` : '');
     const car = '<svg class="car" viewBox="0 0 20 44"><path d="M10 1 L13 9 L12 16 L15 22 L15 36 L12 42 L8 42 L5 36 L5 22 L8 16 L7 9 Z"/></svg>';
     const gap = (v: number | null, sign: string) => (v === null ? '–' : `${sign}${v.toFixed(1)}`);
     this.carEl.innerHTML =
       `<div class="tyre"><b style="color:${s.compoundColor};border-color:${s.compoundColor}">${s.compound}</b><div class="corners">${corner(0)}${car}${corner(1)}${corner(2)}${corner(3)}</div></div>` +
-      (s.damage[0] > 0.02 || s.damage[1] > 0.02
-        ? `<div class="damage"><span class="${s.damage[0] >= 0.6 ? 'bad' : s.damage[0] > 0.02 ? 'warn' : ''}">앞날개 ${Math.round(s.damage[0] * 100)}%</span><span class="${s.damage[1] >= 0.6 ? 'bad' : s.damage[1] > 0.02 ? 'warn' : ''}">뒷날개 ${Math.round(s.damage[1] * 100)}%</span></div>`
-        : '') +
+      (s.damage.some((d) => d > 0.02) ? `<div class="damage">${part('앞날개', s.damage[0], 0.6)}${part('뒷날개', s.damage[1], 0.6)}${part('바닥', s.damage[2], 0.4)}</div>` : '') +
       `<div class="intervals"><span>앞차 <b>${gap(s.ahead, '-')}</b></span><span>뒤차 <b>${gap(s.behind, '+')}</b></span></div>` +
       (s.pit ? `<div class="pit">${s.pit}</div>` : '<div class="pit hint">P 피트 · 1~5 타이어</div>');
   }
