@@ -19,6 +19,8 @@ export interface MenuSelection {
   quali: boolean;
   /** Season mode: continue the saved season or start a new one; null = a single race. */
   season?: 'continue' | 'new' | null;
+  /** Just watch the podium ceremony (the picked driver on the top step), then back to the menu. */
+  podium?: boolean;
   /** Race friends online instead (opens the multiplayer lobby). */
   multiplayer?: boolean;
 }
@@ -137,6 +139,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
         <div class="menu-summary" data-group="summary"></div>
         <button class="menu-start" type="button">출발 ▶ <small>Enter</small></button>
         <button class="menu-mp" type="button">👥 친구와 레이스</button>
+        <button class="menu-podium" type="button" title="레이스 없이 포디움 세리머니만 봅니다">🏆 포디움 보기</button>
       </div>`;
     const q = <T extends HTMLElement>(g: string) => root.querySelector<T>(`[data-group="${g}"]`)!;
     const teamGrid = q<HTMLDivElement>('car');
@@ -368,6 +371,11 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     }
 
     root.querySelector('.menu-start')!.addEventListener('click', start);
+    root.querySelector('.menu-podium')!.addEventListener('click', () => {
+      window.removeEventListener('keydown', onKey);
+      root.remove();
+      resolve({ carId, trackId, ai, laps, quali: false, podium: true });
+    });
     root.querySelector('.menu-mp')!.addEventListener('click', () => {
       window.removeEventListener('keydown', onKey);
       root.remove();
