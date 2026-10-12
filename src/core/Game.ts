@@ -57,7 +57,9 @@ import { GameLoop } from './GameLoop';
 import { F1_MODEL_CREDIT, f1ModelReady, GltfF1Visual, loadF1Model } from '../vehicle/cars/GltfF1Visual';
 import type { NetRace } from '../net/NetRace';
 import { DIFFICULTY, readDifficulty, type DifficultySpec } from '../race/Difficulty';
-import { driverOf, readDriverIndex } from '../race/Drivers';
+import { driverOf, DRIVERS, readDriverIndex } from '../race/Drivers';
+import { PodiumCeremony, type PodiumEntry } from '../race/PodiumCeremony';
+import { formatLapTime } from '../race/LapTimer';
 import { AI_LAP_FACTOR, Qualifying, type QualiEntry } from '../race/Qualifying';
 import { CALENDAR, loadSeason, recordRace, SEASON_POINTS, showSeasonPanel } from '../race/Season';
 
@@ -88,6 +90,8 @@ const HOLD: VehicleInput = { throttle: 0, brake: 1, steer: 0, handbrake: 1 };
 const FLIP_RESET_DELAY = 2.5;
 /** Seconds a car may be outside the barriers before it is put back on track. */
 const OUT_OF_BOUNDS_DELAY = 0.5;
+/** Seconds after the player's chequered flag before the podium ceremony. */
+const PODIUM_DELAY = 6;
 
 /** Arcade surface model: grip multiplier and extra deceleration (m/s²). */
 const SURFACES: Record<Surface, { grip: number; drag: number }> = {
@@ -200,6 +204,13 @@ export class Game {
   private seasonScored = false;
   private readonly trackId: string;
   private seasonPanel: HTMLElement | null = null;
+  /** Podium ceremony after the race (or ?podium=1 straight away), once. */
+  private podium: PodiumCeremony | null = null;
+  private podiumDone = false;
+  private readonly podiumNow = new URLSearchParams(window.location.search).has('podium');
+  /** Drives the player's car round the cool-down lap while the ceremony runs. */
+  private cooldown: AIDriver | null = null;
+  private readonly trackTitle: string;
 
   private constructor(
     private readonly container: HTMLElement,
@@ -463,6 +474,7 @@ export class Game {
       realTerrain ? REAL_TERRAIN_CREDIT : '',
       f1ModelReady() && this.vehicles.some((v) => v.visual instanceof GltfF1Visual) ? F1_MODEL_CREDIT : '',
     ];
+    this.trackTitle = layout.name;
     this.hud = new HUD(layout.name, credits.filter(Boolean).join(' · '));
     this.minimap = new Minimap(this.track.getCenterline());
 
@@ -765,6 +777,55 @@ export class Game {
   }
 
   /**
+   * Podium ceremony: a few seconds after the player takes the flag (the field
+   * finishing behind), the top three of the result. The player's car does its
+   * cool-down lap on its own meanwhile; the results come back after it.
+   */
+  private maybeStartPodium(): void {
+    const race = this.race;
+    if (!race || this.podium || this.podiumDone || this.quali || (this.bench && !this.podiumNow)) return;
+    const me = race.player;
+    const due = this.podiumNow ? race.state !== 'countdown' && race.time > 1 : race.state === 'finished' && !!me?.finished && race.time - me.finishTime > PODIUM_DELAY;
+    if (!due) return;
+    const standings = race.standings();
+    const t0 = standings[0].finished ? race.resultTime(standings[0]) : null;
+    const entries: PodiumEntry[] = standings.slice(0, 3).map((r, k) => {
+      const def = r.isPlayer ? this.car : (this.carOf.get(r.vehicle) ?? this.car);
+      const livery = liveryFor(def.id, def.spec.color, def.spec.accent ?? 0xffffff);
+      const t = r.finished ? race.resultTime(r) : null;
+      const time = t === null ? '' : k === 0 || t0 === null ? formatLapTime(t) : `+${(t - t0).toFixed(3)}s`;
+      // Full name on the podium (the timing tower shows the code).
+      const name = DRIVERS[def.id]?.find((d) => d.code === r.name)?.name ?? r.name;
+      return { name, team: def.spec.brand ?? def.id, primary: livery.primary, secondary: livery.secondary, accent: livery.accent, time };
+    });
+    this.podium = new PodiumCeremony(this.track, entries, this.trackTitle, () => this.podium?.skip());
+    this.scene.add(this.podium.group);
+    // Monza has its real podium on the pit building: the ceremony's one stands in for it.
+    const real = this.scene.getObjectByName('Podium');
+    if (real) real.visible = false;
+    document.body.classList.add('podium-on');
+    if (!this.autopilot) {
+      this.cooldown = new AIDriver(this.player, this.racingLine, this.track, { pace: 0.55, lane: 0, aggression: 0.2 });
+      this.cooldown.debris = this.debris;
+    }
+  }
+
+  private updatePodium(dt: number): void {
+    const p = this.podium!;
+    p.update(dt);
+    this.followCamera.setShot(p.shotPos, p.shotLook);
+    if (!p.done) return;
+    p.dispose();
+    this.podium = null;
+    this.podiumDone = true;
+    this.cooldown = null; // the car is the player's again
+    const real = this.scene.getObjectByName('Podium');
+    if (real) real.visible = true;
+    this.followCamera.setShot(null);
+    document.body.classList.remove('podium-on');
+  }
+
+  /**
    * Season mode: once the player finishes the current round's race, score it (F1 points for
    * the top ten), show the tables and offer the next round.
    */
@@ -898,6 +959,8 @@ export class Game {
     this.pitCrew?.dispose();
     this.quali?.dispose();
     this.seasonPanel?.remove();
+    this.podium?.dispose();
+    document.body.classList.remove('podium-on');
     this.safetyCar?.dispose();
     this.drivingFx?.dispose();
     this.weatherFx?.dispose();
@@ -942,7 +1005,7 @@ export class Game {
     const pitPlayer = frozen ? null : (this.pitStops?.update(this.player, dt) ?? null);
     // The safety car drives itself (before the step), and the AI follow it like a car.
     if (!frozen && this.safetyCar?.fixedUpdate(dt)) this.scDone = true;
-    const playerInput = pitPlayer ?? (this.autopilot ? this.autopilot.update(dt, this.vehicles) : input);
+    const playerInput = pitPlayer ?? (this.autopilot ? this.autopilot.update(dt, this.vehicles) : this.cooldown ? this.cooldown.update(dt, this.vehicles) : input);
     this.player.fixedUpdate(frozen ? HOLD : playerInput, dt);
     if (this.race) {
       for (const r of this.race.racers) {
@@ -974,6 +1037,7 @@ export class Game {
       if (!frozen) this.penalties?.update(this.race.racers, dt, (r) => this.pitStops?.driving(r.vehicle) ?? false);
       if (!frozen) this.applyRaceControl(dt);
       if (this.race.state === 'finished' && !this.seasonScored) this.scoreSeason();
+      this.maybeStartPodium();
     }
 
     // Fell off the world?
@@ -1037,13 +1101,14 @@ export class Game {
     const detail = QUALITY.carDetail * QUALITY.carDetail;
     for (const v of this.vehicles) v.visual.setDetail?.(v.object3D.position.distanceToSquared(cam) < detail);
     const speedRatio = this.player.physics.forwardSpeed / this.player.config.maxSpeed;
-    this.pitCamera(frameDt);
+    if (this.podium) this.updatePodium(frameDt);
+    else this.pitCamera(frameDt);
     this.followCamera.update(this.player.object3D, speedRatio, frameDt);
     this.tyreSmoke.update(frameDt, this.vehicles, this.followCamera.camera);
     this.debrisMesh.update();
     this.drivingFx.update(frameDt, this.vehicles, this.player, this.followCamera, this.lapTimer, this.race);
     this.weatherFx?.update(frameDt, this.followCamera.camera, ['tcam', 'cockpit', 'driver', 'nose'].includes(this.followCamera.mode));
-    this.environment.update(this.player.object3D.position);
+    this.environment.update(this.podium ? this.podium.center : this.player.object3D.position);
     this.track.update(performance.now() / 1000, this.followCamera.camera.position);
     this.minimap.update(this.minimapCars);
     this.racingLine.update(this.player.object3D.position, this.player.physics.forwardSpeed);
@@ -1131,6 +1196,7 @@ export class Game {
   /** Esc: back to the start menu (keeps the current car/track preselected). */
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.code === 'Escape') window.location.href = urlWith({ menu: '' });
+    if ((e.code === 'Space' || e.code === 'Enter') && this.podium) this.podium.skip();
     if (e.code === 'KeyL' && !e.repeat) this.racingLine.mesh.visible = !this.racingLine.mesh.visible;
     if ((e.code === 'KeyP' || /^Digit[1-6]$/.test(e.code)) && !e.repeat) this.pitKey(e.code);
     if (e.code === 'KeyK' && !e.repeat) this.hud.toast(`카메라 흔들림: ${this.followCamera.cycleShake()}`);
