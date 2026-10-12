@@ -6,6 +6,8 @@ import { CIRCUIT_INFO } from './circuitInfo';
 import circuitMaps from './circuitMaps.json';
 import { mountTyrePicker, readStartTyre } from './TyrePicker';
 import { DIFFICULTIES, DIFFICULTY, readDifficulty, saveDifficulty } from '../race/Difficulty';
+import { DRIVERS, readDriverIndex, saveDriverIndex } from '../race/Drivers';
+import { CALENDAR, loadSeason } from '../race/Season';
 
 export interface MenuSelection {
   carId: string;
@@ -13,6 +15,10 @@ export interface MenuSelection {
   /** AI opponents (0 = free practice). */
   ai: number;
   laps: number;
+  /** Qualifying before the race (sets the grid). */
+  quali: boolean;
+  /** Season mode: continue the saved season or start a new one; null = a single race. */
+  season?: 'continue' | 'new' | null;
   /** Race friends online instead (opens the multiplayer lobby). */
   multiplayer?: boolean;
 }
@@ -86,7 +92,12 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     let trackId = initial.trackId;
     let ai = initial.ai;
     let laps = initial.laps;
+    let quali = initial.quali;
+    const saved = loadSeason();
+    const savedLive = saved && saved.round < CALENDAR.length ? saved : null;
+    let season: 'continue' | 'new' | null = null;
     let difficulty = readDifficulty();
+    let driver = readDriverIndex();
     const base = import.meta.env.BASE_URL;
 
     const root = el('div', 'menu');
@@ -109,9 +120,12 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
           <h2><b>3</b>레이스</h2>
           <h3>난이도</h3>
           <div class="chip-row" data-group="difficulty"></div>
-          <h3>방식</h3>
-          <div class="chip-row" data-group="ai"></div>
-          <div data-group="laps-wrap"><h3>랩 수</h3><div class="chip-row" data-group="laps"></div></div>
+          <h3>모드</h3>
+          <div class="chip-row" data-group="mode"></div>
+          <div data-group="ai-wrap"><h3>방식</h3>
+          <div class="chip-row" data-group="ai"></div></div>
+          <div data-group="laps-wrap"><h3>랩 수</h3><div class="chip-row" data-group="laps"></div>
+            <h3>예선</h3><div class="chip-row" data-group="quali"></div></div>
           <div class="menu-pickers" data-group="weather"></div>
           <div class="menu-pickers" data-group="tyre"></div>
         </section>
@@ -130,6 +144,9 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     const lapWrap = q<HTMLDivElement>('laps-wrap');
     const lapRow = q<HTMLDivElement>('laps');
     const diffRow = q<HTMLDivElement>('difficulty');
+    const qualiRow = q<HTMLDivElement>('quali');
+    const modeRow = q<HTMLDivElement>('mode');
+    const aiWrap = q<HTMLDivElement>('ai-wrap');
     const summary = q<HTMLDivElement>('summary');
 
     const chip = (title: string, sub: string, selected: boolean, onPick: () => void) => {
@@ -189,7 +206,21 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
         row.append(el('span', '', s.label), track, el('b', '', s.raw));
         bars.append(row);
       }
-      info.append(head, sw, bars);
+      // Driver: one of the team's two (the other one drives the team-mate's car).
+      const pair = DRIVERS[c.id];
+      if (pair) {
+        const row = el('div', 'chip-row td-drivers');
+        pair.forEach((p, i) =>
+          row.append(
+            chip(`#${p.number} ${p.ko}`, i === driver ? '내가 운전' : '팀메이트 (AI)', i === driver, () => {
+              driver = i;
+              saveDriverIndex(i);
+              render();
+            }),
+          ),
+        );
+        info.append(head, row, sw, bars);
+      } else info.append(head, sw, bars);
       detail.replaceChildren(img, info);
     };
 
@@ -226,7 +257,8 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       const c = cars.find((x) => x.id === carId)!;
       const t = tracks.find((x) => x.id === trackId);
       const w = readWeather();
-      const parts = [c.spec.brand, t?.name ?? '', DIFFICULTY[difficulty].name, ai === 0 ? '자유 주행' : `${ai + 1}대 · ${laps}랩`, `${WEATHER_NAMES[w.weather] ?? w.weather} ${TIME_NAMES[w.time] ?? ''}`, COMPOUND_NAMES[readStartTyre()]];
+      const seasonText = season === 'continue' && savedLive ? `시즌 R${savedLive.round + 1} ${tracks.find((x) => x.id === CALENDAR[savedLive.round])?.name ?? ''}` : season === 'new' ? `새 시즌 R1 ${tracks.find((x) => x.id === CALENDAR[0])?.name ?? ''}` : '';
+      const parts = [seasonText, DRIVERS[c.id] ? `${c.spec.brand} · ${DRIVERS[c.id][driver].ko}` : c.spec.brand, t?.name ?? '', DIFFICULTY[difficulty].name, ai === 0 ? '자유 주행' : `${ai + 1}대 · ${quali ? '예선 + ' : ''}${laps}랩`, `${WEATHER_NAMES[w.weather] ?? w.weather} ${TIME_NAMES[w.time] ?? ''}`, COMPOUND_NAMES[readStartTyre()]];
       summary.replaceChildren(...parts.filter(Boolean).map((p, i) => el(i === 0 ? 'strong' : 'span', '', p)));
       summary.style.setProperty('--team', hex(c.spec.color));
     };
@@ -252,6 +284,29 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
           }),
         ),
       );
+      const roundName = (s: { round: number }) => tracks.find((t) => t.id === CALENDAR[s.round])?.name ?? '';
+      const myPoints = (s: NonNullable<typeof saved>) => Object.entries(s.drivers).find(([n]) => s.info[n]?.player)?.[1] ?? 0;
+      modeRow.replaceChildren(
+        chip('단일 레이스', '서킷·대수 직접 선택', season === null, () => {
+          season = null;
+          render();
+        }),
+        ...(savedLive
+          ? [
+              chip(`시즌 이어하기`, `R${savedLive.round + 1}/${CALENDAR.length} ${roundName(savedLive)} · ${myPoints(savedLive)}점`, season === 'continue', () => {
+                season = 'continue';
+                render();
+              }),
+            ]
+          : []),
+        chip('새 시즌', `2026 캘린더 ${CALENDAR.length}라운드 · 포인트·순위`, season === 'new', () => {
+          season = 'new';
+          render();
+        }),
+      );
+      // A season races the full grid on the calendar's circuit.
+      aiWrap.style.display = season ? 'none' : '';
+      if (season) ai = 19;
       lapWrap.style.display = ai > 0 ? '' : 'none';
       // A number field for any race length next to the usual distances.
       const custom = el('label', 'chip chip-input' + (LAP_OPTIONS.includes(laps) ? '' : ' selected'));
@@ -277,13 +332,23 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
         ),
         custom,
       );
+      qualiRow.replaceChildren(
+        chip('바로 결승', '중간 그리드에서 출발', !quali, () => {
+          quali = false;
+          render();
+        }),
+        chip('예선 후 결승', '측정 랩 3번으로 출발 순서 결정', quali, () => {
+          quali = true;
+          render();
+        }),
+      );
       renderSummary();
     };
 
     function start(): void {
       window.removeEventListener('keydown', onKey);
       root.remove();
-      resolve({ carId, trackId, ai, laps });
+      resolve({ carId, trackId, ai, laps, quali, season });
     }
     function onKey(e: KeyboardEvent): void {
       if (e.code === 'Enter' || e.code === 'NumpadEnter') start();
@@ -293,7 +358,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     root.querySelector('.menu-mp')!.addEventListener('click', () => {
       window.removeEventListener('keydown', onKey);
       root.remove();
-      resolve({ carId, trackId, ai, laps, multiplayer: true });
+      resolve({ carId, trackId, ai, laps, quali, multiplayer: true });
     });
     window.addEventListener('keydown', onKey);
     mountWeatherPicker(q('weather'));

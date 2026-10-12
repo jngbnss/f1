@@ -11,6 +11,8 @@ export class LapTimer {
   best: number | null;
   lap = 0;
   valid = true;
+  /** Whether the last completed lap was valid. */
+  lastValid = true;
   /** Set for one update when a lap completes ('best' if it was a record). */
   event: 'lap' | 'best' | null = null;
 
@@ -53,6 +55,7 @@ export class LapTimer {
     }
     if (this.current !== null && this.progress >= n) {
       this.last = this.current;
+      this.lastValid = this.valid;
       if (this.valid && (this.best === null || this.current < this.best)) {
         this.best = this.current;
         this.save(this.best);

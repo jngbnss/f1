@@ -191,11 +191,34 @@ export class FollowCamera {
    * @param target car root (interpolated pose)
    * @param speedRatio 0..1 of top speed, drives FOV
    */
+  /** Broadcast shot that takes over the view for a moment (the player's pit stop); null = the selected view. */
+  private shot: { pos: THREE.Vector3; look: THREE.Vector3 } | null = null;
+
+  /** Cut to a fixed camera at `pos` looking at `look` (null: back to the selected view). */
+  setShot(pos: THREE.Vector3 | null, look?: THREE.Vector3): void {
+    if (!pos || !look) {
+      this.shot = null;
+      return;
+    }
+    this.shot ??= { pos: new THREE.Vector3(), look: new THREE.Vector3() };
+    this.shot.pos.copy(pos);
+    this.shot.look.copy(look);
+  }
+
   update(target: THREE.Object3D, speedRatio: number, dt: number): void {
     // Remove last frame's shake before the smoothed views lerp from it.
     this.camera.position.sub(this.shakeOffset);
     this.shakeOffset.set(0, 0, 0);
     this.trackMotion(target, dt);
+    if (this.shot) {
+      this.camera.position.copy(this.shot.pos);
+      this.camera.lookAt(this.shot.look);
+      if (this.camera.fov !== 42) {
+        this.camera.fov = 42;
+        this.camera.updateProjectionMatrix();
+      }
+      return;
+    }
     if (this.mode === 'tv' && this.tvCams.length) this.updateTv(target, dt);
     else if (isOnboard(this.mode)) this.updateOnboard(target, speedRatio, dt);
     else this.updateChase(target, speedRatio, dt);
