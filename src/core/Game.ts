@@ -61,6 +61,7 @@ import { AI_LEVEL, DIFFICULTY, readAiLevel, readDifficulty, type DifficultySpec 
 import { driverOf, DRIVERS, readDriverIndex } from '../race/Drivers';
 import { PodiumCeremony, type PodiumCue, type PodiumEntry } from '../race/PodiumCeremony';
 import { PodiumSounds } from '../audio/PodiumSounds';
+import { podiumVideoId } from '../ui/PodiumVideo';
 import { formatLapTime } from '../race/LapTimer';
 import { AI_LAP_FACTOR, Qualifying, type QualiEntry } from '../race/Qualifying';
 import { CALENDAR, loadSeason, recordRace, SEASON_POINTS, showSeasonPanel } from '../race/Season';
@@ -834,7 +835,8 @@ export class Game {
     const sounds = this.audio?.ctx && this.audio.master ? new PodiumSounds(this.audio.ctx, this.audio.master) : null;
     this.podiumSounds = sounds;
     const onCue = (cue: PodiumCue) => (cue === 'pop' ? sounds?.pop() : sounds?.cheer(cue === 'cheer' && this.podium && this.podium.time > 20 ? 8 : 6));
-    this.podium = new PodiumCeremony(this.track, entries, this.trackTitle, () => this.podium?.skip(), onCue);
+    // The YouTube clip over it (not in benchmarks, whose frames must stay comparable).
+    this.podium = new PodiumCeremony(this.track, entries, this.trackTitle, () => this.podium?.skip(), onCue, this.bench ? null : podiumVideoId());
     // Engines down while the ceremony runs (the cheer and the cork carry it).
     this.audio?.setDuck(true);
     this.scene.add(this.podium.group);

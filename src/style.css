@@ -405,4 +405,12 @@ body.podium-on > :not(#app):not(.podium-ui) { visibility: hidden !important; }
 .podium-ui .podium-third { bottom: calc(8vh + 14px); }
 .podium-ui .podium-skip { bottom: calc(8vh + 14px); z-index: 1; }
 .podium-third li.you { background: rgba(255, 210, 63, 0.12); }
+/* The YouTube Short over the ceremony: portrait frame in the middle, between the cinema bars. */
+.podium-video {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2; pointer-events: auto;
+  height: min(78vh, calc((100vw - 32px) * 16 / 9)); aspect-ratio: 9 / 16; display: flex; flex-direction: column; gap: 6px;
+}
+.podium-video > div, .podium-video iframe { flex: 1; width: 100%; border: 0; border-radius: 12px; background: #000; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6); }
+.podium-video small { text-align: center; font-size: 11px; color: #c9d1d9; text-shadow: 0 1px 4px #000; }
+.podium-video.failed { display: none; }
 .podium-third li u { margin-left: 8px; padding: 1px 6px; border-radius: 3px; background: #ffd23f; color: #111; font-size: 10px; font-weight: 900; text-decoration: none; vertical-align: 2px; }

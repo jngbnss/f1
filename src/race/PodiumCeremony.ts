@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PIT_BUILDING_FRONT } from '../world/PitBuilding';
 import type { Track } from '../world/Track';
+import { PodiumVideo } from '../ui/PodiumVideo';
 
 /**
  * Post-race podium ceremony, after the F1 games' cut-scene: the top three walk
@@ -128,6 +129,8 @@ export class PodiumCeremony {
   private readonly spray: Spray;
   private readonly confetti: Confetti;
   private readonly light: THREE.SpotLight;
+  private video: PodiumVideo | null = null;
+  private skipped = false;
   /** Podium position (figure index) of the player's driver, -1 if not on it. */
   private readonly playerK: number;
 
@@ -137,6 +140,8 @@ export class PodiumCeremony {
     title: string,
     onSkip: () => void,
     private readonly onCue: (cue: PodiumCue) => void = () => {},
+    /** YouTube clip to play over the ceremony (null: the 3D ceremony alone). */
+    videoId: string | null = null,
   ) {
     this.playerK = entries.slice(0, 3).findIndex((e) => e.isPlayer);
     // Over the main straight on the pit side, in front of the middle of the pit building.
@@ -194,11 +199,20 @@ export class PodiumCeremony {
         `</ol></div><button class="podium-skip" type="button">건너뛰기 <kbd>Space</kbd></button>`;
       this.ui.querySelector('button')!.addEventListener('click', onSkip);
       document.body.append(this.ui);
+      if (videoId) this.video = new PodiumVideo(videoId, this.ui);
     }
   }
 
+  /** Over when the clip ends (if one plays), else at the end of the timeline; or skipped. */
   get done(): boolean {
-    return this.time >= PODIUM_DURATION;
+    if (this.skipped) return true;
+    const v = this.video;
+    return v && !v.failed ? v.ended : this.time >= PODIUM_DURATION;
+  }
+
+  /** A clip is playing over the ceremony (its sound replaces the cheers). */
+  private get videoOn(): boolean {
+    return !!this.video && !this.video.failed;
   }
 
   /** Advance the ceremony (dt in real seconds); the camera shot is in shotPos / shotLook. */
@@ -209,7 +223,7 @@ export class PodiumCeremony {
     const before = this.time;
     this.time += dt;
     const T = this.time;
-    const cue = (at: number, c: PodiumCue) => before < at && T >= at && this.onCue(c);
+    const cue = (at: number, c: PodiumCue) => before < at && T >= at && !this.videoOn && this.onCue(c);
     cue(HOP_AT[0] + HOP + 0.4, 'cheer');
     cue(SPRAY[0], 'pop');
     cue(SPRAY[0] + 0.15, 'cheer');
@@ -237,12 +251,14 @@ export class PodiumCeremony {
   }
 
   skip(): void {
-    this.time = PODIUM_DURATION;
+    this.skipped = true;
+    this.time = Math.max(this.time, PODIUM_DURATION);
   }
 
   dispose(): void {
     this.group.removeFromParent();
     for (const o of this.owned) o.dispose();
+    this.video?.dispose();
     this.ui?.remove();
   }
 
