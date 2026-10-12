@@ -5,7 +5,7 @@ import { urlWith } from '../config';
  * menu. Remembered in the browser; `?diff=expert` in the URL wins.
  *  - beginner: steering keeps working under braking, traction control, spin
  *    assist, no punctures, light damage, slower tyre wear, no safety car /
- *    VSC / yellow flags or track-limit penalties, slower AI
+ *    VSC / yellow flags or track-limit penalties (AI pace: see AiLevel)
  *  - intermediate: half the assists, rare punctures, safety car on
  *  - expert: the full simulation (no assists beyond the ABS setting)
  */
@@ -30,8 +30,6 @@ export interface DifficultySpec {
   /** Race control (VSC, safety car, yellow flags) and track-limit penalties. */
   raceControl: boolean;
   penalties: boolean;
-  /** AI pace multiplier. */
-  aiPace: number;
 }
 
 export const DIFFICULTY: Record<Difficulty, DifficultySpec> = {
@@ -47,7 +45,6 @@ export const DIFFICULTY: Record<Difficulty, DifficultySpec> = {
     tyreWear: 0.5,
     raceControl: false,
     penalties: false,
-    aiPace: 0.95,
   },
   intermediate: {
     name: '중급',
@@ -61,7 +58,6 @@ export const DIFFICULTY: Record<Difficulty, DifficultySpec> = {
     tyreWear: 0.8,
     raceControl: true,
     penalties: true,
-    aiPace: 0.98,
   },
   expert: {
     name: '고급',
@@ -75,7 +71,6 @@ export const DIFFICULTY: Record<Difficulty, DifficultySpec> = {
     tyreWear: 1,
     raceControl: true,
     penalties: true,
-    aiPace: 1,
   },
 };
 
@@ -89,6 +84,44 @@ export function readDifficulty(): Difficulty {
   }
   const pick = (fromUrl ?? stored ?? 'beginner') as Difficulty;
   return DIFFICULTIES.includes(pick) ? pick : 'beginner';
+}
+
+/**
+ * AI skill, separate from the assists (as the F1 games' AI difficulty slider): the
+ * opponents' share of racing pace. Not picked: follows the difficulty (beginner ->
+ * normal, intermediate -> hard, expert -> pro). Remembered; `?ai-level=` wins.
+ */
+export type AiLevel = 'rookie' | 'easy' | 'normal' | 'hard' | 'pro';
+export const AI_LEVELS: AiLevel[] = ['rookie', 'easy', 'normal', 'hard', 'pro'];
+export const AI_LEVEL: Record<AiLevel, { name: string; pace: number }> = {
+  rookie: { name: '루키', pace: 0.88 },
+  easy: { name: '쉬움', pace: 0.92 },
+  normal: { name: '보통', pace: 0.95 },
+  hard: { name: '어려움', pace: 0.98 },
+  pro: { name: '프로', pace: 1 },
+};
+const AI_LEVEL_FOR: Record<Difficulty, AiLevel> = { beginner: 'normal', intermediate: 'hard', expert: 'pro' };
+
+/** The picked AI level, or the one that goes with the difficulty. */
+export function readAiLevel(difficulty: Difficulty): AiLevel {
+  const fromUrl = new URLSearchParams(window.location.search).get('ai-level');
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem('aiLevel');
+  } catch {
+    /* storage blocked */
+  }
+  const pick = (fromUrl ?? stored) as AiLevel | null;
+  return pick && AI_LEVELS.includes(pick) ? pick : AI_LEVEL_FOR[difficulty];
+}
+
+export function saveAiLevel(level: AiLevel): void {
+  try {
+    localStorage.setItem('aiLevel', level);
+  } catch {
+    /* the URL still carries it */
+  }
+  history.replaceState(null, '', urlWith({ 'ai-level': level }));
 }
 
 export function saveDifficulty(d: Difficulty): void {

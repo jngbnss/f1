@@ -56,7 +56,7 @@ import type { TrackLayout } from '../world/TrackLayout';
 import { GameLoop } from './GameLoop';
 import { F1_MODEL_CREDIT, f1ModelReady, GltfF1Visual, loadF1Model } from '../vehicle/cars/GltfF1Visual';
 import type { NetRace } from '../net/NetRace';
-import { DIFFICULTY, readDifficulty, type DifficultySpec } from '../race/Difficulty';
+import { AI_LEVEL, DIFFICULTY, readAiLevel, readDifficulty, type DifficultySpec } from '../race/Difficulty';
 import { driverOf, DRIVERS, readDriverIndex } from '../race/Drivers';
 import { PodiumCeremony, type PodiumEntry } from '../race/PodiumCeremony';
 import { formatLapTime } from '../race/LapTimer';
@@ -198,6 +198,8 @@ export class Game {
   private landmarks: { dispose(): void } | null = null;
   /** Assists and how forgiving the race is (menu); the benchmark always runs the full simulation. */
   readonly difficulty: DifficultySpec;
+  /** Opponents' share of racing pace (menu "AI 실력"). */
+  private readonly aiPace: number;
   /** Qualifying session (alone on track before the race), null otherwise. */
   private quali: Qualifying | null = null;
   /** Season round scored (once, when the player finishes). */
@@ -280,7 +282,9 @@ export class Game {
     this.lapTimer = new LapTimer(this.track.getCenterline().length, this.track.spawnIndex, `best:${car.id}:${layout.id}`);
 
     // --- player + opponents ----------------------------------------------
-    const diff = (this.difficulty = DIFFICULTY[config.bench > 0 ? 'expert' : readDifficulty()]);
+    const diffId = config.bench > 0 ? 'expert' : readDifficulty();
+    const diff = (this.difficulty = DIFFICULTY[diffId]);
+    this.aiPace = config.bench > 0 ? 1 : AI_LEVEL[readAiLevel(diffId)].pace;
     const plan = net?.plan ?? null;
     const field = plan ? plan.slots.length - 1 : Math.max(0, Math.min(19, Math.round(config.ai)));
     // Qualifying: alone on track; the field's lap times are worked out from their cars.
@@ -339,7 +343,7 @@ export class Game {
         const r = Math.sin(slot * 12.9898) * 43758.5453;
         const rand = r - Math.floor(r);
         const ai = new AIDriver(vehicle, line, this.track, {
-          pace: (0.97 - (slot / total) * 0.07 + (rand - 0.5) * 0.04) * diff.aiPace,
+          pace: (0.97 - (slot / total) * 0.07 + (rand - 0.5) * 0.04) * this.aiPace,
           lane: (rand - 0.5) * 2.4,
           aggression: rand,
         });
@@ -648,7 +652,7 @@ export class Game {
         if (!line) this.rivalLines.set(def.id, (line = this.lineFor(def)));
         const r = Math.sin(i * 12.9898) * 43758.5453;
         const rand = r - Math.floor(r);
-        ai = new AIDriver(vehicle, line, this.track, { pace: (0.96 + (rand - 0.5) * 0.04) * this.difficulty.aiPace, lane: (rand - 0.5) * 2.4, aggression: rand });
+        ai = new AIDriver(vehicle, line, this.track, { pace: (0.96 + (rand - 0.5) * 0.04) * this.aiPace, lane: (rand - 0.5) * 2.4, aggression: rand });
       }
       return this.racer(name, vehicle, ai, false, color);
     });
@@ -673,7 +677,7 @@ export class Game {
         }
         const r = Math.sin(k * 12.9898) * 43758.5453;
         const rand = r - Math.floor(r);
-        const pace = (0.97 - (k / (field + 1)) * 0.07 + (rand - 0.5) * 0.04) * this.difficulty.aiPace;
+        const pace = (0.97 - (k / (field + 1)) * 0.07 + (rand - 0.5) * 0.04) * this.aiPace;
         return (t / pace) * AI_LAP_FACTOR;
       })
       .sort((a, b) => a - b);

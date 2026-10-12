@@ -5,7 +5,7 @@ import { mountWeatherPicker, readWeather } from '../world/Weather';
 import { CIRCUIT_INFO } from './circuitInfo';
 import circuitMaps from './circuitMaps.json';
 import { mountTyrePicker, readStartTyre } from './TyrePicker';
-import { DIFFICULTIES, DIFFICULTY, readDifficulty, saveDifficulty } from '../race/Difficulty';
+import { AI_LEVEL, AI_LEVELS, DIFFICULTIES, DIFFICULTY, readAiLevel, readDifficulty, saveAiLevel, saveDifficulty } from '../race/Difficulty';
 import { DRIVERS, readDriverIndex, saveDriverIndex } from '../race/Drivers';
 import { CALENDAR, loadSeason } from '../race/Season';
 
@@ -120,6 +120,8 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
           <h2><b>3</b>레이스</h2>
           <h3>난이도</h3>
           <div class="chip-row" data-group="difficulty"></div>
+          <h3>AI 실력</h3>
+          <div class="chip-row" data-group="ailevel"></div>
           <h3>모드</h3>
           <div class="chip-row" data-group="mode"></div>
           <div data-group="ai-wrap"><h3>방식</h3>
@@ -144,6 +146,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     const lapWrap = q<HTMLDivElement>('laps-wrap');
     const lapRow = q<HTMLDivElement>('laps');
     const diffRow = q<HTMLDivElement>('difficulty');
+    const aiLevelRow = q<HTMLDivElement>('ailevel');
     const qualiRow = q<HTMLDivElement>('quali');
     const modeRow = q<HTMLDivElement>('mode');
     const aiWrap = q<HTMLDivElement>('ai-wrap');
@@ -258,7 +261,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       const t = tracks.find((x) => x.id === trackId);
       const w = readWeather();
       const seasonText = season === 'continue' && savedLive ? `시즌 R${savedLive.round + 1} ${tracks.find((x) => x.id === CALENDAR[savedLive.round])?.name ?? ''}` : season === 'new' ? `새 시즌 R1 ${tracks.find((x) => x.id === CALENDAR[0])?.name ?? ''}` : '';
-      const parts = [seasonText, DRIVERS[c.id] ? `${c.spec.brand} · ${DRIVERS[c.id][driver].ko}` : c.spec.brand, t?.name ?? '', DIFFICULTY[difficulty].name, ai === 0 ? '자유 주행' : `${ai + 1}대 · ${quali ? '예선 + ' : ''}${laps}랩`, `${WEATHER_NAMES[w.weather] ?? w.weather} ${TIME_NAMES[w.time] ?? ''}`, COMPOUND_NAMES[readStartTyre()]];
+      const parts = [seasonText, DRIVERS[c.id] ? `${c.spec.brand} · ${DRIVERS[c.id][driver].ko}` : c.spec.brand, t?.name ?? '', `${DIFFICULTY[difficulty].name} · AI ${AI_LEVEL[readAiLevel(difficulty)].name}`, ai === 0 ? '자유 주행' : `${ai + 1}대 · ${quali ? '예선 + ' : ''}${laps}랩`, `${WEATHER_NAMES[w.weather] ?? w.weather} ${TIME_NAMES[w.time] ?? ''}`, COMPOUND_NAMES[readStartTyre()]];
       summary.replaceChildren(...parts.filter(Boolean).map((p, i) => el(i === 0 ? 'strong' : 'span', '', p)));
       summary.style.setProperty('--team', hex(c.spec.color));
     };
@@ -272,6 +275,16 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
           chip(DIFFICULTY[d].name, DIFFICULTY[d].hint, d === difficulty, () => {
             difficulty = d;
             saveDifficulty(d);
+            render();
+          }),
+        ),
+      );
+      // AI skill on its own (follows the difficulty until picked).
+      const level = readAiLevel(difficulty);
+      aiLevelRow.replaceChildren(
+        ...AI_LEVELS.map((l) =>
+          chip(AI_LEVEL[l].name, `레이싱 속도 ${Math.round(AI_LEVEL[l].pace * 100)}%`, l === level, () => {
+            saveAiLevel(l);
             render();
           }),
         ),
