@@ -53,6 +53,7 @@ export class HUD {
   private readonly perfEl: HTMLDivElement;
   private readonly speedEl: HTMLDivElement;
   private readonly gearEl: HTMLDivElement;
+  private readonly speedoEl: HTMLDivElement;
   private readonly rpmEl: HTMLDivElement;
   private readonly slipEl: HTMLDivElement;
   private readonly ersEl: HTMLDivElement;
@@ -103,7 +104,7 @@ export class HUD {
       this.fields.set(key, v);
     }
 
-    const speedo = document.createElement('div');
+    const speedo = (this.speedoEl = document.createElement('div'));
     speedo.className = 'speedo';
     this.speedEl = document.createElement('div');
     this.speedEl.className = 'value';
@@ -130,7 +131,11 @@ export class HUD {
     this.ersText.className = 'label';
     this.ersEl.append(ersTrack, this.ersText);
     this.ersEl.hidden = true;
-    speedo.append(this.slipEl, this.gearEl, rpm, this.ersEl, this.speedEl, unit);
+    // Gear beside the speed (F1-game style): one row, so the stack stays low.
+    const main = document.createElement('div');
+    main.className = 'main';
+    main.append(this.gearEl, this.speedEl);
+    speedo.append(this.slipEl, rpm, this.ersEl, main, unit);
 
     this.helpEl = document.createElement('div');
     this.helpEl.className = 'help';
@@ -344,6 +349,9 @@ export class HUD {
     }
     if (now - this.lastCarUpdate < 200) return;
     this.lastCarUpdate = now;
+    // Sit just above the speedometer, whatever it shows (gear, rev bar, battery): never over the gear.
+    const top = this.speedoEl.getBoundingClientRect().top;
+    if (top > 0) this.carEl.style.bottom = `${Math.round(window.innerHeight - top + 10)}px`;
     const tempClass = (t: number) => (t < 0 ? 'cold' : t > 0 ? 'hot' : 'ok');
     // F1-game style: four tyres around the car, each coloured by its wear.
     const wearColor = (w: number) => (w < 0.3 ? '#2bd56f' : w < 0.55 ? '#d9e021' : w < 0.75 ? '#ffb020' : '#ff4a3d');
