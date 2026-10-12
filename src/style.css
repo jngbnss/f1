@@ -391,3 +391,5 @@ body.podium-on > :not(#app):not(.podium-ui) { visibility: hidden !important; }
 .podium-skip kbd { margin-left: 6px; padding: 1px 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.15); font-size: 11px; }
 .podium-third { transition: opacity 0.6s; }
 .podium-ui:not(.names) .podium-third { opacity: 0; }
+.podium-soon { margin: 0 0 10px; color: #d8b04a; font-weight: 700; animation: podium-soon 1.2s ease-in-out infinite alternate; }
+@keyframes podium-soon { from { opacity: 0.55; } to { opacity: 1; } }

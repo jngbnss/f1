@@ -786,7 +786,18 @@ export class Game {
     if (!race || this.podium || this.podiumDone || this.quali || (this.bench && !this.podiumNow)) return;
     const me = race.player;
     const due = this.podiumNow ? race.state !== 'countdown' && race.time > 1 : race.state === 'finished' && !!me?.finished && race.time - me.finishTime > PODIUM_DELAY;
-    if (!due) return;
+    // Waiting for it: say so on the results card, or it looks like the race just ends there.
+    const card = document.querySelector('.results.show');
+    if (!due) {
+      if (card && race.state === 'finished' && !card.querySelector('.podium-soon')) {
+        const p = document.createElement('p');
+        p.className = 'podium-soon';
+        p.textContent = '🏆 잠시 후 포디움 세리머니가 시작됩니다';
+        card.prepend(p);
+      }
+      return;
+    }
+    card?.querySelector('.podium-soon')?.remove();
     const standings = race.standings();
     const t0 = standings[0].finished ? race.resultTime(standings[0]) : null;
     const entries: PodiumEntry[] = standings.slice(0, 3).map((r, k) => {
