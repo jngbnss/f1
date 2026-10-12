@@ -28,6 +28,11 @@ const _tan = new THREE.Vector3();
 const CAR_LENGTH = 5.6;
 /** Extra front wheel angle per m/s² of lateral acceleration (front tyre slip angle). */
 const UNDERSTEER = 0.0005;
+/** Heading error (rad) at which the car counts as spun round, and the speed it then turns back at (m/s). */
+const SPUN_HEADING = Math.PI / 4;
+const RECOVERY_SPEED = 6;
+/** Rear tyre sliding speed (m/s) above which the AI lifts off the throttle. */
+const REAR_SLIDE = 0.8;
 /** Path tracking: heading error gain, and cross-track gain k in atan(k·e / v). */
 const HEADING_GAIN = 1;
 const CROSS_GAIN = 2;
@@ -56,6 +61,9 @@ const trackPosCache = new WeakMap<Vehicle, TrackPos>();
  *  - traffic: cars ahead in its path make it pick a side to pass, or lift
  *  - recovery: reverses out when stuck, resets to the track as a last resort
  */
+/** Furthest off the racing line (m) a pass into a fast corner may go. */
+const FAST_PASS_OFFSET = 2.5;
+
 export class AIDriver {
   readonly input: VehicleInput = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
   private index = -1;
@@ -181,8 +189,13 @@ export class AIDriver {
       // Into a slow corner only up the inside: a pass round the outside of a hairpin on the
       // brakes ran cars wide off the track (Red Bull Ring T3, three cars piled up in the runoff).
       const outsideIntoCorner = slowCorner && passSide !== cornerInside;
-      if (room > passRoom && ahead > 3 && (!this.rules.noPassing || otherSpeed < 8) && (!singleFile || otherSpeed < 8) && !outsideIntoCorner) {
+      // Into a fast or medium corner (Parabolica, ~170 km/h after 340) only up the inside and
+      // at most FAST_PASS_OFFSET off the line: the line's speeds are for the line, and 5 m off
+      // it on the brakes the tighter arc spun cars into the barrier.
+      const intoFastCorner = !slowCorner && cornerFactor < 0.5;
+      if (room > passRoom && ahead > 3 && (!this.rules.noPassing || otherSpeed < 8) && (!singleFile || otherSpeed < 8) && !outsideIntoCorner && !(intoFastCorner && passSide !== cornerInside && otherSpeed >= 8)) {
         desiredOffset = otherLat - lineLateral + passSide * 3.4;
+        if (intoFastCorner && otherSpeed >= 8) desiredOffset = THREE.MathUtils.clamp(desiredOffset, -FAST_PASS_OFFSET, FAST_PASS_OFFSET);
       }
       // In its lane: keep a gap from which we can still stop if the car ahead brakes as
       // hard as it can (the Gipps car-following model, as in the SUMO traffic simulator):
@@ -210,6 +223,9 @@ export class AIDriver {
     const edge = this.track.halfWidth - 1.8;
     desiredOffset = THREE.MathUtils.clamp(lineLateral + desiredOffset, -edge, edge) - lineLateral;
     this.offset += (desiredOffset - this.offset) * (1 - Math.exp(-1.5 * dt));
+    // The offset eases, but where the line itself swings to the edge (Kemmel into Les
+    // Combes) a lagging offset carried cars over it at 300 km/h: clamp what is driven too.
+    this.offset = THREE.MathUtils.clamp(lineLateral + this.offset, -edge, edge) - lineLateral;
 
     // --- steering: pure pursuit to a point ahead on the (offset) line ---
     inp.steer = this.pathSteer(speed);
@@ -249,6 +265,9 @@ export class AIDriver {
       if (allowed < target) target = allowed;
     }
     target = Math.min(target, followSpeed);
+    // Spun round (pointing well off the track's direction): turn back slowly first, as a
+    // driver does, instead of flooring it at full lock (that drove cars in circles into the barrier).
+    if (Math.abs(this.headingError) > SPUN_HEADING) target = Math.min(target, RECOVERY_SPEED);
     const err = target - speed;
     inp.handbrake = 0;
     if (err > 0.5) {
@@ -261,6 +280,11 @@ export class AIDriver {
       inp.throttle = 0.15;
       inp.brake = 0;
     }
+    // Throttle control, as a driver feels the rear step out: when the driven rear tyres
+    // slide, lift until they bite again. Full lock and full throttle at 20 km/h (crawling
+    // off the back of the grid in traffic) spun cars into the barrier.
+    const rearSlide = Math.max(Math.abs(v.physics.wheels[2].slip), Math.abs(v.physics.wheels[3].slip));
+    if (inp.throttle > 0 && rearSlide > REAR_SLIDE) inp.throttle *= Math.max(0.15, 1 - (rearSlide - REAR_SLIDE) / REAR_SLIDE);
 
     // --- stuck? ---------------------------------------------------------
     if (Math.abs(speed) < 1 && inp.throttle > 0.3) this.stuckTime += dt;
@@ -284,6 +308,8 @@ export class AIDriver {
     return c;
   }
 
+  /** Car heading vs the line's direction in the last step (rad, + = line heads right of us). */
+  private headingError = 0;
   /** Debris on the track to steer round (wings; shards are too small to see in time). */
   debris: DebrisField | null = null;
 
@@ -377,6 +403,7 @@ export class AIDriver {
     _tan.subVectors(line.points[(i + 1) % count], line.points[(i - 1 + count) % count]).setY(0).normalize();
     const e = (pos.x - p.x) * -_tan.z + (pos.z - p.z) * _tan.x - this.offset; // + = right of the path
     const heading = Math.atan2(_fwd.x * _tan.z - _fwd.z * _tan.x, _fwd.dot(_tan)); // + = path heads right of us
+    this.headingError = heading;
     // Curvature a little ahead (the steering and the tyres take a moment to respond).
     const ahead = this.indexAhead(i, 4 + Math.max(speed, 0) * PREVIEW);
     const kappa = this.signedCurvature(ahead);

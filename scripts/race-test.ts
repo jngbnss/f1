@@ -3,7 +3,10 @@
  * field can start from the grid, race wheel-to-wheel and finish.
  *
  *   npx tsx scripts/race-test.ts [track] [cars] [laps]
+ *
+ * TRACE=<car name>@<from>-<to>: that car's state every 0.2 s between those race times (s).
  */
+import * as THREE from 'three';
 import { readFileSync } from 'node:fs';
 import { PhysicsWorld } from '../src/physics/PhysicsWorld';
 import { AIDriver } from '../src/race/AIDriver';
@@ -23,6 +26,8 @@ import { loadLayout } from './tracks-node';
 import { ProceduralTrack } from '../src/world/Track';
 import { DEMO_TRACK, parseTumCsv, type TrackLayout } from '../src/world/TrackLayout';
 
+const traceArg = process.env.TRACE?.match(/^(.+)@([\d.]+)-([\d.]+)$/);
+const trace = traceArg ? { name: traceArg[1], from: +traceArg[2], to: +traceArg[3] } : null;
 const [trackId = 'test', carsArg = '20', lapsArg = '2', carId = 'f1-ferrari'] = process.argv.slice(2);
 const layout: TrackLayout = loadLayout(trackId);
 
@@ -87,11 +92,31 @@ let stepMs = 0;
 let steps = 0;
 const limit = (track.length * Number(lapsArg)) / 12 + 60; // avg ≥ 12 m/s
 let t = 0;
+const lastPlace = new Map<Racer, number>();
+let placesGained = 0;
 while (t < limit && !racers.every((r) => r.finished)) {
   const t0 = performance.now();
   if (!process.env.NO_SLIP) updateSlipstream(vehicles);
   if (!process.env.NO_2026) updateRules2026(track, zones, vehicles, race);
-  for (const r of racers) r.vehicle.fixedUpdate(race.frozen ? HOLD : r.ai!.update(dt, vehicles), dt);
+  for (const r of racers) {
+    const input = race.frozen ? HOLD : r.ai!.update(dt, vehicles);
+    r.vehicle.fixedUpdate(input, dt);
+    // TRACE=<name>@<from>-<to>: that car's state every 0.2 s in the window (s).
+    if (trace && r.name === trace.name && t >= trace.from && t <= trace.to && Math.round(t * 60) % 12 === 0) {
+      const v = r.vehicle;
+      const i = track.nearestIndex(v.position);
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(v.quaternion);
+      const c = track.getCenterline();
+      const dir = c[(i + 1) % c.length].clone().sub(c[i]).normalize();
+      const head = Math.atan2(fwd.x * dir.z - fwd.z * dir.x, fwd.x * dir.x + fwd.z * dir.z) * 57.3;
+      const near = racers.filter((o) => o !== r && o.vehicle.position.distanceTo(v.position) < 12).map((o) => `${o.name}:${o.vehicle.position.distanceTo(v.position).toFixed(1)}`);
+      const ai = r.ai as unknown as { index: number; offset: number; line: { speeds: Float32Array | number[] } };
+      const ph = v.physics;
+      const rs = Math.max(Math.abs(v.physics.wheels[2].slip), Math.abs(v.physics.wheels[3].slip));
+      const extra = `off ${ai.offset.toFixed(1)} rslip ${rs.toFixed(1)} line ${(ai.line.speeds[ai.index] * 3.6).toFixed(0)} grip ${ph.tyreGrip.map((x: number) => x.toFixed(2)).join('/')} wake ${ph.wake.front.toFixed(2)} aero ${ph.aero.front.toFixed(2)}`;
+      console.log(`  ${t.toFixed(1)}s #${i} ${extra} ${(v.physics.speed * 3.6).toFixed(0)} km/h lat ${track.lateral(v.position).toFixed(1)} head ${head.toFixed(0)}deg thr ${input.throttle.toFixed(2)} brk ${input.brake.toFixed(2)} str ${input.steer.toFixed(2)} ${near.join(' ')}`);
+    }
+  }
   physics.step();
   for (const v of vehicles) v.snapshot();
   applyImpacts(physics, byCollider, dt, (v, hit, before) => {
@@ -143,6 +168,14 @@ while (t < limit && !racers.every((r) => r.finished)) {
     }
   }
   race.update(dt);
+  // Places gained (overtakes, roughly): checked once a second once the field is racing.
+  if (!race.frozen && Math.round(t * 60) % 60 === 0) {
+    race.standings().forEach((r, i) => {
+      const was = lastPlace.get(r);
+      if (was !== undefined && i < was && t > 15) placesGained += was - i;
+      lastPlace.set(r, i);
+    });
+  }
   if (!race.frozen) {
     penalties.update(racers, dt, () => false);
     control.update(dt, racers, race.time, debris, () => false);
@@ -165,6 +198,7 @@ console.log(`${layout.name} (${(track.length / 1000).toFixed(2)} km), ${total} c
 console.log(`finished ${finished.length}/${total} in ${t.toFixed(0)} s sim time; resets ${resets}`);
 console.log(`winner ${standings[0].name} ${standings[0].finishTime.toFixed(1)} s, last ${finished.length ? Math.max(...finished.map((r) => r.finishTime)).toFixed(1) : '-'} s`);
 if (process.env.FINISH_LOG) console.log('finish times', standings.map((r) => `${r.name}:${r.finished ? r.finishTime.toFixed(1) : 'DNF'}${r.vehicle.damage.any ? '*' : ''}`).join(' '));
+console.log(`places gained (overtakes, after the first 15 s): ${placesGained}`);
 console.log(`wing damage: ${vehicles.filter((v) => v.damage.any).length} cars touched, ${vehicles.filter((v) => v.damage.front >= 0.6 || v.damage.rear >= 0.6).length} lost a wing`);
 const spots = new Map<number, number>();
 for (const m of offAt) spots.set(Math.round(m / 100) * 100, (spots.get(Math.round(m / 100) * 100) ?? 0) + 1);
