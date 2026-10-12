@@ -44,6 +44,7 @@ import { RaceEngineer } from '../race/RaceEngineer';
 import type { VehicleInput } from '../input/VehicleInput';
 import { Environment } from '../world/Environment';
 import { buildLandmarks, landmarkClear } from '../world/Landmarks';
+import { buildBrakeBoards } from '../world/BrakeBoards';
 import { readWeather, weatherPostFx, weatherTheme, WeatherFx } from '../world/Weather';
 import { RacingLine } from '../world/RacingLine';
 import { racingLineFor } from '../world/RacingLineOptimizer';
@@ -196,6 +197,8 @@ export class Game {
   private readonly weatherPost = weatherPostFx(this.weather);
   private weatherFx: WeatherFx | null = null;
   private landmarks: { dispose(): void } | null = null;
+  /** 150 / 100 / 50 m boards before the big stops. */
+  private brakeBoards: { dispose(): void } | null = null;
   /** Assists and how forgiving the race is (menu); the benchmark always runs the full simulation. */
   readonly difficulty: DifficultySpec;
   /** Opponents' share of racing pace (menu "AI 실력"). */
@@ -278,6 +281,11 @@ export class Game {
     this.teamLines = layout.teamLines;
     this.trackId = layout.id;
     this.racingLine = this.lineFor(car);
+    if (new URLSearchParams(window.location.search).get('boards') !== '0') {
+      const boards = buildBrakeBoards(this.track, this.racingLine);
+      this.scene.add(boards.group);
+      this.brakeBoards = boards;
+    }
     this.scene.add(this.racingLine.mesh);
     this.lapTimer = new LapTimer(this.track.getCenterline().length, this.track.spawnIndex, `best:${car.id}:${layout.id}`);
 
@@ -980,6 +988,7 @@ export class Game {
     this.drivingFx?.dispose();
     this.weatherFx?.dispose();
     this.landmarks?.dispose();
+    this.brakeBoards?.dispose();
     this.input.dispose();
     for (const v of this.vehicles) v.dispose();
     this.track.dispose();

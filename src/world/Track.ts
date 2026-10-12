@@ -52,6 +52,8 @@ export interface Track {
   lateral(p: THREE.Vector3, index?: number): number;
   /** True when `p` is clearly outside the barriers (escaped the circuit). */
   isOutOfBounds(p: THREE.Vector3): boolean;
+  /** Lateral distance of the barrier on `side` (+1 right, -1 left) at centerline sample i (m). */
+  barrierDistance(side: number, i: number): number;
   /** Tree positions inside real (OSM) forests, for the impostor forest. */
   readonly forestSpots: readonly [number, number][];
   /** Pit lane along the start/finish straight, if the circuit has one. */
@@ -1022,6 +1024,10 @@ export class ProceduralTrack implements Track {
     const pit = this.pit;
     if (!pit || side !== pit.side || !pit.inRange(i)) return offset;
     return Math.max(offset, pit.lateralAt(i) + PIT_LANE_WIDTH / 2 + 1.5);
+  }
+
+  barrierDistance(side: number, i: number): number {
+    return this.barrierAt(side, i, this.barrierOffset);
   }
 
   /** True when `p` is clearly outside the barriers (escaped the circuit). */
