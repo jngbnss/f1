@@ -158,6 +158,16 @@ export class VehiclePhysics {
    * pressing it down would just make the crash worse.
    */
   aeroInAir = false;
+  /**
+   * Driver aids (difficulty; AI keeps 0). steerPriority: under braking the brakes only
+   * take what the friction circle leaves after this share of the cornering force, so a
+   * keyboard's full brake no longer kills the steering. tractionControl: the same for
+   * the throttle (no wheelspin snap on exit). stability: damps a yaw rate beyond what
+   * the steering asks for (spin assist).
+   */
+  steerPriority = 0;
+  tractionControl = 0;
+  stability = 0;
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -424,6 +434,17 @@ export class VehiclePhysics {
         lateralF *= 0.25;
         brakeF = maxBrake * 0.8;
       }
+      // Aids: brakes / throttle get only what is left of the friction circle after (a share
+      // of) the cornering force, instead of the circle trimming the cornering force.
+      const latShare = maxForce > 0 ? Math.min(1, Math.abs(lateralF) / maxForce) : 0;
+      if (this.steerPriority > 0 && !locked && brakeF > 0) {
+        const keep = latShare * this.steerPriority;
+        brakeF = Math.min(brakeF, maxBrake * Math.sqrt(1 - keep * keep));
+      }
+      if (this.tractionControl > 0 && driveF > 0) {
+        const keep = latShare * this.tractionControl;
+        driveF = Math.min(driveF, maxForce * (c.traction ?? 1) * Math.sqrt(1 - keep * keep));
+      }
       if (wc.handbrake) brakeF += (cmd.handbrake * c.handbrakeForce) / 2;
       if (!locked) ws.spin += (vLong / c.wheelRadius) * dt;
       // Friction circle: what the tyre can't transmit is lost (wheelspin / lock-up).
@@ -496,6 +517,18 @@ export class VehiclePhysics {
       .set(-this.inertia.x * _localW.x * (ix / (1 + ix)), -this.inertia.y * _localW.y * (iy / (1 + iy)), -this.inertia.z * _localW.z * (ix / (1 + ix)))
       .applyQuaternion(_quat);
     body.applyTorqueImpulse(_impulse, true);
+    // Spin assist: a yaw rate beyond the one the steering asks for (v·tan(δ)/wheelbase;
+    // + steer = right = negative yaw) is damped, like a stability control.
+    if (this.stability > 0 && grounded > 0 && forwardSpeed > 5) {
+      const wheelbase = Math.abs(c.wheels[0].position.z - c.wheels[n - 1].position.z) || 3;
+      const asked = (-forwardSpeed * Math.tan(cmd.steerAngle)) / wheelbase;
+      const yaw = _localW.y;
+      if (Math.abs(yaw) > Math.abs(asked) || yaw * asked < 0) {
+        const k = 6 * this.stability * dt;
+        _impulse.set(0, -this.inertia.y * (yaw - asked) * (k / (1 + k)), 0).applyQuaternion(_quat);
+        body.applyTorqueImpulse(_impulse, true);
+      }
+    }
 
     // Hard speed cap (safety net; the limiter normally keeps us under).
     const cap = forwardSpeed >= 0 ? c.maxSpeed * 1.12 : c.maxReverseSpeed * 1.2;

@@ -56,6 +56,7 @@ import type { TrackLayout } from '../world/TrackLayout';
 import { GameLoop } from './GameLoop';
 import { F1_MODEL_CREDIT, f1ModelReady, GltfF1Visual, loadF1Model } from '../vehicle/cars/GltfF1Visual';
 import type { NetRace } from '../net/NetRace';
+import { DIFFICULTY, readDifficulty, type DifficultySpec } from '../race/Difficulty';
 
 /** Timing-tower label: team abbreviation + race number (e.g. "FER 16"). */
 const TEAM_ABBR: Record<string, string> = {
@@ -181,6 +182,8 @@ export class Game {
   private readonly weatherPost = weatherPostFx(this.weather);
   private weatherFx: WeatherFx | null = null;
   private landmarks: { dispose(): void } | null = null;
+  /** Assists and how forgiving the race is (menu); the benchmark always runs the full simulation. */
+  readonly difficulty: DifficultySpec;
 
   private constructor(
     private readonly container: HTMLElement,
@@ -249,6 +252,7 @@ export class Game {
     this.lapTimer = new LapTimer(this.track.getCenterline().length, this.track.spawnIndex, `best:${car.id}:${layout.id}`);
 
     // --- player + opponents ----------------------------------------------
+    const diff = (this.difficulty = DIFFICULTY[config.bench > 0 ? 'expert' : readDifficulty()]);
     const plan = net?.plan ?? null;
     const opponents = plan ? plan.slots.length - 1 : Math.max(0, Math.min(19, Math.round(config.ai)));
     const total = opponents + 1;
@@ -261,6 +265,13 @@ export class Game {
     this.scene.add(this.debrisMesh.group);
     this.aeroZones = straightZones(this.track);
     this.vehicles.push(this.player);
+    const ph = this.player.physics;
+    ph.steerPriority = diff.steerPriority;
+    ph.tractionControl = diff.tractionControl;
+    ph.stability = diff.stability;
+    this.player.damage.scale = diff.damage;
+    this.player.tyres.punctureScale = diff.punctures;
+    this.player.tyres.wearScale *= diff.tyreWear;
 
     if (plan) {
       this.race = new RaceManager(this.track, this.netGrid(plan, playerSlot), Math.max(1, plan.laps));
@@ -291,7 +302,7 @@ export class Game {
         const r = Math.sin(slot * 12.9898) * 43758.5453;
         const rand = r - Math.floor(r);
         const ai = new AIDriver(vehicle, line, this.track, {
-          pace: 0.97 - (slot / total) * 0.07 + (rand - 0.5) * 0.04,
+          pace: (0.97 - (slot / total) * 0.07 + (rand - 0.5) * 0.04) * diff.aiPace,
           lane: (rand - 0.5) * 2.4,
           aggression: rand,
         });
@@ -299,7 +310,7 @@ export class Game {
       }
       this.race = new RaceManager(this.track, racers, Math.max(1, Math.round(config.laps)));
     }
-    if (this.race) {
+    if (this.race && diff.penalties) {
       this.penalties = new Penalties(this.track);
       // Every counted excursion deletes that lap's time; the player hears about it.
       this.penalties.onEvent = (r, e) => {
@@ -311,6 +322,9 @@ export class Game {
         this.lapTimer.invalidate();
         this.hud.toast(e.kind === 'warning' ? `트랙 리밋 경고 ${e.strike}/${WARNINGS} · 랩 기록 삭제` : `트랙 리밋 페널티 +5초 (합계 ${e.seconds}초)`);
       };
+    }
+    // Beginner: no VSC, safety car or yellow flags.
+    if (this.race && diff.raceControl) {
       this.raceControl = new RaceControl(this.track);
       this.safetyCar = new SafetyCar(this.physics, this.track, this.scene);
       this.raceControl.onMessage = (m) => {
@@ -595,7 +609,7 @@ export class Game {
         if (!line) this.rivalLines.set(def.id, (line = this.lineFor(def)));
         const r = Math.sin(i * 12.9898) * 43758.5453;
         const rand = r - Math.floor(r);
-        ai = new AIDriver(vehicle, line, this.track, { pace: 0.96 + (rand - 0.5) * 0.04, lane: (rand - 0.5) * 2.4, aggression: rand });
+        ai = new AIDriver(vehicle, line, this.track, { pace: (0.96 + (rand - 0.5) * 0.04) * this.difficulty.aiPace, lane: (rand - 0.5) * 2.4, aggression: rand });
       }
       return this.racer(name, vehicle, ai, false, color);
     });

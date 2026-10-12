@@ -94,6 +94,8 @@ export class TyreSet {
   distance = 0;
   /** Car-specific wear rate (team character). */
   wearScale = 1;
+  /** Chance of a debris cut, relative (difficulty: 0 = no punctures). */
+  punctureScale = 1;
 
   constructor(compound: Compound = 'medium') {
     this.compound = compound;

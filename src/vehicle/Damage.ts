@@ -25,6 +25,8 @@ export class DamageState {
   front = 0;
   rear = 0;
   floor = 0;
+  /** Damage per hit (difficulty: the player's car takes less on easier settings). */
+  scale = 1;
 
   get any(): boolean {
     return this.front > 0.02 || this.rear > 0.02 || this.floor > 0.02;
@@ -38,7 +40,7 @@ export class DamageState {
     const impulse = force.length();
     if (impulse < MIN_IMPULSE) return false;
     _local.copy(force).divideScalar(impulse).applyQuaternion(_inv.copy(orientation).invert());
-    const amount = (impulse - MIN_IMPULSE) / FULL_IMPULSE;
+    const amount = ((impulse - MIN_IMPULSE) / FULL_IMPULSE) * this.scale;
     // Car forward is local -Z: pushed backwards (+Z) = something hit the nose.
     if (_local.z > 0.45) this.front = Math.min(1, this.front + amount * _local.z);
     else if (_local.z < -0.45) this.rear = Math.min(1, this.rear - amount * _local.z);

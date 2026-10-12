@@ -129,8 +129,8 @@ async function main(): Promise<void> {
  */
 async function setupDriving(game: import('./core/Game').Game, touch: boolean, autopilot: boolean): Promise<void> {
   driveSettings.watch((s) => {
-    // The benchmark autopilot always drives with the assist (like every AI car).
-    game.player.physics.brakeAssist = s.brakeAssist || autopilot;
+    // The benchmark autopilot always drives with the assist (like every AI car); beginner too.
+    game.player.physics.brakeAssist = s.brakeAssist || autopilot || game.difficulty.abs;
   });
   const toast = document.createElement('div');
   toast.className = 'toast';
@@ -140,7 +140,11 @@ async function setupDriving(game: import('./core/Game').Game, touch: boolean, au
     if (e.code !== 'KeyB' || e.repeat) return;
     const on = !driveSettings.get().brakeAssist;
     driveSettings.set({ brakeAssist: on });
-    toast.textContent = on ? '브레이크 보조 켬 (잠김 없음)' : '브레이크 보조 끔 (세게 밟으면 바퀴 잠김)';
+    toast.textContent = game.difficulty.abs
+      ? '초보 난이도: 브레이크 보조는 항상 켜짐'
+      : on
+        ? '브레이크 보조 켬 (잠김 없음)'
+        : '브레이크 보조 끔 (세게 밟으면 바퀴 잠김)';
     toast.classList.add('show');
     clearTimeout(hide);
     hide = window.setTimeout(() => toast.classList.remove('show'), 1600);

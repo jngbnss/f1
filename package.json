@@ -30,6 +30,7 @@
     "teamline:test": "tsx scripts/teamline-test.ts",
     "tyre:test": "tsx scripts/tyre-test.ts",
     "brake:test": "tsx scripts/brake-test.ts",
+    "difficulty:test": "tsx scripts/difficulty-test.ts",
     "load:test": "tsx scripts/load-test.ts",
     "mp:test": "tsx scripts/mp-test.ts",
     "voice:test": "tsx scripts/voice-test.ts",

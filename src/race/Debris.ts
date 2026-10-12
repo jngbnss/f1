@@ -164,13 +164,13 @@ export class DebrisField {
       car.debrisSlide[i] = Math.max(car.debrisSlide[i], SLIDE_TIME[p.kind]);
       onEvent?.({ car, kind: 'slide', wheel: i });
     }
-    if (!car.tyres.punctured[wheel] && this.random() < PUNCTURE_CHANCE[p.kind]) {
+    if (!car.tyres.punctured[wheel] && this.random() < PUNCTURE_CHANCE[p.kind] * car.tyres.punctureScale) {
       car.tyres.puncture(wheel);
       this.punctures++;
       onEvent?.({ car, kind: 'puncture', wheel });
     }
     if (p.kind === 'wing') {
-      car.damage.floor = Math.min(1, car.damage.floor + WING_FLOOR_DAMAGE);
+      car.damage.floor = Math.min(1, car.damage.floor + WING_FLOOR_DAMAGE * car.damage.scale);
       onEvent?.({ car, kind: 'floor' });
     }
     // Kicked along: part of the car's velocity, flicked sideways.
