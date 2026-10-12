@@ -59,7 +59,8 @@ import { F1_MODEL_CREDIT, f1ModelReady, GltfF1Visual, loadF1Model } from '../veh
 import type { NetRace } from '../net/NetRace';
 import { AI_LEVEL, DIFFICULTY, readAiLevel, readDifficulty, type DifficultySpec } from '../race/Difficulty';
 import { driverOf, DRIVERS, readDriverIndex } from '../race/Drivers';
-import { PodiumCeremony, type PodiumEntry } from '../race/PodiumCeremony';
+import { PodiumCeremony, type PodiumCue, type PodiumEntry } from '../race/PodiumCeremony';
+import { PodiumSounds } from '../audio/PodiumSounds';
 import { formatLapTime } from '../race/LapTimer';
 import { AI_LAP_FACTOR, Qualifying, type QualiEntry } from '../race/Qualifying';
 import { CALENDAR, loadSeason, recordRace, SEASON_POINTS, showSeasonPanel } from '../race/Season';
@@ -212,6 +213,7 @@ export class Game {
   /** Podium ceremony after the race (or ?podium=1 straight away), once. */
   private podium: PodiumCeremony | null = null;
   private podiumDone = false;
+  private podiumSounds: PodiumSounds | null = null;
   private readonly podiumNow = new URLSearchParams(window.location.search).has('podium');
   /** Drives the player's car round the cool-down lap while the ceremony runs. */
   private cooldown: AIDriver | null = null;
@@ -819,9 +821,14 @@ export class Game {
       const time = t === null ? '' : k === 0 || t0 === null ? formatLapTime(t) : `+${(t - t0).toFixed(3)}s`;
       // Full name on the podium (the timing tower shows the code).
       const name = DRIVERS[def.id]?.find((d) => d.code === r.name)?.name ?? r.name;
-      return { name, team: def.spec.brand ?? def.id, primary: livery.primary, secondary: livery.secondary, accent: livery.accent, time };
+      return { name, team: def.spec.brand ?? def.id, primary: livery.primary, secondary: livery.secondary, accent: livery.accent, time, isPlayer: r.isPlayer };
     });
-    this.podium = new PodiumCeremony(this.track, entries, this.trackTitle, () => this.podium?.skip());
+    const sounds = this.audio?.ctx && this.audio.master ? new PodiumSounds(this.audio.ctx, this.audio.master) : null;
+    this.podiumSounds = sounds;
+    const onCue = (cue: PodiumCue) => (cue === 'pop' ? sounds?.pop() : sounds?.cheer(cue === 'cheer' && this.podium && this.podium.time > 20 ? 8 : 6));
+    this.podium = new PodiumCeremony(this.track, entries, this.trackTitle, () => this.podium?.skip(), onCue);
+    // Engines down while the ceremony runs (the cheer and the cork carry it).
+    this.audio?.setDuck(true);
     this.scene.add(this.podium.group);
     // Monza has its real podium on the pit building: the ceremony's one stands in for it.
     const real = this.scene.getObjectByName('Podium');
@@ -841,6 +848,9 @@ export class Game {
     p.dispose();
     this.podium = null;
     this.podiumDone = true;
+    this.audio?.setDuck(false);
+    this.podiumSounds?.dispose();
+    this.podiumSounds = null;
     this.cooldown = null; // the car is the player's again
     const real = this.scene.getObjectByName('Podium');
     if (real) real.visible = true;

@@ -18,20 +18,38 @@ export interface PodiumEntry {
   accent: number;
   /** "1:23:45.678" or a gap; shown in the lower-third. */
   time: string;
+  /** The player's driver: tagged in the lower-third and given a close-up. */
+  isPlayer?: boolean;
 }
 
-/** Ceremony length (s): the results come back after it. */
-export const PODIUM_DURATION = 30;
+/** Sound cues the game plays: crowd cheer swells, the champagne cork. */
+export type PodiumCue = 'cheer' | 'pop';
 
-// Timeline (s).
-const ENTER = [0.6, 2.4, 4.2]; // P3, P2, P1 start walking
+/** Ceremony length (s): the results come back after it. */
+export const PODIUM_DURATION = 33;
+
+// Timeline (s, ceremony time: runs slower in the slow-motion window).
+const ENTER = [0.6, 1.6, 2.6]; // P3, P2, P1 start walking
 const WALK = 2.2;
+/** Behind the steps the two others go to the winner: hugs and pats on the back. */
+const HUG = [5, 7.6];
+/** Back to their steps, then up: P3, P2, the winner last with a big jump. */
+const BACK = [7.6, 8.4];
+const HOP_AT = [8.4, 8.7, 9.1];
 const HOP = 0.5;
-const ANTHEM = [8, 12.5];
-const TROPHY = [12.6, 13.6, 14.8]; // P3, P2, P1 receive it
-const BOTTLES = 17;
-const SPRAY = [18.2, 26];
-const CONFETTI = 18.2;
+/** The winner's jumps and fist pumps on the top step. */
+const JUMPS = [9.6, 11];
+const ANTHEM = [11.4, 15.6];
+const TROPHY = [15.8, 16.8, 18]; // P3, P2, P1 receive it
+const BOTTLES = 20.4;
+/** The corks pop; spraying each other until the end. */
+const SPRAY = [21.6, 29.2];
+const CONFETTI = 21.6;
+/** Slow motion on the first faceful of champagne. */
+const SLOWMO = [22.6, 24.6];
+const SLOWMO_RATE = 0.35;
+/** Winner's swig from the bottle. */
+const SWIG = [27.4, 28.8];
 
 /** Step per finishing position: lateral slot (local x) and step height. */
 const STEPS: [number, number][] = [
@@ -65,6 +83,23 @@ interface Figure {
   bottle: THREE.Group;
   /** Bottle mouth, for the spray. */
   mouth: THREE.Object3D;
+  /** Who this driver is spraying (figure index) right now, -1 = the crowd / nobody. */
+  target: number;
+}
+
+/** Spray targets over time per driver (figure index; -1 = the crowd). */
+const SPRAY_PLAN: [number, number][][] = [
+  // Winner: P2, then P3, then the crowd.
+  [[SPRAY[0], 1], [24.8, 2], [26.6, -1]],
+  // P2 and P3 go for the winner; P3 turns on P2 near the end.
+  [[SPRAY[0], 0]],
+  [[SPRAY[0], 0], [26.2, 1]],
+];
+
+/** Arm rotation (x, z) that points a hanging arm (-y) along unit `d`, in the figure's frame. */
+function aimArm(d: THREE.Vector3): [number, number] {
+  const rz = Math.asin(THREE.MathUtils.clamp(d.x, -1, 1));
+  return [Math.atan2(-d.z, -d.y), rz];
 }
 
 const _v = new THREE.Vector3();
@@ -74,6 +109,7 @@ const _m = new THREE.Matrix4();
 const _pos = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const _col = new THREE.Color();
+const UP = new THREE.Vector3(0, 1, 0);
 
 export class PodiumCeremony {
   readonly group = new THREE.Group();
@@ -92,13 +128,17 @@ export class PodiumCeremony {
   private readonly spray: Spray;
   private readonly confetti: Confetti;
   private readonly light: THREE.SpotLight;
+  /** Podium position (figure index) of the player's driver, -1 if not on it. */
+  private readonly playerK: number;
 
   constructor(
     track: Track,
     entries: PodiumEntry[],
     title: string,
     onSkip: () => void,
+    private readonly onCue: (cue: PodiumCue) => void = () => {},
   ) {
+    this.playerK = entries.slice(0, 3).findIndex((e) => e.isPlayer);
     // Over the main straight on the pit side, in front of the middle of the pit building.
     const P = track.getCenterline();
     const R = track.getRights();
@@ -149,7 +189,7 @@ export class PodiumCeremony {
         `<div class="podium-third"><div class="podium-head"><b>PODIUM</b><span>${title}</span></div><ol>` +
         entries
           .slice(0, 3)
-          .map((e, k) => `<li data-k="${k}"><b>${k + 1}</b><i style="background:${hex(e.primary)}"></i><span>${e.name}<em>${e.team}</em></span><small>${e.time}</small></li>`)
+          .map((e, k) => `<li data-k="${k}"${e.isPlayer ? ' class="you"' : ''}><b>${k + 1}</b><i style="background:${hex(e.primary)}"></i><span>${e.name}${e.isPlayer ? '<u>YOU</u>' : ''}<em>${e.team}</em></span><small>${e.time}</small></li>`)
           .join('') +
         `</ol></div><button class="podium-skip" type="button">건너뛰기 <kbd>Space</kbd></button>`;
       this.ui.querySelector('button')!.addEventListener('click', onSkip);
@@ -161,10 +201,18 @@ export class PodiumCeremony {
     return this.time >= PODIUM_DURATION;
   }
 
-  /** Advance the ceremony; the camera shot is in shotPos / shotLook. */
-  update(dt: number): void {
+  /** Advance the ceremony (dt in real seconds); the camera shot is in shotPos / shotLook. */
+  update(realDt: number): void {
+    // Slow motion: the ceremony clock (animation, spray, confetti) runs slower.
+    const slow = this.time > SLOWMO[0] && this.time < SLOWMO[1];
+    const dt = realDt * (slow ? SLOWMO_RATE : 1);
+    const before = this.time;
     this.time += dt;
     const T = this.time;
+    const cue = (at: number, c: PodiumCue) => before < at && T >= at && this.onCue(c);
+    cue(HOP_AT[0] + HOP + 0.4, 'cheer');
+    cue(SPRAY[0], 'pop');
+    cue(SPRAY[0] + 0.15, 'cheer');
     this.figures.forEach((f, k) => this.animateFigure(f, k, T));
     this.group.updateMatrixWorld(true);
 
@@ -172,11 +220,13 @@ export class PodiumCeremony {
     const spraying = T > SPRAY[0] && T < SPRAY[1];
     for (const f of this.figures) {
       if (!spraying) break;
+      if (f.target === -2) continue; // drinking
       f.mouth.getWorldPosition(_v);
       this.group.worldToLocal(_v);
       f.mouth.getWorldQuaternion(_q);
       _d.set(0, 1, 0).applyQuaternion(_q).applyQuaternion(this.group.quaternion.clone().invert());
-      this.spray.emit(_v, _d, dt);
+      // The pop: a burst of foam for the first moment.
+      this.spray.emit(_v, _d, dt * (T < SPRAY[0] + 0.25 ? 3 : 1));
     }
     this.spray.update(dt);
     if (T > CONFETTI && !this.confetti.fired) this.confetti.fire(this.stepZ, this.deckY);
@@ -381,80 +431,168 @@ export class PodiumCeremony {
     bottle.visible = false;
     R.hand.add(bottle);
     this.group.add(root);
-    return { root, armL: L.sh, armR: R.sh, legL, legR, handR: R.hand, handL: L.hand, trophy, bottle, mouth };
+    return { root, armL: L.sh, armR: R.sh, legL, legR, handR: R.hand, handL: L.hand, trophy, bottle, mouth, target: -1 };
   }
 
-  /** Pose driver k (0 = winner) at time T. */
+  /** Pose driver k (0 = winner) at ceremony time T. */
   private animateFigure(f: Figure, k: number, T: number): void {
     const [x, h] = STEPS[k];
     const z = this.stepZ;
-    // Walk in from the side door behind the backdrop end, along the back of the steps, then hop up.
-    const t0 = ENTER[2 - k] ?? ENTER[0];
-    const startX = x + 8.5;
     const behindZ = z + 1.5;
-    const walk = span(T, t0, t0 + WALK);
-    const hop = span(T, t0 + WALK, t0 + WALK + HOP);
-    const visible = T >= t0;
-    f.root.visible = visible;
+    const t0 = ENTER[2 - k];
     const root = f.root;
-    let yaw = Math.PI / 2; // walking towards -x
+    root.visible = T >= t0;
+    let px = x;
+    let py = this.deckY;
+    let pz = behindZ;
+    let yaw = 0;
+    let lean = 0;
     let step = 0;
+    let rL = 0;
+    let zL = -0.08;
+    let rR = 0;
+    let zR = 0.08;
+
+    // 1. Walk in from the side door behind the backdrop end (yaw pi/2 = facing -x).
+    const walk = span(T, t0, t0 + WALK);
+    // 2. Behind the steps the other two go to the winner: a hug and pats on the back.
+    const hugX = [0, 0.62, -0.62][k];
+    const toHug = smooth(span(T, HUG[0], HUG[0] + 0.7));
+    const fromHug = smooth(span(T, BACK[0], BACK[1]));
+    const hug = toHug * (1 - fromHug);
+    // 3. Up onto the step.
+    const hopT = HOP_AT[2 - k];
+    const hop = span(T, hopT, hopT + HOP);
     if (walk < 1) {
-      root.position.set(startX + (x - startX) * walk, this.deckY, behindZ);
+      px = THREE.MathUtils.lerp(x + 8.5, x, walk);
+      yaw = Math.PI / 2;
       step = walk > 0 ? Math.sin(T * 9) : 0;
-      root.position.y += Math.abs(step) * 0.03;
+      py += Math.abs(step) * 0.03;
+    } else if (T < hopT) {
+      px = THREE.MathUtils.lerp(x, hugX, hug);
+      const moving = (toHug > 0 && toHug < 1) || (fromHug > 0 && fromHug < 1);
+      if (moving) step = Math.sin(T * 9) * 0.6;
+      if (k > 0) {
+        // Face the winner while going to him and hugging, the other way walking back.
+        const toWinner = x > 0 ? Math.PI / 2 : -Math.PI / 2;
+        yaw = fromHug > 0 && fromHug < 1 ? -toWinner : toWinner * smooth(span(T, HUG[0] - 0.3, HUG[0] + 0.2)) * (fromHug < 1 ? 1 : 0);
+        lean = 0.14 * hug;
+        rR = rL = 1.35 * hug;
+        zR = THREE.MathUtils.lerp(0.08, -0.35, hug);
+        zL = -zR;
+        rR += Math.sin(T * 7 + k) * 0.2 * hug; // pat, pat
+      } else {
+        // The winner opens both arms around them.
+        rR = rL = 1.2 * hug;
+        zR = THREE.MathUtils.lerp(0.08, 1.0, hug) + Math.sin(T * 7) * 0.12 * hug;
+        zL = -zR;
+      }
     } else {
       const e = smooth(hop);
-      root.position.set(x, this.deckY + h * e + Math.sin(hop * Math.PI) * (k === 0 ? 0.45 : 0.25), behindZ + (z - behindZ) * e);
-      yaw = Math.PI / 2 * (1 - e);
+      py = this.deckY + h * e + Math.sin(hop * Math.PI) * (k === 0 ? 0.45 : 0.25);
+      pz = THREE.MathUtils.lerp(behindZ, z, e);
     }
-    // On the step: face the crowd; for the champagne the 2nd and 3rd turn to the winner.
-    const turn = T > SPRAY[0] - 0.4 && k > 0 ? smooth(span(T, SPRAY[0] - 0.4, SPRAY[0] + 0.4)) * (x < 0 ? -0.55 : 0.55) : 0;
-    root.rotation.y = yaw + turn;
-    f.legL.rotation.x = step * 0.45;
-    f.legR.rotation.x = -step * 0.45;
 
-    // Arms: swing while walking; up on arrival (both for the winner), down for the anthem,
-    // trophy over the head, then the bottle.
-    let rL = -step * 0.35;
-    let rR = step * 0.35;
-    let zL = -0.08;
-    let zR = 0.08;
-    const arrive = t0 + WALK + HOP;
-    const wave = span(T, arrive, arrive + 0.4) * (1 - span(T, ANTHEM[0] - 0.8, ANTHEM[0] - 0.2));
-    if (wave > 0) {
-      rR = THREE.MathUtils.lerp(rR, 2.9, smooth(wave));
-      zR = THREE.MathUtils.lerp(zR, 0.35 + Math.sin(T * 6 + k) * 0.12, smooth(wave));
+    // 4. On the step: the winner jumps with fists up; the others wave.
+    const arrived = hopT + HOP;
+    if (T > arrived && T < ANTHEM[0] - 0.2) {
+      const fade = 1 - span(T, ANTHEM[0] - 0.8, ANTHEM[0] - 0.2);
+      const w = smooth(span(T, arrived, arrived + 0.4)) * fade;
       if (k === 0) {
-        rL = THREE.MathUtils.lerp(rL, 2.9, smooth(wave));
-        zL = THREE.MathUtils.lerp(zL, -0.35 - Math.sin(T * 6) * 0.12, smooth(wave));
+        const j = span(T, JUMPS[0], JUMPS[1]);
+        if (j > 0 && j < 1) py += Math.abs(Math.sin((T - JUMPS[0]) * Math.PI * 2.2)) * 0.32;
+        const pump = Math.sin(T * 9) * 0.18;
+        rR = rL = THREE.MathUtils.lerp(0, 2.85 + pump, w);
+        zR = THREE.MathUtils.lerp(0.08, 0.32, w);
+        zL = -zR;
+      } else {
+        rR = THREE.MathUtils.lerp(0, 2.9, w);
+        zR = THREE.MathUtils.lerp(0.08, 0.35 + Math.sin(T * 6 + k) * 0.14, w);
       }
     }
+
+    // 5. Trophy: chest height, then overhead.
     const got = TROPHY[2 - k];
-    const lift = span(T, got + 0.25, got + 0.9) * (1 - span(T, BOTTLES - 0.6, BOTTLES - 0.1));
     if (T > got && T < BOTTLES) {
-      // Both hands on the trophy: chest height, then overhead.
-      const e = smooth(lift);
+      const e = smooth(span(T, got + 0.25, got + 0.9) * (1 - span(T, BOTTLES - 0.6, BOTTLES - 0.1)));
       rR = rL = THREE.MathUtils.lerp(1.2, 2.95, e);
       zR = THREE.MathUtils.lerp(-0.25, -0.12, e) + Math.sin(T * 4 + k) * 0.05 * e;
       zL = -zR;
     }
     f.trophy.visible = T > got && T < BOTTLES - 0.1;
+
+    // 6. Champagne: shake it, pop, then go for each other's heads.
     f.bottle.visible = T > BOTTLES;
-    if (T > BOTTLES) {
-      const shake = span(T, BOTTLES, SPRAY[0]);
-      const sp = span(T, SPRAY[0], SPRAY[0] + 0.3) * (1 - span(T, SPRAY[1] - 0.6, SPRAY[1]));
-      // Shaking at chest height, then aimed up and over the others / the crowd, sweeping.
-      rR = THREE.MathUtils.lerp(1.3 + (shake < 1 ? Math.sin(T * 30) * 0.25 : 0), 2.15 + Math.sin(T * 2.2 + k * 1.7) * 0.25, sp);
-      zR = THREE.MathUtils.lerp(-0.2, 0.15 + Math.sin(T * 1.6 + k) * 0.3, sp);
-      rL = THREE.MathUtils.lerp(0.9, 0.3, sp);
+    f.target = -1;
+    if (T > BOTTLES && T < SPRAY[0]) {
+      rR = 1.3 + Math.sin(T * 30) * 0.25;
+      zR = -0.2 + Math.sin(T * 30 + 1) * 0.08;
+      rL = 0.9;
       zL = -0.2;
-      if (k === 0 && T > SPRAY[0] + 4) {
-        // Winner swigs from the bottle near the end.
-        const swig = smooth(span(T, SPRAY[0] + 4, SPRAY[0] + 4.6)) * (1 - span(T, SPRAY[0] + 5.6, SPRAY[0] + 6.2));
-        rR = THREE.MathUtils.lerp(rR, 2.6, swig);
-        zR = THREE.MathUtils.lerp(zR, -0.55, swig);
+    } else if (T >= SPRAY[0]) {
+      const sp = smooth(span(T, SPRAY[0], SPRAY[0] + 0.3)) * (1 - span(T, SPRAY[1] - 0.6, SPRAY[1]));
+      const plan = SPRAY_PLAN[k];
+      let target = -1;
+      for (const [at, who] of plan) if (T >= at) target = who;
+      if (target >= this.figures.length) target = -1;
+      f.target = target;
+      // Where to aim: the other's head (a little over it: the stream drops), else up over the crowd.
+      const me = root.position;
+      if (target >= 0) _v.copy(this.figures[target].root.position).setY(this.figures[target].root.position.y + 1.85);
+      else _v.set(me.x * 0.5, this.deckY + 5, this.stepZ - 14);
+      _d.set(me.x, me.y + 1.42, me.z);
+      _v.sub(_d);
+      _v.y += _v.length() * 0.12;
+      // Turn the body part of the way, the arm the rest.
+      const want = Math.atan2(-_v.x, -_v.z);
+      const bodyYaw = THREE.MathUtils.clamp(want * 0.6, -1.1, 1.1) * sp;
+      yaw = bodyYaw;
+      _v.normalize().applyAxisAngle(UP, -bodyYaw);
+      const [ax, az] = aimArm(_v);
+      rR = THREE.MathUtils.lerp(0.9, ax + Math.sin(T * 5 + k) * 0.08, sp);
+      zR = THREE.MathUtils.lerp(-0.2, az + Math.sin(T * 3.3 + k) * 0.1, sp);
+      rL = THREE.MathUtils.lerp(0.9, 0.35, sp);
+      zL = -0.25;
+      // Bouncing about the whole time.
+      py += Math.abs(Math.sin(T * 5 + k * 1.3)) * 0.07 * sp;
+      // Getting a faceful: lean back, free hand up in front of the face.
+      const hit = this.figures.some((o, j) => j !== k && o.target === k);
+      if (hit && sp > 0) {
+        lean = -0.2 + Math.sin(T * 6 + k) * 0.05;
+        // Left forearm across the face (+z swings the left arm in towards the body).
+        rL = 2.0;
+        zL = 0.65;
       }
+      // The end: all three hold their bottles up to the crowd, waving.
+      const finale = smooth(span(T, SPRAY[1] - 0.4, SPRAY[1] + 0.4));
+      if (finale > 0) {
+        rR = THREE.MathUtils.lerp(rR, 2.75 + Math.sin(T * 5 + k) * 0.15, finale);
+        zR = THREE.MathUtils.lerp(zR, 0.3, finale);
+        rL = THREE.MathUtils.lerp(rL, k === 0 ? 2.75 : 0.2, finale);
+        zL = THREE.MathUtils.lerp(zL, k === 0 ? -0.3 : -0.1, finale);
+        lean *= 1 - finale;
+        yaw *= 1 - finale;
+      }
+      if (k === 0) {
+        // The winner's swig near the end.
+        const swig = smooth(span(T, SWIG[0], SWIG[0] + 0.5)) * (1 - span(T, SWIG[1] - 0.5, SWIG[1]));
+        if (swig > 0) {
+          f.target = -2; // not spraying while drinking
+          rR = THREE.MathUtils.lerp(rR, 2.6, swig);
+          zR = THREE.MathUtils.lerp(zR, -0.55, swig);
+          yaw = THREE.MathUtils.lerp(yaw, 0, swig);
+          lean = THREE.MathUtils.lerp(lean, -0.12, swig);
+        }
+      }
+    }
+
+    root.position.set(px, py, pz);
+    root.rotation.set(lean, yaw, 0, 'YXZ');
+    f.legL.rotation.x = step * 0.45;
+    f.legR.rotation.x = -step * 0.45;
+    if (step) {
+      rL += -step * 0.35;
+      rR += step * 0.35;
     }
     f.armL.rotation.set(rL, 0, zL);
     f.armR.rotation.set(rR, 0, zR);
@@ -476,33 +614,59 @@ export class PodiumCeremony {
     this.ui.classList.toggle('names', T < TROPHY[0] + 1.5);
     this.ui.querySelectorAll<HTMLLIElement>('li').forEach((li) => {
       const k = Number(li.dataset.k);
-      li.classList.toggle('in', T > ENTER[2 - k] + WALK + HOP);
+      li.classList.toggle('in', T > HOP_AT[2 - k] + HOP);
     });
   }
 
-  /** Broadcast shots, each a slow move; positions in podium-local space. */
+  /** Broadcast shots, cut together, each a slow move with a hand-held wobble; podium-local space. */
   private camera(T: number): void {
     const { deckY, stepZ } = this;
     const front = -this.depth / 2;
-    if (T < ANTHEM[0]) {
+    const closeUp = (k: number, e: number) => {
+      const [x, h] = STEPS[k];
+      _pos.set(x + 0.3, deckY + h + 1.62, stepZ - THREE.MathUtils.lerp(2.9, 2.1, e));
+      _look.set(x, deckY + h + 1.5, stepZ);
+    };
+    if (T < HUG[0]) {
       // From the track below, the crowd's view: slow truck along the straight, rising.
-      const e = smooth(span(T, 0, ANTHEM[0]));
-      _pos.set(THREE.MathUtils.lerp(-12, -5, e), THREE.MathUtils.lerp(deckY - 1.5, deckY + 1.2, e), front - 22);
-      _look.set(THREE.MathUtils.lerp(2.5, 0.8, e), deckY + 1.3, stepZ);
+      const e = smooth(span(T, 0, HUG[0]));
+      _pos.set(THREE.MathUtils.lerp(-12, -6, e), THREE.MathUtils.lerp(deckY - 1.5, deckY + 0.8, e), front - 22);
+      _look.set(THREE.MathUtils.lerp(4, 1, e), deckY + 1.3, stepZ);
+    } else if (T < HOP_AT[0]) {
+      // The hug behind the steps: over the top of the steps, close.
+      const e = smooth(span(T, HUG[0], HOP_AT[0]));
+      _pos.set(THREE.MathUtils.lerp(-2.4, -1.2, e), deckY + 2.15, stepZ - 3.1);
+      _look.set(0, deckY + 1.25, stepZ + 1.5);
+    } else if (T < ANTHEM[0]) {
+      // Up onto the steps, the winner's jumps: medium-wide, arcing.
+      const e = smooth(span(T, HOP_AT[0], ANTHEM[0]));
+      const a = THREE.MathUtils.lerp(0.4, -0.15, e);
+      _pos.set(Math.sin(a) * 7.5, deckY + 2.2, stepZ - Math.cos(a) * 7.5);
+      _look.set(0, deckY + 1.8, stepZ);
     } else if (T < ANTHEM[1]) {
-      // Anthem: the winner in close-up, slow push in.
-      const e = smooth(span(T, ANTHEM[0], ANTHEM[1]));
-      _pos.set(0.3, deckY + STEPS[0][1] + 1.62, stepZ - THREE.MathUtils.lerp(2.9, 2.1, e));
-      _look.set(0, deckY + STEPS[0][1] + 1.5, stepZ);
+      // Anthem: the winner in close-up; then the player's driver, if on the podium too.
+      const cut = this.playerK > 0 ? ANTHEM[0] + (ANTHEM[1] - ANTHEM[0]) * 0.55 : ANTHEM[1];
+      if (T < cut) closeUp(0, smooth(span(T, ANTHEM[0], cut)));
+      else closeUp(this.playerK, smooth(span(T, cut, ANTHEM[1])));
     } else if (T < SPRAY[0]) {
-      // Trophies: the three in a medium shot, arcing across.
+      // Trophies, then shaking the bottles: the three in a medium shot, arcing across.
       const e = smooth(span(T, ANTHEM[1], SPRAY[0]));
       const a = THREE.MathUtils.lerp(-0.35, 0.3, e);
       _pos.set(Math.sin(a) * 8, deckY + 2.6, stepZ - Math.cos(a) * 8);
       _look.set(0, deckY + 1.9, stepZ);
+    } else if (T < SLOWMO[0]) {
+      // Pop! Tight on the winner's bottle.
+      _pos.set(-0.9, deckY + STEPS[0][1] + 1.85, stepZ - 1.9);
+      _look.set(0.2, deckY + STEPS[0][1] + 1.75, stepZ);
+    } else if (T < SLOWMO[1]) {
+      // Slow motion: low, between them, the winner's stream into P2's face.
+      const e = smooth(span(T, SLOWMO[0], SLOWMO[1]));
+      const [x2, h2] = STEPS[1];
+      _pos.set(x2 * 0.5 + THREE.MathUtils.lerp(-0.4, 0.3, e), deckY + 1.35, stepZ - 3.2);
+      _look.set(x2 * 0.55, deckY + h2 + 1.7, stepZ);
     } else if (T < SPRAY[1]) {
-      // Champagne: low on the deck, orbiting through the spray.
-      const e = span(T, SPRAY[0], SPRAY[1]);
+      // Orbiting through the spray.
+      const e = span(T, SLOWMO[1], SPRAY[1]);
       const a = THREE.MathUtils.lerp(0.55, -0.5, smooth(e));
       _pos.set(Math.sin(a) * 6, deckY + 1.5 + e * 0.6, stepZ - Math.cos(a) * 6);
       _look.set(0, deckY + 2, stepZ);
@@ -511,6 +675,14 @@ export class PodiumCeremony {
       const e = smooth(span(T, SPRAY[1], PODIUM_DURATION));
       _pos.set(THREE.MathUtils.lerp(4, 9, e), THREE.MathUtils.lerp(deckY + 3, deckY + 9, e), THREE.MathUtils.lerp(front - 6, front - 22, e));
       _look.set(0, deckY + 1.6, stepZ);
+    }
+    // Hand-held: a slow, small wobble (not on the crane).
+    if (T < SPRAY[1]) {
+      const w = (a: number, b: number) => Math.sin(T * a + b) * 0.018 + Math.sin(T * a * 2.3 + b * 1.7) * 0.008;
+      _pos.x += w(1.1, 0);
+      _pos.y += w(1.3, 2);
+      _look.x += w(0.9, 4);
+      _look.y += w(1.2, 1);
     }
     this.shotPos.copy(this.group.localToWorld(_pos));
     this.shotLook.copy(this.group.localToWorld(_look));
