@@ -57,13 +57,16 @@ import { GameLoop } from './GameLoop';
 import { F1_MODEL_CREDIT, f1ModelReady, GltfF1Visual, loadF1Model } from '../vehicle/cars/GltfF1Visual';
 import type { NetRace } from '../net/NetRace';
 import { DIFFICULTY, readDifficulty, type DifficultySpec } from '../race/Difficulty';
+import { driverOf, readDriverIndex } from '../race/Drivers';
 
-/** Timing-tower label: team abbreviation + race number (e.g. "FER 16"). */
+/** Timing-tower label: the driver's code (e.g. "LEC"), else team abbreviation + race number ("FER 16"). */
 const TEAM_ABBR: Record<string, string> = {
   'f1-ferrari': 'FER', 'f1-mercedes': 'MER', 'f1-redbull': 'RBR', 'f1-mclaren': 'MCL', 'f1-aston': 'AMR',
   'f1-alpine': 'ALP', 'f1-williams': 'WIL', 'f1-racingbulls': 'RB', 'f1-haas': 'HAA', 'f1-audi': 'AUD',
 };
 function carLabel(def: CarDefinition, driver: number): string {
+  const real = driverOf(def.id, driver);
+  if (real) return real.code;
   const livery = liveryFor(def.id, def.spec.color, def.spec.accent ?? 0xffffff);
   return `${TEAM_ABBR[def.id] ?? def.spec.brand.slice(0, 3).toUpperCase()} ${livery.numbers[driver % 2]}`;
 }
@@ -259,7 +262,9 @@ export class Game {
     // Player starts mid-field; with no opponents it's a free practice session.
     const playerSlot = plan ? Math.max(0, plan.slots.findIndex((s) => s.id === net!.localId)) : Math.floor(total / 2);
     const playerPose = opponents > 0 || plan ? this.track.gridPose(playerSlot) : this.track.getSpawnPose();
-    this.player = new Vehicle(physics, car.physics, car.createVisual(undefined, plan?.slots[playerSlot]?.driver ?? 0), playerPose, car.gearbox);
+    // The driver picked in the menu (a room assigns its own); the team-mate drives the other car.
+    const myDriver = plan ? (plan.slots[playerSlot]?.driver ?? 0) : config.bench > 0 ? 0 : readDriverIndex();
+    this.player = new Vehicle(physics, car.physics, car.createVisual(undefined, myDriver), playerPose, car.gearbox);
     this.scene.add(this.player.object3D);
     this.scene.add(this.tyreSmoke.mesh);
     this.scene.add(this.debrisMesh.group);
@@ -285,13 +290,13 @@ export class Game {
       let rivalIndex = 0;
       for (let slot = 0; slot < total; slot++) {
         if (slot === playerSlot) {
-          racers.push(this.racer(carLabel(car, 0), this.player, null, true, liveryFor(car.id, car.spec.color, car.spec.accent ?? 0xffffff).primary));
+          racers.push(this.racer(carLabel(car, myDriver), this.player, null, true, liveryFor(car.id, car.spec.color, car.spec.accent ?? 0xffffff).primary));
           continue;
         }
         const def = rivals[rivalIndex++];
         // Teammates share their team's livery.
         // Second car of a team (or the player's teammate) carries the team's other number.
-        const driver = def.id === car.id || rivals.indexOf(def) !== rivalIndex - 1 ? 1 : 0;
+        const driver = def.id === car.id ? 1 - myDriver : rivals.indexOf(def) !== rivalIndex - 1 ? 1 : 0;
         const vehicle = new Vehicle(physics, def.physics, def.createVisual(undefined, driver), this.track.gridPose(slot), def.gearbox);
         this.scene.add(vehicle.object3D);
         this.vehicles.push(vehicle);

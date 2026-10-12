@@ -66,13 +66,13 @@ const LIVERIES: Record<string, Livery> = {
     noseTip: 0x0e0f11, flap: 0x00d2be, endplate: 0x0e0f11, rim: 0x00d2be, helmetStripe: 0x00d2be, helmetTop: 0x222222,
   },
   'f1-redbull': {
-    primary: 0x1b2343, secondary: 0xd0021b, accent: 0xffc906, helmet: 0x1b2343, numbers: [1, 6], name: 'RED BULL',
+    primary: 0x1b2343, secondary: 0xd0021b, accent: 0xffc906, helmet: 0x1b2343, numbers: [3, 6], name: 'RED BULL',
     sponsors: ['STRATA', 'LUMEN', 'ZENTRA'], inks: [0xffc906, 0xffffff, 0xffffff],
     lower: { mode: 'carbon', a: 0.31 }, band: [-0.75, 0.25, 0.3, 0xd0021b], matte: true,
     noseTip: 0xffc906, flap: 0xd0021b, endplate: 0x1b2343, rim: 0xd0021b, helmetStripe: 0xd0021b, helmetTop: 0xffc906,
   },
   'f1-mclaren': {
-    primary: 0xff7a00, secondary: 0x202124, accent: 0x47c7fc, helmet: 0xff8000, numbers: [4, 81], name: 'McLAREN',
+    primary: 0xff7a00, secondary: 0x202124, accent: 0x47c7fc, helmet: 0xff8000, numbers: [1, 81], name: 'McLAREN',
     sponsors: ['VELTRO', 'ARKON', 'PRAXA'], inks: [0xffffff, 0x202124, 0xff8000],
     lower: { mode: 'secondary', a: 0.47, b: 0.03, c: 0.02, pin: true },
     noseTip: 0x202124, flap: 0xff8000, endplate: 0x202124, rim: 0xff8000, helmetStripe: 0x47c7fc, helmetTop: 0x202124,

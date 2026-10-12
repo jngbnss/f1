@@ -6,6 +6,7 @@ import { CIRCUIT_INFO } from './circuitInfo';
 import circuitMaps from './circuitMaps.json';
 import { mountTyrePicker, readStartTyre } from './TyrePicker';
 import { DIFFICULTIES, DIFFICULTY, readDifficulty, saveDifficulty } from '../race/Difficulty';
+import { DRIVERS, readDriverIndex, saveDriverIndex } from '../race/Drivers';
 
 export interface MenuSelection {
   carId: string;
@@ -87,6 +88,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     let ai = initial.ai;
     let laps = initial.laps;
     let difficulty = readDifficulty();
+    let driver = readDriverIndex();
     const base = import.meta.env.BASE_URL;
 
     const root = el('div', 'menu');
@@ -189,7 +191,21 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
         row.append(el('span', '', s.label), track, el('b', '', s.raw));
         bars.append(row);
       }
-      info.append(head, sw, bars);
+      // Driver: one of the team's two (the other one drives the team-mate's car).
+      const pair = DRIVERS[c.id];
+      if (pair) {
+        const row = el('div', 'chip-row td-drivers');
+        pair.forEach((p, i) =>
+          row.append(
+            chip(`#${p.number} ${p.ko}`, i === driver ? '내가 운전' : '팀메이트 (AI)', i === driver, () => {
+              driver = i;
+              saveDriverIndex(i);
+              render();
+            }),
+          ),
+        );
+        info.append(head, row, sw, bars);
+      } else info.append(head, sw, bars);
       detail.replaceChildren(img, info);
     };
 
@@ -226,7 +242,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       const c = cars.find((x) => x.id === carId)!;
       const t = tracks.find((x) => x.id === trackId);
       const w = readWeather();
-      const parts = [c.spec.brand, t?.name ?? '', DIFFICULTY[difficulty].name, ai === 0 ? '자유 주행' : `${ai + 1}대 · ${laps}랩`, `${WEATHER_NAMES[w.weather] ?? w.weather} ${TIME_NAMES[w.time] ?? ''}`, COMPOUND_NAMES[readStartTyre()]];
+      const parts = [DRIVERS[c.id] ? `${c.spec.brand} · ${DRIVERS[c.id][driver].ko}` : c.spec.brand, t?.name ?? '', DIFFICULTY[difficulty].name, ai === 0 ? '자유 주행' : `${ai + 1}대 · ${laps}랩`, `${WEATHER_NAMES[w.weather] ?? w.weather} ${TIME_NAMES[w.time] ?? ''}`, COMPOUND_NAMES[readStartTyre()]];
       summary.replaceChildren(...parts.filter(Boolean).map((p, i) => el(i === 0 ? 'strong' : 'span', '', p)));
       summary.style.setProperty('--team', hex(c.spec.color));
     };
