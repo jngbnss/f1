@@ -4,6 +4,7 @@ import { CAMERA_LABELS, CAMERA_MODES, FollowCamera, type CameraMode } from '../c
 import { CarAudio, EngineVoice } from '../audio/EngineSound';
 import { AudioSystem } from '../audio/AudioSystem';
 import { TeamRadio } from '../audio/TeamRadio';
+import { music } from '../audio/Music';
 import { urlWith, type SimConfig } from '../config';
 import { GamepadInput } from '../input/GamepadInput';
 import { InputManager } from '../input/InputManager';
@@ -498,7 +499,10 @@ export class Game {
     this.minimap = new Minimap(this.track.getCenterline());
 
     this.radio = new TeamRadio(
-      (on) => this.audio?.setDuck(on),
+      (on) => {
+        this.audio?.setDuck(on);
+        music.setDuck(on);
+      },
       () => this.audio?.muted ?? true,
     );
     if (this.race) this.engineer = new RaceEngineer(this.radio, this.race, this.player, this.track, this.racingLine, this.pitStops);

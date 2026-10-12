@@ -10,3 +10,6 @@ shots/
 .tmp/
 assets-src/
 __pycache__/
+# Local background music: personal files, licensing is yours — never committed.
+public/audio/bgm/*
+!public/audio/bgm/README.md

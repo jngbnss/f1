@@ -1,4 +1,5 @@
 import { makeNoiseBuffer, makeReverbBuffer, type AudioAssets } from './EngineSound';
+import { music } from './Music';
 
 /**
  * Owns the AudioContext and shared audio assets (recorded engine loop,
@@ -82,6 +83,8 @@ export class AudioSystem {
   toggleMute(): void {
     this.muted = !this.muted;
     this.applyVolume();
+    // M silences everything the game plays, music included.
+    music.setMuted(this.muted);
   }
 
   applyVolume(): void {

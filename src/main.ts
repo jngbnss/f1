@@ -1,6 +1,7 @@
 import './style.css';
 import './ui/responsive.css';
 import { installDiagnostics } from './ui/Diagnostics';
+import { music } from './audio/Music';
 import { driveSettings } from './ui/DriveSettings';
 import { mountVolumeControl } from './ui/VolumeControl';
 import { readConfig, urlWith } from './config';
@@ -39,6 +40,8 @@ window.addEventListener('load', () => setTimeout(() => {
 
 async function main(): Promise<void> {
   installDiagnostics();
+  // Background music (menu included) if public/audio/bgm has a playlist; silent otherwise.
+  void music.start();
   const container = document.getElementById('app');
   const loading = document.getElementById('loading');
   if (!container) throw new Error('#app container missing');

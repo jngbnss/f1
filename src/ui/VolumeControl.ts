@@ -1,9 +1,11 @@
 import { getGameVolume, onGameVolume, setGameVolume } from '../audio/AudioSystem';
+import { music, onMusicSettings, readMusicSettings, saveMusicSettings, type MusicSettings, type MusicTrack } from '../audio/Music';
 import { onRadioSettings, readRadioSettings, saveRadioSettings, type RadioSettings } from '../audio/TeamRadio';
 
 /**
  * Sound settings: a small 🔊 button (bottom centre on desktop) that opens a
- * panel with the engine / effects volume and the team radio (on/off, its own
+ * panel with the engine / effects volume, the background music (only when
+ * public/audio/bgm has tracks) and the team radio (on/off, its own
  * volume, subtitles; the engineer speaks English). Touch screens get the same rows inside
  * the settings panel instead (see TouchControls). M still mutes.
  */
@@ -41,7 +43,7 @@ export function volumeRow(): HTMLDivElement {
   return wrap;
 }
 
-/** Engine / effects volume + team radio settings, kept in sync with changes made elsewhere. */
+/** Engine / effects volume + music + team radio settings, kept in sync with changes made elsewhere. */
 function soundRows(rowClass = 'vp-row', alive: () => boolean = () => true): { elements: HTMLElement[]; dispose(): void } {
   const row = (label: string, ...controls: HTMLElement[]) => {
     const r = document.createElement('div');
@@ -80,11 +82,38 @@ function soundRows(rowClass = 'vp-row', alive: () => boolean = () => true): { el
   const radioPct = percent();
   const subs = toggle('자막 켜기/끄기');
 
+  const musicOn = toggle('배경음악 켜기/끄기');
+  const musicVol = slider('배경음악 크기');
+  const musicPct = percent();
+  const skip = toggle('다음 곡');
+  skip.textContent = '⏭';
+  const musicRow = row('배경음악', musicOn, musicVol, musicPct, skip);
+  musicRow.hidden = !music.available;
+  const saveMusic = (patch: Partial<MusicSettings>) => saveMusicSettings({ ...readMusicSettings(), ...patch });
+  musicOn.addEventListener('click', () => saveMusic({ on: !readMusicSettings().on }));
+  musicVol.addEventListener('input', () => saveMusic({ volume: Number(musicVol.value) / 100 }));
+  skip.addEventListener('click', () => music.next());
+  for (const b of [musicOn, skip]) b.addEventListener('click', () => b.blur());
+
   const update = (patch: Partial<RadioSettings>) => saveRadioSettings({ ...readRadioSettings(), ...patch });
   radioOn.addEventListener('click', () => update({ on: !readRadioSettings().on }));
   radioVol.addEventListener('input', () => update({ volume: Number(radioVol.value) / 100 }));
   subs.addEventListener('click', () => update({ subtitles: !readRadioSettings().subtitles }));
   for (const b of [radioOn, subs]) b.addEventListener('click', () => b.blur());
+
+  const showMusic = (s: MusicSettings) => {
+    musicOn.textContent = s.on ? '켜짐' : '꺼짐';
+    musicOn.classList.toggle('on', s.on);
+    musicVol.value = String(Math.round(s.volume * 100));
+    musicVol.disabled = !s.on;
+    musicPct.textContent = `${Math.round(s.volume * 100)}%`;
+    skip.disabled = !s.on;
+  };
+  // A track appears once the playlist has loaded: show the row and name the song.
+  const showTrack = (t: MusicTrack | null) => {
+    musicRow.hidden = !t;
+    musicRow.title = t ? `♪ ${t.title ?? t.src}` : '';
+  };
 
   const showEngine = (v: number) => {
     engine.value = String(Math.round(v * 100));
@@ -101,15 +130,21 @@ function soundRows(rowClass = 'vp-row', alive: () => boolean = () => true): { el
   };
   showEngine(getGameVolume());
   showRadio(readRadioSettings());
+  showMusic(readMusicSettings());
   const dispose = () => {
     offEngine();
     offRadio();
+    offMusic();
+    offTrack();
   };
   const offEngine = onGameVolume((v) => (alive() ? showEngine(v) : dispose()));
   const offRadio = onRadioSettings((st) => (alive() ? showRadio(st) : dispose()));
+  const offMusic = onMusicSettings((st) => (alive() ? showMusic(st) : dispose()));
+  const offTrack = music.onTrack((t) => (alive() ? showTrack(t) : dispose()));
   return {
     elements: [
       row('엔진·효과음', engine, enginePct),
+      musicRow,
       row('팀 라디오', radioOn, radioVol, radioPct),
       row('무전 자막', subs),
     ],
