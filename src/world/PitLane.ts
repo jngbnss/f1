@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
  * Pit lane along the start/finish straight (TUMFTM centerlines have none):
@@ -148,11 +149,46 @@ export function buildPitLaneMeshes(
   // Limiter lines across the lane.
   for (const k of [pit.limiterStart, pit.limiterEnd]) group.add(new THREE.Mesh(strip(-w, w, 0.032, k, k + 1), white));
 
-  // Box markings: a team-coloured rectangle per box in the working lane.
+  // Box markings, as painted in an F1 pit lane: a team-coloured outline round the box and white
+  // stop marks where the front and rear tyres go (the car stops with its centre on the box centre).
+  /** Quad in the lane at path sample k: from `a` to `b` m along the lane, `inner` to `outer` m across. */
+  const mark = (k: number, a: number, b: number, inner: number, outer: number, y: number) => {
+    const c = pit.path[k];
+    const along = pit.path[Math.min(k + 1, pit.path.length - 1)].clone().sub(pit.path[Math.max(k - 1, 0)]).setY(0).normalize();
+    const r = rights[pit.pathIndex[k]];
+    const at = (u: number, v: number) => c.clone().addScaledVector(along, u).addScaledVector(r, pit.side * v);
+    const quad = [at(a, inner), at(a, outer), at(b, inner), at(b, outer)];
+    const [p0, p1, p2, p3] = pit.side > 0 ? quad : [quad[1], quad[0], quad[3], quad[2]];
+    const pos: number[] = [];
+    for (const v of [p0, p1, p2, p1, p3, p2]) pos.push(v.x, v.y + y, v.z);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.computeVertexNormals();
+    return g;
+  };
+  const centre = BOX_LANE_SHIFT;
+  const half = 1.45; // half the box width across the lane
+  const len = 3.6; // half the box length along it
+  const line = 0.14;
   pit.boxes.forEach((k, t) => {
-    const mat = new THREE.MeshStandardMaterial({ color: teamColors[t % teamColors.length], roughness: 0.6 });
-    disposables.push(mat);
-    group.add(new THREE.Mesh(strip(WORK_LANE_EDGE + 0.4, w - 0.4, 0.031, k - 2, k + 2), mat));
+    const team = new THREE.MeshStandardMaterial({ color: teamColors[t % teamColors.length], roughness: 0.6 });
+    disposables.push(team);
+    const parts = [
+      mark(k, -len, len, centre - half, centre - half + line, 0.031),
+      mark(k, -len, len, centre + half - line, centre + half, 0.031),
+      mark(k, -len, -len + line, centre - half, centre + half, 0.031),
+      mark(k, len - line, len, centre - half, centre + half, 0.031),
+    ];
+    const outline = mergeGeometries(parts)!;
+    for (const p of parts) p.dispose();
+    disposables.push(outline);
+    group.add(new THREE.Mesh(outline, team));
+    // Tyre stop marks: short bars across each wheel track, ahead of the front and rear tyres.
+    const stops = [1.8 + 0.42, -1.8 + 0.42].flatMap((u) => [-0.8, 0.8].map((v) => mark(k, u, u + 0.1, centre + v - 0.25, centre + v + 0.25, 0.033)));
+    const stopGeo = mergeGeometries(stops)!;
+    for (const p of stops) p.dispose();
+    disposables.push(stopGeo);
+    group.add(new THREE.Mesh(stopGeo, white));
   });
 
   // Pit wall: low concrete wall between track and lane along the straight part.

@@ -72,6 +72,11 @@ function carLabel(def: CarDefinition, driver: number): string {
   return `${TEAM_ABBR[def.id] ?? def.spec.brand.slice(0, 3).toUpperCase()} ${livery.numbers[driver % 2]}`;
 }
 
+const _pitFwd = new THREE.Vector3();
+const _pitRight = new THREE.Vector3();
+const _pitPos = new THREE.Vector3();
+const _pitLook = new THREE.Vector3();
+
 /** Player's dot on the minimap. */
 const PLAYER_DOT = 0xffd23f;
 
@@ -727,6 +732,32 @@ export class Game {
     else if (e.kind === 'floor') this.hud.toast(`바닥 파손 ${Math.round(e.car.damage.floor * 100)}%: 다운포스 감소`);
   };
 
+  /**
+   * The player's pit stop on a broadcast camera, as the F1 games cut to it: from the lane
+   * side ahead of the box, low, the whole crew in the frame. Back to the driver's view
+   * a moment after the release.
+   */
+  private pitShot = 0;
+  private pitCamera(dt: number): void {
+    const s = this.pitStops?.state(this.player);
+    const stopped = s?.phase === 'stopped';
+    this.pitShot = stopped ? 0.9 : Math.max(0, this.pitShot - dt);
+    if (!stopped && this.pitShot <= 0) {
+      this.followCamera.setShot(null);
+      return;
+    }
+    if (!stopped) return;
+    const car = this.player.object3D;
+    const fwd = _pitFwd.set(0, 0, -1).applyQuaternion(car.quaternion).setY(0).normalize();
+    const right = _pitRight.set(-fwd.z, 0, fwd.x);
+    // The lane side is away from the garages.
+    const k = this.track.pit!.boxes[s.box];
+    const lane = -Math.sign(right.dot(this.track.pit!.outward[k])) || 1;
+    _pitPos.copy(car.position).addScaledVector(fwd, 7.5).addScaledVector(right, lane * 5.5).setY(car.position.y + 1.6);
+    _pitLook.copy(car.position).addScaledVector(fwd, 0.6).setY(car.position.y + 0.1);
+    this.followCamera.setShot(_pitPos, _pitLook);
+  }
+
   /** AI pit strategy: stop near the tyre cliff unless the race is about to end. */
   private aiStrategy(r: Racer): void {
     if (!this.pitStops || r.finished || this.pitStops.phase(r.vehicle)) return;
@@ -976,6 +1007,7 @@ export class Game {
     const detail = QUALITY.carDetail * QUALITY.carDetail;
     for (const v of this.vehicles) v.visual.setDetail?.(v.object3D.position.distanceToSquared(cam) < detail);
     const speedRatio = this.player.physics.forwardSpeed / this.player.config.maxSpeed;
+    this.pitCamera(frameDt);
     this.followCamera.update(this.player.object3D, speedRatio, frameDt);
     this.tyreSmoke.update(frameDt, this.vehicles, this.followCamera.camera);
     this.debrisMesh.update();
