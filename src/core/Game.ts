@@ -218,6 +218,8 @@ export class Game {
   private podiumDone = false;
   private podiumSounds: PodiumSounds | null = null;
   private readonly podiumNow = new URLSearchParams(window.location.search).has('podium');
+  /** Menu "포디움 보기": only the ceremony, the player's driver on the top step, then back to the menu. */
+  private readonly podiumOnly = new URLSearchParams(window.location.search).get('podium') === 'only';
   /** Drives the player's car round the cool-down lap while the ceremony runs. */
   private cooldown: AIDriver | null = null;
   private readonly trackTitle: string;
@@ -803,7 +805,7 @@ export class Game {
     if (!race || this.podium || this.podiumDone || this.quali || (this.bench && !this.podiumNow)) return;
     const me = race.player;
     const delay = this.net ? PODIUM_DELAY.multiplayer : PODIUM_DELAY.single;
-    const due = this.podiumNow ? race.state !== 'countdown' && race.time > 1 : race.state === 'finished' && !!me?.finished && race.time - me.finishTime >= delay;
+    const due = this.podiumOnly || (this.podiumNow ? race.state !== 'countdown' && race.time > 1 : race.state === 'finished' && !!me?.finished && race.time - me.finishTime >= delay);
     // Waiting for it: say so on the results card, or it looks like the race just ends there.
     const card = document.querySelector('.results.show');
     if (!due) {
@@ -817,6 +819,8 @@ export class Game {
     }
     card?.querySelector('.podium-soon')?.remove();
     const standings = race.standings();
+    // Preview: the player's driver wins.
+    if (this.podiumOnly && race.player) standings.sort((a, b) => Number(b === race.player) - Number(a === race.player));
     const t0 = standings[0].finished ? race.resultTime(standings[0]) : null;
     const entries: PodiumEntry[] = standings.slice(0, 3).map((r, k) => {
       const def = r.isPlayer ? this.car : (this.carOf.get(r.vehicle) ?? this.car);
@@ -860,6 +864,7 @@ export class Game {
     if (real) real.visible = true;
     this.followCamera.setShot(null);
     document.body.classList.remove('podium-on');
+    if (this.podiumOnly) window.location.href = urlWith({ menu: '', podium: null });
   }
 
   /**

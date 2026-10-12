@@ -86,13 +86,15 @@ async function main(): Promise<void> {
       loading?.classList.remove('hidden');
     } else if (sel) {
       ({ carId, trackId } = sel);
-      config.ai = sel.ai;
+      // Podium preview: two rivals are enough for the steps (loads faster).
+      config.ai = sel.podium ? 2 : sel.ai;
       config.laps = sel.laps;
       config.quali = sel.quali && sel.ai > 0;
       config.grid = 0;
       // Season: the saved (or a new) season decides the team, driver, circuit and distance.
       let seasonDriver: string | null = null;
-      if (sel.season) {
+      if (sel.podium) config.season = false;
+      else if (sel.season) {
         const { CALENDAR, loadSeason, newSeason } = await import('./race/Season');
         const { readDriverIndex } = await import('./race/Drivers');
         const old = sel.season === 'continue' ? loadSeason() : null;
@@ -112,13 +114,14 @@ async function main(): Promise<void> {
         urlWith({
           car: carId,
           track: trackId,
-          ai: String(config.ai),
+          ai: String(sel.podium ? sel.ai : config.ai),
           laps: String(config.laps),
           quali: config.quali ? '1' : null,
           grid: null,
           season: config.season ? '1' : null,
           ...(seasonDriver ? { driver: seasonDriver } : {}),
           menu: null,
+          podium: sel.podium ? 'only' : null,
         }),
       );
       loading?.classList.remove('hidden');
