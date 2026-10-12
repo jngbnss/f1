@@ -13,6 +13,7 @@
     "race:circuits": "tsx scripts/race-test.ts melbourne 20 1 && tsx scripts/race-test.ts shanghai 20 1 && tsx scripts/race-test.ts spa 20 1 && tsx scripts/race-test.ts suzuka 20 1 && tsx scripts/race-test.ts monaco 20 1",
     "barrier:test": "tsx scripts/barrier-test.ts",
     "pit:test": "tsx scripts/pit-test.ts",
+    "boards:test": "tsx scripts/brake-board-test.ts",
     "pit:escape": "tsx scripts/pit-escape-test.ts",
     "pit:circuits": "tsx scripts/pit-test.ts melbourne && tsx scripts/pit-test.ts shanghai && tsx scripts/pit-test.ts spa && tsx scripts/pit-test.ts suzuka && tsx scripts/pit-test.ts monaco",
     "slip:test": "tsx scripts/slip-test.ts",

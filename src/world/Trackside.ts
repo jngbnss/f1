@@ -3,7 +3,7 @@ import * as THREE from 'three';
 /**
  * What makes a real circuit read as a race track on TV: sponsor banners on
  * the debris fence, big billboards, ad bridges over the straights, Tecpro
- * crash barriers in the run-offs, braking distance boards and marshal posts.
+ * crash barriers in the run-offs and marshal posts (braking boards: BrakeBoards.ts).
  *
  * Everything is merged into a handful of meshes (one per material). The
  * sponsor names are invented; no real brands or logos. Needs a canvas, so it
@@ -91,32 +91,6 @@ function brandAtlas(aspect: number, cellW = 1024): { texture: THREE.CanvasTextur
   return { texture, rows: BRANDS.length };
 }
 
-/** Square white boards with the braking distance in black (300 / 200 / 100). */
-function distanceAtlas(): THREE.CanvasTexture {
-  const s = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = s * 3;
-  canvas.height = s;
-  const g = canvas.getContext('2d')!;
-  ['300', '200', '100'].forEach((label, k) => {
-    const x = k * s;
-    g.fillStyle = '#f4f4f4';
-    g.fillRect(x, 0, s, s);
-    g.strokeStyle = '#111';
-    g.lineWidth = 14;
-    g.strokeRect(x + 10, 10, s - 20, s - 20);
-    g.fillStyle = '#111';
-    g.font = '900 120px "Arial Black", Arial, sans-serif';
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText(label, x + s / 2, s / 2 + 6);
-  });
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
-  return texture;
-}
-
 /** Growable non-indexed triangle soup (position, normal, uv, color). */
 class Soup {
   readonly pos: number[] = [];
@@ -182,7 +156,7 @@ export function buildTrackside(ctx: TracksideContext): { group: THREE.Group; dis
   const disposables: { dispose(): void }[] = [];
   if (typeof document === 'undefined') return { group, disposables };
 
-  const { points, tangents, rights, curvature, gravelSide, half, sampleSpacing: ds } = ctx;
+  const { points, tangents, rights, curvature, gravelSide, sampleSpacing: ds } = ctx;
   const n = points.length;
   const at = (i: number) => (i + n) % n;
   const absCurv = (i: number) => Math.abs(curvature[at(i)]);
@@ -193,7 +167,6 @@ export function buildTrackside(ctx: TracksideContext): { group: THREE.Group; dis
   const billboards = new Soup();
   const steel = new Soup();
   const tecpro = new Soup();
-  const boards = new Soup();
   const huts = new Soup();
 
   // --- sponsor banners on the debris fence along every (mostly) straight run ---
@@ -345,29 +318,6 @@ export function buildTrackside(ctx: TracksideContext): { group: THREE.Group; dis
     }
   }
 
-  // --- braking distance boards (300 / 200 / 100 m) before every big stop ---
-  const boardGap = Math.round(250 / ds);
-  for (let i = 0; i < n; i++) {
-    if (absCurv(i) < 1 / 120 || absCurv(i - 1) >= 1 / 120) continue;
-    let straight = true;
-    for (let j = 1; j <= boardGap; j++) if (absCurv(i - Math.round(60 / ds) - j) > 1 / 400) straight = false;
-    if (!straight) continue;
-    const side = curvature[at(i)] > 0 ? 1 : -1; // outside of the coming corner
-    [300, 200, 100].forEach((d, k) => {
-      const idx = at(i - Math.round(d / ds));
-      const off = Math.min(ctx.barrierAt(side, idx) - 1.2, half + 4);
-      const c = points[idx].clone().addScaledVector(rights[idx], side * off);
-      const t = tangents[idx];
-      const face = t.clone().negate();
-      const along = new THREE.Vector3().crossVectors(up, face).normalize();
-      const sz = 1.1;
-      const y0 = 0.6;
-      const p = (s: number, y: number) => c.clone().addScaledVector(along, s * sz * 0.5).setY(c.y + y);
-      boards.quad(p(-1, y0), p(1, y0), p(1, y0 + sz), p(-1, y0 + sz), [k / 3, 0, (k + 1) / 3, 0, (k + 1) / 3, 1, k / 3, 1]);
-      steel.box(c.clone().addScaledVector(face, -0.06), along, face, 0.1, y0, 0.1, 0, steelColor);
-    });
-  }
-
   // --- marshal posts: small white huts with an orange band behind the fence ---
   const hutStep = Math.round(330 / ds);
   const white = new THREE.Color(0xeeeeea);
@@ -433,19 +383,16 @@ export function buildTrackside(ctx: TracksideContext): { group: THREE.Group; dis
   };
   const fenceAtlas = brandAtlas(7.5 / 1.08);
   const boardAtlas = brandAtlas(4);
-  const distTex = distanceAtlas();
   const bannerMat = new THREE.MeshStandardMaterial({ map: fenceAtlas.texture, roughness: 0.8, side: THREE.DoubleSide });
   const billboardMat = new THREE.MeshStandardMaterial({ map: boardAtlas.texture, roughness: 0.55 });
   const steelMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.5 });
   const tecproMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45 });
-  const boardMat = new THREE.MeshStandardMaterial({ map: distTex, roughness: 0.6 });
   const hutMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 });
-  disposables.push(fenceAtlas.texture, boardAtlas.texture, distTex, bannerMat, billboardMat, steelMat, tecproMat, boardMat, hutMat);
+  disposables.push(fenceAtlas.texture, boardAtlas.texture, bannerMat, billboardMat, steelMat, tecproMat, hutMat);
   add(banners, bannerMat, 'FenceBanners', false);
   add(billboards, billboardMat, 'Billboards', false);
   add(steel, steelMat, 'TracksideSteel', true);
   add(tecpro, tecproMat, 'Tecpro', true);
-  add(boards, boardMat, 'DistanceBoards', false);
   add(huts, hutMat, 'MarshalPosts', true);
   return { group, disposables };
 }
