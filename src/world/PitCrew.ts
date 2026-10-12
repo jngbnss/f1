@@ -222,10 +222,11 @@ export class PitCrew {
       // Out while a car arrives / is serviced and for a moment after it leaves.
       const wantOut = s || st.sinceRelease < 1.6 ? 1 : 0;
       st.out = THREE.MathUtils.clamp(st.out + Math.sign(wantOut - st.out) * dt * 1.4, 0, 1);
-      // Anchor: the stopped car itself, else the box.
+      // Anchor: the stopped car itself, else the box. Always at the box's ground height: the
+      // car's position is its chassis centre, ~0.6 m up, and a crew placed there worked in mid-air.
       if (stopped) {
         const ease = 1 - Math.exp(-dt * 8);
-        st.pos.lerp(_a.copy(s.vehicle.position), ease);
+        st.pos.lerp(_a.copy(s.vehicle.position).setY(this.boxCentre(k, _b).y), ease);
         const yaw = this.pathYaw(k);
         st.yaw += (yaw - st.yaw) * ease;
       } else if (!s && st.sinceRelease > 1.6) {
@@ -267,8 +268,10 @@ export class PitCrew {
       const bob = walking ? Math.abs(Math.sin(this.time * 9 + i)) * 0.05 : 0;
       _p.y = THREE.MathUtils.lerp(_a.y, st.pos.y, out) - 0.02 + bob;
       const yaw = THREE.MathUtils.lerp(Math.atan2(-outward.x, -outward.z) + Math.PI, faceYaw, out);
-      // Kneeling once in place at the wheel; the unused pose is parked below the ground.
-      const kneel = crouch && out > 0.9;
+      // Kneeling once in place at the wheel, and only with a car there (arriving or in the box):
+      // after the release they stand up rather than keep working on an empty box.
+      // The unused pose is parked below the ground.
+      const kneel = crouch && car !== null && out > 0.9;
       const shown = _m.compose(_p, new THREE.Quaternion().setFromAxisAngle(UP, yaw), _s.setScalar(0.95)).clone();
       _p.y = HIDDEN;
       const hidden = _m.compose(_p, _q, _s.setScalar(1));
