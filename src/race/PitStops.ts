@@ -29,6 +29,8 @@ interface PitState {
   service: number;
   /** Seconds crawling without anything ahead (recovery after a spin). */
   stuck: number;
+  /** Closest the car has come to its pit line since the takeover (m). */
+  closest: number;
 }
 
 export interface PitService {
@@ -43,6 +45,11 @@ const SWING = 6;
 /** Bumper-to-bumper distance kept in the lane (m) and the car length used for it. */
 const GAP = 2;
 const CAR_LENGTH = 5.6;
+/** A requested car is taken in only on the track at the entry (lateral m past the edge): not from the grass. */
+const ENTRY_EDGE = 1.5;
+/** The pit driver lets go once the car is this far off its line (m) and drifting away from it. */
+const LOST_LINE = 7;
+const DRIFT = 4;
 
 const _fwd = new THREE.Vector3();
 const _to = new THREE.Vector3();
@@ -73,7 +80,7 @@ export class PitStops {
       this.states.delete(v);
       return;
     }
-    this.states.set(v, { phase: 'requested', compound, box: Math.min(box, this.pit.boxes.length - 1), k: 0, timer: 0, service: 0, stuck: 0 });
+    this.states.set(v, { phase: 'requested', compound, box: Math.min(box, this.pit.boxes.length - 1), k: 0, timer: 0, service: 0, stuck: 0, closest: Infinity });
   }
 
   setCompound(v: Vehicle, compound: Compound): void {
@@ -119,6 +126,11 @@ export class PitStops {
     const pit = this.pit;
     const i = THREE.MathUtils.clamp(Math.round(k), 0, pit.path.length - 1);
     return out.copy(pit.fastPath[i]).addScaledVector(pit.outward[i], (BOX_LANE_SHIFT - FAST_LANE_SHIFT) * this.boxBlend(s, i));
+  }
+
+  /** Horizontal distance of the car from its pit line at path index k. */
+  private offLine(v: Vehicle, s: PitState, k: number): number {
+    return this.linePoint(s, k, _p).sub(v.position).setY(0).length();
   }
 
   /** Lateral distance of `p` from the fast lane at path index k. */
@@ -177,16 +189,32 @@ export class PitStops {
     }
     const pit = this.pit;
     if (s.phase === 'requested') {
-      // Enter when passing the first metres of the entry ramp.
+      // Enter when passing the first metres of the entry ramp on the track (from either
+      // side, as in the F1 games): a car out in the grass missed the entry and keeps driving.
       const i = this.track.nearestIndex(v.position);
       const k = pit.pathIndex.indexOf(i);
-      if (k < 0 || k > 12) return null;
+      if (k < 0 || k > 12 || Math.abs(this.track.lateral(v.position, i)) > this.track.halfWidth + ENTRY_EDGE) return null;
       s.phase = 'in';
       s.k = k;
+      s.closest = Infinity;
       this.setGhost(v, true);
     }
     // Advance along the path to the nearest point ahead.
     while (s.k < pit.path.length - 1 && pit.path[s.k + 1].distanceToSquared(v.position) < pit.path[s.k].distanceToSquared(v.position)) s.k++;
+    // Knocked or spun well off the pit line (onto the track, into the grass): the pit
+    // driver would only steer it into the walls, so the driver gets the car back. The
+    // stop stays requested for the next lap; once out of the box, the stop is done.
+    const off = s.phase === 'stopped' ? 0 : this.offLine(v, s, s.k);
+    s.closest = Math.min(s.closest, off);
+    if (off > LOST_LINE && off > s.closest + DRIFT) {
+      if (s.phase === 'in') {
+        s.phase = 'requested';
+        s.k = 0;
+        s.stuck = 0;
+      } else this.states.delete(v);
+      this.settleGhost(v);
+      return null;
+    }
     const speed = v.physics.forwardSpeed;
     const box = pit.boxes[s.box];
     let target: number;
@@ -235,9 +263,16 @@ export class PitStops {
     const right = -_fwd.z * _to.x + _fwd.x * _to.z;
     const ahead = _fwd.dot(_to);
     this.input.steer = THREE.MathUtils.clamp(Math.atan2(right, Math.max(ahead, 0.1)) * 2.2, -1, 1);
+    // Queued (nothing to go for): hold the car like in the box, or it rolls back down a sloped lane.
+    if (target < 0.3 && Math.abs(speed) < 2) {
+      this.input.throttle = 0;
+      this.input.brake = 1;
+      this.input.handbrake = 1;
+      return this.input;
+    }
     const err = target - speed;
     this.input.throttle = err > 0.5 ? Math.min(1, err * 0.25) : 0;
-    this.input.brake = err < -0.5 ? Math.min(1, -err * 0.12) : target < 0.3 && Math.abs(speed) < 1 ? 1 : 0;
+    this.input.brake = err < -0.5 ? Math.min(1, -err * 0.12) : 0;
     this.input.handbrake = 0;
     return this.input;
   }
