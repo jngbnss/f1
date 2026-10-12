@@ -363,3 +363,9 @@ html, body {
 .quali-panel strong { color: #ff4d5e; letter-spacing: 0.06em; }
 .quali-panel small { color: #8b97a5; }
 .quali-results .quali-go { margin-top: 14px; width: 100%; }
+.season-panel .quali-go { margin-top: 14px; width: 100%; }
+.results.season-panel { inset: 0 3vw 0 auto; width: min(480px, 92vw); }
+body.season-on .results:not(.season-panel) { inset: 0 auto 0 3vw; }
+.season-panel h3 { margin: 6px 0; font-size: 12px; color: #8b97a5; font-weight: 600; }
+.season-panel .season-me { font-size: 13px; color: #e6edf3; margin: 0 0 6px; }
+.season-tables { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }

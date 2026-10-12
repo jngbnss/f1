@@ -59,6 +59,7 @@ import type { NetRace } from '../net/NetRace';
 import { DIFFICULTY, readDifficulty, type DifficultySpec } from '../race/Difficulty';
 import { driverOf, readDriverIndex } from '../race/Drivers';
 import { AI_LAP_FACTOR, Qualifying, type QualiEntry } from '../race/Qualifying';
+import { CALENDAR, loadSeason, recordRace, SEASON_POINTS, showSeasonPanel } from '../race/Season';
 
 /** Timing-tower label: the driver's code (e.g. "LEC"), else team abbreviation + race number ("FER 16"). */
 const TEAM_ABBR: Record<string, string> = {
@@ -195,6 +196,10 @@ export class Game {
   readonly difficulty: DifficultySpec;
   /** Qualifying session (alone on track before the race), null otherwise. */
   private quali: Qualifying | null = null;
+  /** Season round scored (once, when the player finishes). */
+  private seasonScored = false;
+  private readonly trackId: string;
+  private seasonPanel: HTMLElement | null = null;
 
   private constructor(
     private readonly container: HTMLElement,
@@ -258,6 +263,7 @@ export class Game {
     // Shared line for the circuit; every team drives its own refinement of it where baked.
     this.sharedLinePath = layout.minTimeLine ?? racingLineFor(this.track);
     this.teamLines = layout.teamLines;
+    this.trackId = layout.id;
     this.racingLine = this.lineFor(car);
     this.scene.add(this.racingLine.mesh);
     this.lapTimer = new LapTimer(this.track.getCenterline().length, this.track.spawnIndex, `best:${car.id}:${layout.id}`);
@@ -758,6 +764,28 @@ export class Game {
     this.followCamera.setShot(_pitPos, _pitLook);
   }
 
+  /**
+   * Season mode: once the player finishes the current round's race, score it (F1 points for
+   * the top ten), show the tables and offer the next round.
+   */
+  private scoreSeason(): void {
+    this.seasonScored = true;
+    const season = this.config.season ? loadSeason() : null;
+    if (!season || CALENDAR[season.round] !== this.trackId || !this.race) return;
+    const standings = this.race.standings();
+    const order = standings.map((r) => {
+      const def = r.isPlayer ? this.car : (this.carOf.get(r.vehicle) ?? this.car);
+      return { name: r.name, team: def.id, color: r.color, isPlayer: r.isPlayer };
+    });
+    const position = standings.findIndex((r) => r.isPlayer) + 1;
+    recordRace(season, order);
+    document.body.classList.add('season-on');
+    const teamName = (id: string) => CARS.find((c) => c.id === id)?.spec.brand ?? id;
+    this.seasonPanel = showSeasonPanel(season, SEASON_POINTS[position - 1] ?? 0, position, teamName, () => {
+      window.location.href = urlWith({ track: CALENDAR[season.round], quali: season.quali ? '1' : null, grid: null });
+    });
+  }
+
   /** AI pit strategy: stop near the tyre cliff unless the race is about to end. */
   private aiStrategy(r: Racer): void {
     if (!this.pitStops || r.finished || this.pitStops.phase(r.vehicle)) return;
@@ -869,6 +897,7 @@ export class Game {
     this.debrisMesh.dispose();
     this.pitCrew?.dispose();
     this.quali?.dispose();
+    this.seasonPanel?.remove();
     this.safetyCar?.dispose();
     this.drivingFx?.dispose();
     this.weatherFx?.dispose();
@@ -944,6 +973,7 @@ export class Game {
       this.race.update(dt);
       if (!frozen) this.penalties?.update(this.race.racers, dt, (r) => this.pitStops?.driving(r.vehicle) ?? false);
       if (!frozen) this.applyRaceControl(dt);
+      if (this.race.state === 'finished' && !this.seasonScored) this.scoreSeason();
     }
 
     // Fell off the world?

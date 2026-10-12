@@ -90,11 +90,36 @@ async function main(): Promise<void> {
       config.laps = sel.laps;
       config.quali = sel.quali && sel.ai > 0;
       config.grid = 0;
+      // Season: the saved (or a new) season decides the team, driver, circuit and distance.
+      let seasonDriver: string | null = null;
+      if (sel.season) {
+        const { CALENDAR, loadSeason, newSeason } = await import('./race/Season');
+        const { readDriverIndex } = await import('./race/Drivers');
+        const old = sel.season === 'continue' ? loadSeason() : null;
+        const s = old && old.round < CALENDAR.length ? old : newSeason(sel.carId, readDriverIndex(), sel.laps, sel.quali);
+        carId = s.carId;
+        trackId = CALENDAR[s.round];
+        config.ai = 19;
+        config.laps = s.laps;
+        config.quali = s.quali;
+        config.season = true;
+        seasonDriver = String(s.driver);
+      } else config.season = false;
       // Shareable / reload-safe URL for this selection.
       history.replaceState(
         null,
         '',
-        urlWith({ car: carId, track: trackId, ai: String(sel.ai), laps: String(sel.laps), quali: config.quali ? '1' : null, grid: null, menu: null }),
+        urlWith({
+          car: carId,
+          track: trackId,
+          ai: String(config.ai),
+          laps: String(config.laps),
+          quali: config.quali ? '1' : null,
+          grid: null,
+          season: config.season ? '1' : null,
+          ...(seasonDriver ? { driver: seasonDriver } : {}),
+          menu: null,
+        }),
       );
       loading?.classList.remove('hidden');
     }

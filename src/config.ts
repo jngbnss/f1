@@ -43,6 +43,8 @@ export interface SimConfig {
   quali: boolean;
   /** Player's grid position from qualifying (1-based; 0 = mid-field). */
   grid: number;
+  /** A season-mode round (?season=1): the result scores points (race/Season.ts). */
+  season: boolean;
   /** Engine/tyre/wind audio. */
   sound: boolean;
   /** World look override (see world/themes.ts); null = the circuit's own theme. */
@@ -109,6 +111,7 @@ export function readConfig(search = window.location.search): SimConfig {
     laps: bench ? 99 : num(p, 'laps', 3),
     quali: bool(p, 'quali', false),
     grid: Math.max(0, Math.round(num(p, 'grid', 0))),
+    season: !bench && bool(p, 'season', false),
     bench,
     theme: p.get('theme'),
     benchQueue: (p.get('benchq') ?? '').split(',').filter(Boolean),
