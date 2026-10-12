@@ -92,8 +92,11 @@ const HOLD: VehicleInput = { throttle: 0, brake: 1, steer: 0, handbrake: 1 };
 const FLIP_RESET_DELAY = 2.5;
 /** Seconds a car may be outside the barriers before it is put back on track. */
 const OUT_OF_BOUNDS_DELAY = 0.5;
-/** Seconds after the player's chequered flag before the podium ceremony. */
-const PODIUM_DELAY = 6;
+/**
+ * Seconds after the player's chequered flag before the podium ceremony: straight away
+ * alone (player's request), a few seconds in multiplayer for the others to come in.
+ */
+const PODIUM_DELAY = { single: 0, multiplayer: 6 };
 
 /** Arcade surface model: grip multiplier and extra deceleration (m/s²). */
 const SURFACES: Record<Surface, { grip: number; drag: number }> = {
@@ -791,15 +794,16 @@ export class Game {
   }
 
   /**
-   * Podium ceremony: a few seconds after the player takes the flag (the field
-   * finishing behind), the top three of the result. The player's car does its
+   * Podium ceremony: once the player takes the flag (at once alone, a few seconds
+   * later in multiplayer), the top three of the result. The player's car does its
    * cool-down lap on its own meanwhile; the results come back after it.
    */
   private maybeStartPodium(): void {
     const race = this.race;
     if (!race || this.podium || this.podiumDone || this.quali || (this.bench && !this.podiumNow)) return;
     const me = race.player;
-    const due = this.podiumNow ? race.state !== 'countdown' && race.time > 1 : race.state === 'finished' && !!me?.finished && race.time - me.finishTime > PODIUM_DELAY;
+    const delay = this.net ? PODIUM_DELAY.multiplayer : PODIUM_DELAY.single;
+    const due = this.podiumNow ? race.state !== 'countdown' && race.time > 1 : race.state === 'finished' && !!me?.finished && race.time - me.finishTime >= delay;
     // Waiting for it: say so on the results card, or it looks like the race just ends there.
     const card = document.querySelector('.results.show');
     if (!due) {
