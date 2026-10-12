@@ -5,6 +5,7 @@ import { mountWeatherPicker, readWeather } from '../world/Weather';
 import { CIRCUIT_INFO } from './circuitInfo';
 import circuitMaps from './circuitMaps.json';
 import { mountTyrePicker, readStartTyre } from './TyrePicker';
+import { DIFFICULTIES, DIFFICULTY, readDifficulty, saveDifficulty } from '../race/Difficulty';
 
 export interface MenuSelection {
   carId: string;
@@ -85,6 +86,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     let trackId = initial.trackId;
     let ai = initial.ai;
     let laps = initial.laps;
+    let difficulty = readDifficulty();
     const base = import.meta.env.BASE_URL;
 
     const root = el('div', 'menu');
@@ -105,6 +107,8 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
         </section>
         <section class="menu-step menu-race">
           <h2><b>3</b>레이스</h2>
+          <h3>난이도</h3>
+          <div class="chip-row" data-group="difficulty"></div>
           <h3>방식</h3>
           <div class="chip-row" data-group="ai"></div>
           <div data-group="laps-wrap"><h3>랩 수</h3><div class="chip-row" data-group="laps"></div></div>
@@ -125,6 +129,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     const aiRow = q<HTMLDivElement>('ai');
     const lapWrap = q<HTMLDivElement>('laps-wrap');
     const lapRow = q<HTMLDivElement>('laps');
+    const diffRow = q<HTMLDivElement>('difficulty');
     const summary = q<HTMLDivElement>('summary');
 
     const chip = (title: string, sub: string, selected: boolean, onPick: () => void) => {
@@ -221,7 +226,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       const c = cars.find((x) => x.id === carId)!;
       const t = tracks.find((x) => x.id === trackId);
       const w = readWeather();
-      const parts = [c.spec.brand, t?.name ?? '', ai === 0 ? '자유 주행' : `${ai + 1}대 · ${laps}랩`, `${WEATHER_NAMES[w.weather] ?? w.weather} ${TIME_NAMES[w.time] ?? ''}`, COMPOUND_NAMES[readStartTyre()]];
+      const parts = [c.spec.brand, t?.name ?? '', DIFFICULTY[difficulty].name, ai === 0 ? '자유 주행' : `${ai + 1}대 · ${laps}랩`, `${WEATHER_NAMES[w.weather] ?? w.weather} ${TIME_NAMES[w.time] ?? ''}`, COMPOUND_NAMES[readStartTyre()]];
       summary.replaceChildren(...parts.filter(Boolean).map((p, i) => el(i === 0 ? 'strong' : 'span', '', p)));
       summary.style.setProperty('--team', hex(c.spec.color));
     };
@@ -230,6 +235,15 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       teamGrid.replaceChildren(...cars.map(teamCard));
       renderDetail();
       trackGrid.replaceChildren(...tracks.map(circuitCard));
+      diffRow.replaceChildren(
+        ...DIFFICULTIES.map((d) =>
+          chip(DIFFICULTY[d].name, DIFFICULTY[d].hint, d === difficulty, () => {
+            difficulty = d;
+            saveDifficulty(d);
+            render();
+          }),
+        ),
+      );
       aiRow.replaceChildren(
         ...AI_OPTIONS.map(([n, title, sub]) =>
           chip(title, sub, n === ai, () => {
