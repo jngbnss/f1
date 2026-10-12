@@ -90,6 +90,8 @@ class MusicPlayer {
   private pendingGesture = false;
   /** Tracks that failed to load since the last one actually played. */
   private failures = 0;
+  /** True while the browser refuses to play (Brave's autoplay shield, mostly). */
+  blocked = false;
   private readonly trackListeners = new Set<(t: MusicTrack | null) => void>();
 
   get available(): boolean {
@@ -118,7 +120,10 @@ class MusicPlayer {
     } finally {
       this.starting = false;
     }
-    if (!this.tracks.length) return;
+    if (!this.tracks.length) {
+      console.info(`[bgm] 배경음악 없음: ${BGM_DIR}bgm1.(${EXTS.join('|')}) 파일을 넣으면 재생됩니다.`);
+      return;
+    }
 
     const el = (this.el = new Audio());
     el.preload = 'auto';
@@ -231,7 +236,18 @@ class MusicPlayer {
   private play(): void {
     const el = this.el;
     if (!el) return;
-    void el.play().catch(() => this.waitForGesture());
+    void el
+      .play()
+      .then(() => (this.blocked = false))
+      .catch((e: unknown) => {
+        // Brave blocks autoplay even after a click unless the site is allowed
+        // (Shields → 자동 재생). Say so once instead of being quietly silent.
+        if (!this.blocked && e instanceof Error && e.name === 'NotAllowedError') {
+          this.blocked = true;
+          console.warn('[bgm] 브라우저가 재생을 막았습니다. 화면을 한 번 클릭하거나, 브레이브라면 주소창 사자 아이콘 → 자동 재생을 허용하세요.', e.message);
+        }
+        this.waitForGesture();
+      });
   }
 
   /** Autoplay was blocked: try again on the first real user gesture. */
