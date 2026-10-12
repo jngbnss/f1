@@ -27,7 +27,6 @@ html, body {
 }
 .speedo .value { font-size: 56px; font-weight: 700; line-height: 1; }
 .speedo .unit { font-size: 14px; opacity: 0.8; }
-.speedo .gear { font-size: 18px; opacity: 0.9; }
 .help {
   position: fixed; left: 12px; bottom: 12px; color: #e6edf3; font-size: 11px;
   background: rgba(10, 14, 20, 0.5); padding: 6px 10px; border-radius: 6px; pointer-events: none;
@@ -38,7 +37,8 @@ html, body {
 }
 .speedo .rpm > div { height: 100%; width: 0; background: #4cd964; }
 .speedo .rpm > div.high { background: #ff3b30; }
-.speedo .gear { font-size: 26px; font-weight: 700; }
+.speedo .main { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.speedo .gear { min-width: 34px; padding: 2px 6px; border: 2px solid rgba(255, 255, 255, 0.55); border-radius: 6px; font-size: 30px; font-weight: 700; line-height: 1.1; text-align: center; background: rgba(10, 14, 20, 0.35); }
 .speedo .ers .bar { width: 160px; height: 4px; margin: 0 0 3px auto; border-radius: 2px; background: rgba(255, 255, 255, 0.2); overflow: hidden; }
 .speedo .ers .bar > div { height: 100%; width: 100%; background: #e8e8e8; }
 .speedo .ers .bar > div.deploy { background: #4cd964; }
