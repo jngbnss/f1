@@ -356,3 +356,10 @@ html, body {
   font-style: normal; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; vertical-align: 1px;
 }
 .tags .even { background: rgba(255, 210, 63, 0.16); color: #ffd23f; }
+.quali-panel {
+  position: fixed; top: 96px; left: 50%; transform: translateX(-50%); display: flex; gap: 14px; align-items: baseline;
+  background: rgba(10, 14, 20, 0.82); color: #e6edf3; border-radius: 10px; padding: 8px 16px; font-size: 13px; white-space: nowrap;
+}
+.quali-panel strong { color: #ff4d5e; letter-spacing: 0.06em; }
+.quali-panel small { color: #8b97a5; }
+.quali-results .quali-go { margin-top: 14px; width: 100%; }

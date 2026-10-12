@@ -74,7 +74,7 @@ async function main(): Promise<void> {
     } else if (config.showMenu) {
       loading?.classList.add('hidden');
       if (!FEATURED_TRACKS.some((t) => t.id === trackId)) trackId = FEATURED_TRACKS[0].id;
-      sel = await showMenu(CAR_LIST, FEATURED_TRACKS, { carId, trackId, ai: config.ai, laps: config.laps });
+      sel = await showMenu(CAR_LIST, FEATURED_TRACKS, { carId, trackId, ai: config.ai, laps: config.laps, quali: config.quali });
       if (sel.multiplayer) lobby = await runLobby(null);
     }
     if (lobby) {
@@ -88,11 +88,13 @@ async function main(): Promise<void> {
       ({ carId, trackId } = sel);
       config.ai = sel.ai;
       config.laps = sel.laps;
+      config.quali = sel.quali && sel.ai > 0;
+      config.grid = 0;
       // Shareable / reload-safe URL for this selection.
       history.replaceState(
         null,
         '',
-        urlWith({ car: carId, track: trackId, ai: String(sel.ai), laps: String(sel.laps), menu: null }),
+        urlWith({ car: carId, track: trackId, ai: String(sel.ai), laps: String(sel.laps), quali: config.quali ? '1' : null, grid: null, menu: null }),
       );
       loading?.classList.remove('hidden');
     }

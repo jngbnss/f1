@@ -58,6 +58,7 @@ import { F1_MODEL_CREDIT, f1ModelReady, GltfF1Visual, loadF1Model } from '../veh
 import type { NetRace } from '../net/NetRace';
 import { DIFFICULTY, readDifficulty, type DifficultySpec } from '../race/Difficulty';
 import { driverOf, readDriverIndex } from '../race/Drivers';
+import { AI_LAP_FACTOR, Qualifying, type QualiEntry } from '../race/Qualifying';
 
 /** Timing-tower label: the driver's code (e.g. "LEC"), else team abbreviation + race number ("FER 16"). */
 const TEAM_ABBR: Record<string, string> = {
@@ -187,6 +188,8 @@ export class Game {
   private landmarks: { dispose(): void } | null = null;
   /** Assists and how forgiving the race is (menu); the benchmark always runs the full simulation. */
   readonly difficulty: DifficultySpec;
+  /** Qualifying session (alone on track before the race), null otherwise. */
+  private quali: Qualifying | null = null;
 
   private constructor(
     private readonly container: HTMLElement,
@@ -257,10 +260,17 @@ export class Game {
     // --- player + opponents ----------------------------------------------
     const diff = (this.difficulty = DIFFICULTY[config.bench > 0 ? 'expert' : readDifficulty()]);
     const plan = net?.plan ?? null;
-    const opponents = plan ? plan.slots.length - 1 : Math.max(0, Math.min(19, Math.round(config.ai)));
+    const field = plan ? plan.slots.length - 1 : Math.max(0, Math.min(19, Math.round(config.ai)));
+    // Qualifying: alone on track; the field's lap times are worked out from their cars.
+    const qualifying = !plan && config.quali && field > 0;
+    const opponents = qualifying ? 0 : field;
     const total = opponents + 1;
-    // Player starts mid-field; with no opponents it's a free practice session.
-    const playerSlot = plan ? Math.max(0, plan.slots.findIndex((s) => s.id === net!.localId)) : Math.floor(total / 2);
+    // Player starts mid-field (or where qualifying put them); with no opponents it's a free practice session.
+    const playerSlot = plan
+      ? Math.max(0, plan.slots.findIndex((s) => s.id === net!.localId))
+      : config.grid > 0
+        ? Math.min(total - 1, config.grid - 1)
+        : Math.floor(total / 2);
     const playerPose = opponents > 0 || plan ? this.track.gridPose(playerSlot) : this.track.getSpawnPose();
     // The driver picked in the menu (a room assigns its own); the team-mate drives the other car.
     const myDriver = plan ? (plan.slots[playerSlot]?.driver ?? 0) : config.bench > 0 ? 0 : readDriverIndex();
@@ -315,6 +325,7 @@ export class Game {
       }
       this.race = new RaceManager(this.track, racers, Math.max(1, Math.round(config.laps)));
     }
+    if (qualifying) this.quali = this.qualifying(field, myDriver);
     if (this.race && diff.penalties) {
       this.penalties = new Penalties(this.track);
       // Every counted excursion deletes that lap's time; the player hears about it.
@@ -620,6 +631,39 @@ export class Game {
     });
   }
 
+  /**
+   * Qualifying against the field the race will have: the same rivals, quickest car first (the
+   * race grid fills the slots around the player in that order), each lap time from its car's
+   * speed profile and the pace its AI drives at.
+   */
+  private qualifying(field: number, myDriver: number): Qualifying {
+    const car = this.car;
+    const rivals = opponentsFor(car, field).sort((a, b) => b.stats.pi - a.stats.pi);
+    const ideal = new Map<string, number>();
+    const times = rivals
+      .map((def, k) => {
+        let t = ideal.get(def.id);
+        if (t === undefined) {
+          const line = this.lineFor(def);
+          ideal.set(def.id, (t = line.idealLapTime));
+          line.dispose();
+        }
+        const r = Math.sin(k * 12.9898) * 43758.5453;
+        const rand = r - Math.floor(r);
+        const pace = (0.97 - (k / (field + 1)) * 0.07 + (rand - 0.5) * 0.04) * this.difficulty.aiPace;
+        return (t / pace) * AI_LAP_FACTOR;
+      })
+      .sort((a, b) => a - b);
+    const color = (def: CarDefinition) => liveryFor(def.id, def.spec.color, def.spec.accent ?? 0xffffff).primary;
+    const entries: QualiEntry[] = rivals.map((def, k) => {
+      const driver = def.id === car.id ? 1 - myDriver : rivals.indexOf(def) !== k ? 1 : 0;
+      return { name: carLabel(def, driver), color: color(def), time: times[k] };
+    });
+    return new Qualifying(entries, { name: carLabel(car, myDriver), color: color(car) }, (pos) => {
+      window.location.href = urlWith({ quali: null, grid: String(pos) });
+    });
+  }
+
   /** Racing line and speed profile for a car: its team's own line if baked, else the shared one. */
   private lineFor(def: CarDefinition): RacingLine {
     const path = teamLinePath(this.teamLines, def.id, this.track, this.sharedLinePath) ?? this.sharedLinePath;
@@ -793,6 +837,7 @@ export class Game {
     this.tyreSmoke.dispose();
     this.debrisMesh.dispose();
     this.pitCrew?.dispose();
+    this.quali?.dispose();
     this.safetyCar?.dispose();
     this.drivingFx?.dispose();
     this.weatherFx?.dispose();
@@ -912,6 +957,7 @@ export class Game {
 
     if (!frozen) this.lapTimer.update(this.track.nearestIndex(this.player.position), dt);
     if (this.lapTimer.event) this.lapEvent = this.lapTimer.event;
+    if (this.lapTimer.event && this.quali) this.quali.onLap(this.lapTimer.lap - 1, this.lapTimer.last!, this.lapTimer.lastValid);
     this.engineer?.fixedUpdate(dt, frozen ? null : this.lapTimer.event);
 
     this.perf.endPhysics();

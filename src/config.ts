@@ -39,6 +39,10 @@ export interface SimConfig {
   ai: number;
   /** Race distance in laps. */
   laps: number;
+  /** Qualifying first (?quali=1): the player alone for an out lap + timed laps, then the race. */
+  quali: boolean;
+  /** Player's grid position from qualifying (1-based; 0 = mid-field). */
+  grid: number;
   /** Engine/tyre/wind audio. */
   sound: boolean;
   /** World look override (see world/themes.ts); null = the circuit's own theme. */
@@ -103,6 +107,8 @@ export function readConfig(search = window.location.search): SimConfig {
     ai: num(p, 'ai', 19),
     // Benchmarks must not reach the finish (results screen) during the run.
     laps: bench ? 99 : num(p, 'laps', 3),
+    quali: bool(p, 'quali', false),
+    grid: Math.max(0, Math.round(num(p, 'grid', 0))),
     bench,
     theme: p.get('theme'),
     benchQueue: (p.get('benchq') ?? '').split(',').filter(Boolean),

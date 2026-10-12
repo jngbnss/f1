@@ -14,6 +14,8 @@ export interface MenuSelection {
   /** AI opponents (0 = free practice). */
   ai: number;
   laps: number;
+  /** Qualifying before the race (sets the grid). */
+  quali: boolean;
   /** Race friends online instead (opens the multiplayer lobby). */
   multiplayer?: boolean;
 }
@@ -87,6 +89,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     let trackId = initial.trackId;
     let ai = initial.ai;
     let laps = initial.laps;
+    let quali = initial.quali;
     let difficulty = readDifficulty();
     let driver = readDriverIndex();
     const base = import.meta.env.BASE_URL;
@@ -113,7 +116,8 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
           <div class="chip-row" data-group="difficulty"></div>
           <h3>방식</h3>
           <div class="chip-row" data-group="ai"></div>
-          <div data-group="laps-wrap"><h3>랩 수</h3><div class="chip-row" data-group="laps"></div></div>
+          <div data-group="laps-wrap"><h3>랩 수</h3><div class="chip-row" data-group="laps"></div>
+            <h3>예선</h3><div class="chip-row" data-group="quali"></div></div>
           <div class="menu-pickers" data-group="weather"></div>
           <div class="menu-pickers" data-group="tyre"></div>
         </section>
@@ -132,6 +136,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     const lapWrap = q<HTMLDivElement>('laps-wrap');
     const lapRow = q<HTMLDivElement>('laps');
     const diffRow = q<HTMLDivElement>('difficulty');
+    const qualiRow = q<HTMLDivElement>('quali');
     const summary = q<HTMLDivElement>('summary');
 
     const chip = (title: string, sub: string, selected: boolean, onPick: () => void) => {
@@ -242,7 +247,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       const c = cars.find((x) => x.id === carId)!;
       const t = tracks.find((x) => x.id === trackId);
       const w = readWeather();
-      const parts = [DRIVERS[c.id] ? `${c.spec.brand} · ${DRIVERS[c.id][driver].ko}` : c.spec.brand, t?.name ?? '', DIFFICULTY[difficulty].name, ai === 0 ? '자유 주행' : `${ai + 1}대 · ${laps}랩`, `${WEATHER_NAMES[w.weather] ?? w.weather} ${TIME_NAMES[w.time] ?? ''}`, COMPOUND_NAMES[readStartTyre()]];
+      const parts = [DRIVERS[c.id] ? `${c.spec.brand} · ${DRIVERS[c.id][driver].ko}` : c.spec.brand, t?.name ?? '', DIFFICULTY[difficulty].name, ai === 0 ? '자유 주행' : `${ai + 1}대 · ${quali ? '예선 + ' : ''}${laps}랩`, `${WEATHER_NAMES[w.weather] ?? w.weather} ${TIME_NAMES[w.time] ?? ''}`, COMPOUND_NAMES[readStartTyre()]];
       summary.replaceChildren(...parts.filter(Boolean).map((p, i) => el(i === 0 ? 'strong' : 'span', '', p)));
       summary.style.setProperty('--team', hex(c.spec.color));
     };
@@ -293,13 +298,23 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
         ),
         custom,
       );
+      qualiRow.replaceChildren(
+        chip('바로 결승', '중간 그리드에서 출발', !quali, () => {
+          quali = false;
+          render();
+        }),
+        chip('예선 후 결승', '측정 랩 3번으로 출발 순서 결정', quali, () => {
+          quali = true;
+          render();
+        }),
+      );
       renderSummary();
     };
 
     function start(): void {
       window.removeEventListener('keydown', onKey);
       root.remove();
-      resolve({ carId, trackId, ai, laps });
+      resolve({ carId, trackId, ai, laps, quali });
     }
     function onKey(e: KeyboardEvent): void {
       if (e.code === 'Enter' || e.code === 'NumpadEnter') start();
@@ -309,7 +324,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     root.querySelector('.menu-mp')!.addEventListener('click', () => {
       window.removeEventListener('keydown', onKey);
       root.remove();
-      resolve({ carId, trackId, ai, laps, multiplayer: true });
+      resolve({ carId, trackId, ai, laps, quali, multiplayer: true });
     });
     window.addEventListener('keydown', onKey);
     mountWeatherPicker(q('weather'));
