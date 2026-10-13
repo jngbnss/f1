@@ -1,16 +1,21 @@
 import type { HandInput } from '../input/HandInput';
 import { palmCenter } from '../input/handFeatures';
 
+/** Displayed width (CSS px): small enough to stay out of the way of the road. */
+const CSS_W = 176;
+
 /**
- * Selfie view of the webcam, centred above the bottom of the screen, with the
- * tracked hands drawn on it, plus the steering/brake the hands produce — so
- * the player can see what the camera sees and correct their pose.
+ * Small selfie view of the webcam at the bottom centre with the tracked hands
+ * and face drawn on it, plus the steering/brake the hands produce — so the
+ * player can see what the camera sees and correct their pose.
  */
 export class HandPreview {
   private readonly root = document.createElement('div');
   private readonly canvas = document.createElement('canvas');
   private readonly label = document.createElement('div');
   private raf = 0;
+  private lastVideoTime = -1;
+  private lastLabel = '';
 
   constructor(private readonly hand: HandInput) {
     this.root.className = 'hand-preview';
@@ -28,19 +33,21 @@ export class HandPreview {
   private draw = (): void => {
     this.raf = requestAnimationFrame(this.draw);
     const { hand, canvas } = this;
-    canvas.style.aspectRatio = String(hand.aspect);
-    // Backing store at the displayed size in device pixels: sharp on HiDPI screens.
+    // Nothing new to show until the camera delivers a frame.
+    if (hand.video.currentTime === this.lastVideoTime) return;
+    this.lastVideoTime = hand.video.currentTime;
+    // Backing store in device pixels (sharp on HiDPI), at a fixed CSS size (no layout reads).
     const px = window.devicePixelRatio || 1;
-    const W = Math.round(canvas.clientWidth * px);
+    const W = Math.round(CSS_W * px);
     const h = Math.round(W / hand.aspect);
-    if (!W) return;
     if (canvas.width !== W || canvas.height !== h) {
       canvas.width = W;
       canvas.height = h;
+      canvas.style.width = `${CSS_W}px`;
+      canvas.style.height = `${Math.round(CSS_W / hand.aspect)}px`;
     }
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.imageSmoothingQuality = 'high';
     // Mirrored, like a selfie: matches the view space of the landmarks.
     ctx.save();
     ctx.translate(W, 0);
@@ -71,16 +78,19 @@ export class HandPreview {
     for (const lm of hand.hands) {
       for (const p of lm) {
         ctx.beginPath();
-        ctx.arc(p.x * sx, p.y * sy, 3 * px, 0, Math.PI * 2);
+        ctx.arc(p.x * sx, p.y * sy, 2 * px, 0, Math.PI * 2);
         ctx.fill();
       }
     }
 
-    this.label.textContent = !hand.tracking
+    const text = !hand.tracking
       ? '손이 안 보여요'
       : hand.choosingTyre
-        ? `타이어: 손가락 ${hand.fingers}개 (1 하이퍼·2 소프트·3 미디엄·4 하드·5 인터·6 웻)`
+        ? `타이어 선택: 손가락 ${hand.fingers}개`
         : `조향 ${Math.round(hand.steer * 100)}% · 브레이크 ${Math.round(hand.brake * 100)}%`;
+    if (text === this.lastLabel) return;
+    this.lastLabel = text;
+    this.label.textContent = text;
     this.label.classList.toggle('lost', !hand.tracking);
     this.label.classList.toggle('tyre', hand.tracking && hand.choosingTyre);
   };

@@ -7,9 +7,14 @@ import type { PerfSnapshot } from './PerformanceMonitor';
  * is raised again (up to the configured maximum). Fill-rate is usually the
  * first bottleneck on laptops / high-DPI screens, so this keeps driving
  * smooth at the cost of some sharpness.
+ *
+ * It first stops at a soft floor (0.75 of a CSS pixel) where the picture is
+ * still clean; the QualityGovernor then gives up shadows / effects / draw
+ * distance, and only as its last step `lowerFloor` allows the blurry 0.5.
  */
 export class DynamicResolution {
   ratio: number;
+  private floor: number;
   private lastWindow = -1;
   private goodWindows = 0;
   private cooldownUntil = 0;
@@ -18,17 +23,26 @@ export class DynamicResolution {
     private readonly renderer: THREE.WebGLRenderer,
     private readonly maxRatio: number,
     private readonly minRatio = 0.5,
+    softFloor = 0.75,
     /** Slower than this (ms) -> lower resolution. 20 ms ≈ 50 fps. */
     private readonly slowMs = 20,
     /** Faster than this (ms) for a while -> raise resolution. */
     private readonly fastMs = 13,
   ) {
     this.ratio = renderer.getPixelRatio();
+    this.floor = Math.min(maxRatio, Math.max(minRatio, softFloor));
   }
 
-  /** At the lowest render resolution it may use (nothing left to give here). */
+  /** At the lowest render resolution it may use for now (nothing left to give here). */
   get atMinimum(): boolean {
-    return this.ratio <= this.minRatio * 1.001;
+    return this.ratio <= this.floor * 1.001;
+  }
+
+  /** Let the resolution drop below the soft floor. False when it already could. */
+  lowerFloor(): boolean {
+    if (this.floor <= this.minRatio) return false;
+    this.floor = this.minRatio;
+    return true;
   }
 
   /** Call every frame with the monitor's snapshot (acts once per published window). */
@@ -37,8 +51,8 @@ export class DynamicResolution {
     this.lastWindow = perf.windowId;
     if (now < this.cooldownUntil) return;
 
-    if (perf.frameTimeAvg > this.slowMs && this.ratio > this.minRatio) {
-      this.apply(Math.max(this.minRatio, this.ratio * 0.85), now);
+    if (perf.frameTimeAvg > this.slowMs && this.ratio > this.floor) {
+      this.apply(Math.max(this.floor, this.ratio * 0.85), now);
       this.goodWindows = 0;
     } else if (perf.frameTimeAvg < this.fastMs && this.ratio < this.maxRatio) {
       if (++this.goodWindows >= 4) {

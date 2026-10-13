@@ -483,6 +483,8 @@ export class Game {
             QUALITY.carDetail = Math.max(25, QUALITY.carDetail * 0.7);
             return '시야 거리 줄임';
           },
+          // Last resort: let the resolution go below the soft floor (blurry, but smooth).
+          () => (this.dynamicResolution?.lowerFloor() ? '해상도 낮춤' : null),
         ],
         (label) => this.hud.toast(`그래픽 자동 조절: ${label}`),
       );

@@ -103,5 +103,7 @@ export class PostFx {
 
   dispose(): void {
     this.composer.dispose();
+    // Plain renderer.render() again: let three.js reset its per-frame counters itself.
+    this.renderer.info.autoReset = true;
   }
 }
