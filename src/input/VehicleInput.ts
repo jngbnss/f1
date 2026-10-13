@@ -14,8 +14,11 @@ export interface VehicleInput {
   handbrake: number;
 }
 
-/** One-shot actions (edge-triggered, consumed once per poll). */
-export type InputAction = 'reset' | 'overtake';
+/**
+ * One-shot actions (edge-triggered, consumed once per poll). `pit` requests or
+ * cancels a stop like the P key; `tyreN` picks the compound like digit key N.
+ */
+export type InputAction = 'reset' | 'overtake' | 'pit' | `tyre${1 | 2 | 3 | 4 | 5 | 6}`;
 
 export function emptyInput(): VehicleInput {
   return { throttle: 0, brake: 0, steer: 0, handbrake: 0 };

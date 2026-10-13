@@ -66,6 +66,9 @@ import { formatLapTime } from '../race/LapTimer';
 import { AI_LAP_FACTOR, Qualifying, type QualiEntry } from '../race/Qualifying';
 import { CALENDAR, loadSeason, recordRace, SEASON_POINTS, showSeasonPanel } from '../race/Season';
 
+/** Compounds by digit key / tyre number: 1 hyper, 2 soft, 3 medium, 4 hard, 5 inter, 6 wet. */
+const PIT_COMPOUNDS: Compound[] = ['hyper', 'soft', 'medium', 'hard', 'inter', 'wet'];
+
 /** Timing-tower label: the driver's code (e.g. "LEC"), else team abbreviation + race number ("FER 16"). */
 const TEAM_ABBR: Record<string, string> = {
   'f1-ferrari': 'FER', 'f1-mercedes': 'MER', 'f1-redbull': 'RBR', 'f1-mclaren': 'MCL', 'f1-aston': 'AMR',
@@ -557,6 +560,11 @@ export class Game {
     return clear ? this.track.forestSpots.filter(([x, z]) => clear(x, z)) : this.track.forestSpots;
   }
 
+  /** The race engineer is talking (voice commands ignore what the mic hears then). */
+  get radioSpeaking(): boolean {
+    return this.radio.speaking;
+  }
+
   /** Freeze the simulation and its sound (pause menu, app in background). */
   setPaused(paused: boolean): void {
     if (paused) {
@@ -909,14 +917,21 @@ export class Game {
 
   /** P: request / cancel a stop; 1-6: compound for it. */
   private pitKey(code: string): void {
+    const digit = /^Digit([1-6])$/.exec(code);
+    if (digit) this.pickPitCompound(Number(digit[1]));
+    else this.togglePit();
+  }
+
+  /** Compound for the next stop by its number (1 hyper .. 6 wet, as the digit keys). */
+  private pickPitCompound(n: number): void {
     if (!this.pitStops) return;
-    const pick: Record<string, Compound> = { Digit1: 'hyper', Digit2: 'soft', Digit3: 'medium', Digit4: 'hard', Digit5: 'inter', Digit6: 'wet' };
-    if (pick[code]) {
-      this.nextCompound = pick[code];
-      this.pitStops.setCompound(this.player, this.nextCompound);
-      this.hud.toast(`다음 타이어: ${COMPOUND_NAMES[this.nextCompound]}`);
-      return;
-    }
+    this.nextCompound = PIT_COMPOUNDS[n - 1];
+    this.pitStops.setCompound(this.player, this.nextCompound);
+    this.hud.toast(`다음 타이어: ${COMPOUND_NAMES[this.nextCompound]}`);
+  }
+
+  private togglePit(): void {
+    if (!this.pitStops) return;
     const was = this.pitStops.phase(this.player);
     this.pitStops.request(this.player, this.nextCompound, this.teamBox.get(this.car.id) ?? 0);
     const now = this.pitStops.phase(this.player);
@@ -1037,6 +1052,10 @@ export class Game {
     if (actions.includes('reset')) {
       this.resetPlayer();
       this.lapTimer.invalidate();
+    }
+    for (const a of actions) {
+      if (a === 'pit') this.togglePit();
+      else if (a.startsWith('tyre')) this.pickPitCompound(Number(a.slice(4)));
     }
 
     this.net?.beforeStep(dt);

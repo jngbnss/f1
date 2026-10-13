@@ -12,6 +12,7 @@ import { CAR_LIST, resolveCarId } from './vehicle/catalog';
 import { FEATURED_TRACKS, findTrack, TRACKS } from './world/tracks';
 import type { HandPreview } from './ui/HandPreview';
 import { ControlModeSwitch, readControlMode, saveControlMode, type ControlMode } from './ui/ControlModeSwitch';
+import { VoiceCommands } from './input/VoiceCommands';
 
 /**
  * After a new deploy, a page loaded earlier still asks for the old hashed
@@ -192,12 +193,13 @@ async function setupDriving(game: import('./core/Game').Game, touch: boolean, au
   });
   if (!touch) {
     mountVolumeControl();
-    let hand: { preview: HandPreview } | 'loading' | null = null;
+    let hand: { preview: HandPreview; voice: VoiceCommands | null } | 'loading' | null = null;
     const setMode = async (mode: ControlMode): Promise<void> => {
       if (hand === 'loading' || (mode === 'hand') === !!hand) return;
       if (hand) {
         hand.preview.dispose();
         game.input.remove('hand');
+        if (hand.voice) game.input.remove('voice');
         hand = null;
         modeSwitch.set('keyboard');
         show('키보드 조작');
@@ -211,9 +213,21 @@ async function setupDriving(game: import('./core/Game').Game, touch: boolean, au
         const [{ HandInput }, { HandPreview }] = await Promise.all([import('./input/HandInput'), import('./ui/HandPreview')]);
         const input = await HandInput.create();
         game.input.add(input);
-        hand = { preview: new HandPreview(input) };
+        // Spoken pit calls ride along with the hands (Chrome/Edge only).
+        let voice: VoiceCommands | null = null;
+        if (VoiceCommands.supported) {
+          voice = new VoiceCommands(
+            () => game.radioSpeaking,
+            (a) => {
+              if (a === 'pit') input.openTyreWindow();
+            },
+            () => show('마이크 권한이 없어 음성 명령은 꺼짐'),
+          );
+          game.input.add(voice);
+        }
+        hand = { preview: new HandPreview(input), voice };
         modeSwitch.set('hand');
-        show('손 조작 켬: 두 주먹으로 핸들, 손 펴면 브레이크');
+        show(voice ? '손 조작 켬: 주먹 핸들 · 손 펴면 브레이크 · "박스 디스 랩"' : '손 조작 켬: 두 주먹으로 핸들, 손 펴면 브레이크');
       } catch (err) {
         hand = null;
         modeSwitch.set('keyboard');

@@ -1,10 +1,11 @@
-import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+import { FaceDetector, FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import type { InputAction, InputSource, VehicleInput } from './VehicleInput';
-import { OneEuro, oneHandAngle, openness, toView, twoHandAngle, type Point } from './handFeatures';
+import { fingerCount, OneEuro, oneHandAngle, openness, palmCenter, toView, touchesHead, twoHandAngle, type Box, type Point } from './handFeatures';
 
-/** Runtime + model, pinned to the installed @mediapipe/tasks-vision version. */
+/** Runtime + models, pinned to the installed @mediapipe/tasks-vision version. */
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0/wasm';
-const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const HAND_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const FACE_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
 
 /** Wheel angle (deg) for full lock, and the dead zone around straight ahead. */
 const FULL_LOCK_DEG = 45;
@@ -13,12 +14,27 @@ const STEER_DEADZONE_DEG = 3;
 const BRAKE_DEADZONE = 0.15;
 /** Keep the last command through short tracking dropouts (ms). */
 const HOLD_MS = 150;
+/** A hand must stay on the head this long to count (ms), so brushing past does nothing. */
+const HEAD_HOLD_MS = 350;
+/** After a pit call, how long finger counts pick the tyre (ms), and how long a count must hold. */
+const TYRE_WINDOW_MS = 8000;
+const TYRE_HOLD_MS = 700;
+/** The face moves little: detect it every few camera frames. */
+const FACE_EVERY = 3;
+
+type Side = 'left' | 'right';
 
 /**
  * Webcam hand driving (desktop): both fists hold an invisible steering wheel,
  * the tilt of the line between them steers, opening the hands brakes (the
  * more open, the harder). Throttle is automatic while not braking. One hand
  * in view still steers by its own lean.
+ *
+ * Gestures (need the face in view): left hand on the head = reset, right hand
+ * on the head = pit call ("box this lap"); for a few seconds after a pit call
+ * the number of raised fingers (1..6, both hands count) picks the tyre, as
+ * the digit keys do. While a hand is on the head the wheel holds its last
+ * position instead of steering with the other hand alone.
  *
  * Detection runs on its own animation-frame loop at camera rate; read() only
  * returns the latest filtered values, so the physics step never waits on it.
@@ -27,28 +43,41 @@ export class HandInput implements InputSource {
   readonly id = 'hand';
   /** Hands from the latest frame in selfie view space (see toView), for the preview. */
   hands: Point[][] = [];
+  /** Face from the latest face detection in view space, null when not seen. */
+  face: Box | null = null;
   /** Camera frame width / height. */
   aspect = 4 / 3;
   steer = 0;
   brake = 0;
+  /** Raised fingers while the tyre window is open (for the preview). */
+  fingers = 0;
   private lastSeen = -Infinity;
   private lastVideoTime = -1;
+  private frame = 0;
   private raf = 0;
   private readonly steerFilter = new OneEuro(1.2, 0.8);
   private readonly brakeFilter = new OneEuro(2, 1);
+  private actions: InputAction[] = [];
+  /** Since when each hand has been on the head, and whether that touch already fired. */
+  private readonly onHead: Record<Side, { since: number; fired: boolean } | null> = { left: null, right: null };
+  private tyreWindowUntil = 0;
+  private fingerSince = 0;
+  private fingerValue = 0;
 
   private constructor(
     readonly video: HTMLVideoElement,
     private readonly stream: MediaStream,
     private readonly landmarker: HandLandmarker,
+    private readonly faceDetector: FaceDetector,
   ) {
     this.raf = requestAnimationFrame(this.tick);
   }
 
-  /** Asks for the camera and loads the model. Rejects if the camera is denied or missing. */
+  /** Asks for the camera and loads the models. Rejects if the camera is denied or missing. */
   static async create(): Promise<HandInput> {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 640, height: 480, facingMode: 'user' },
+      // HD so the centred preview stays sharp; the models downscale internally, detection cost is the same.
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
       audio: false,
     });
     try {
@@ -58,16 +87,13 @@ export class HandInput implements InputSource {
       video.srcObject = stream;
       await video.play();
       const fileset = await FilesetResolver.forVisionTasks(WASM_URL);
-      const options = (delegate: 'GPU' | 'CPU') => ({
-        baseOptions: { modelAssetPath: MODEL_URL, delegate },
-        runningMode: 'VIDEO' as const,
-        numHands: 2,
-      });
       // GPU is much faster; some drivers/browsers refuse it, the CPU path always works.
-      const landmarker = await HandLandmarker.createFromOptions(fileset, options('GPU')).catch(() =>
-        HandLandmarker.createFromOptions(fileset, options('CPU')),
-      );
-      return new HandInput(video, stream, landmarker);
+      const hands = (delegate: 'GPU' | 'CPU') =>
+        HandLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate }, runningMode: 'VIDEO', numHands: 2 });
+      const face = (delegate: 'GPU' | 'CPU') =>
+        FaceDetector.createFromOptions(fileset, { baseOptions: { modelAssetPath: FACE_MODEL_URL, delegate }, runningMode: 'VIDEO' });
+      const [landmarker, faceDetector] = await Promise.all([hands('GPU').catch(() => hands('CPU')), face('GPU').catch(() => face('CPU'))]);
+      return new HandInput(video, stream, landmarker, faceDetector);
     } catch (err) {
       for (const t of stream.getTracks()) t.stop();
       throw err;
@@ -79,13 +105,27 @@ export class HandInput implements InputSource {
     return performance.now() - this.lastSeen <= HOLD_MS;
   }
 
+  /** Finger counts pick the tyre right now. */
+  get choosingTyre(): boolean {
+    return performance.now() < this.tyreWindowUntil;
+  }
+
+  /** Let finger counts pick the tyre for a while (after a pit call from any source). */
+  openTyreWindow(): void {
+    this.tyreWindowUntil = performance.now() + TYRE_WINDOW_MS;
+    this.fingerValue = -1;
+  }
+
   read(): VehicleInput | null {
     if (!this.tracking) return null;
     return { throttle: this.brake > 0 ? 0 : 1, brake: this.brake, steer: this.steer, handbrake: 0 };
   }
 
   consumeActions(): InputAction[] {
-    return [];
+    if (!this.actions.length) return this.actions;
+    const out = this.actions;
+    this.actions = [];
+    return out;
   }
 
   dispose(): void {
@@ -93,6 +133,7 @@ export class HandInput implements InputSource {
     for (const t of this.stream.getTracks()) t.stop();
     this.video.srcObject = null;
     this.landmarker.close();
+    this.faceDetector.close();
   }
 
   private tick = (): void => {
@@ -102,11 +143,15 @@ export class HandInput implements InputSource {
     if (v.readyState < 2 || v.currentTime === this.lastVideoTime) return;
     this.lastVideoTime = v.currentTime;
     const now = performance.now();
-    const result = this.landmarker.detectForVideo(v, now);
     if (v.videoWidth && v.videoHeight) this.aspect = v.videoWidth / v.videoHeight;
+    if (this.frame++ % FACE_EVERY === 0) this.detectFace(now);
+    const result = this.landmarker.detectForVideo(v, now);
     const hands = result.landmarks.map((lm) => toView(lm, this.aspect));
     this.hands = hands;
-    if (!hands.length) return;
+    if (!hands.length) {
+      this.onHead.left = this.onHead.right = null;
+      return;
+    }
 
     // After a dropout start the filters fresh instead of easing from stale values.
     if (!this.tracking) {
@@ -115,6 +160,11 @@ export class HandInput implements InputSource {
     }
     const dt = Math.min((now - this.lastSeen) / 1000, 0.1);
     this.lastSeen = now;
+
+    const driving = this.headGestures(hands, now);
+    // A hand on the head: keep the wheel where it was rather than steer with the other hand alone.
+    if (driving.length < hands.length) return;
+    if (this.choosingTyre) this.countFingers(hands, now);
 
     const angle = hands.length >= 2 ? twoHandAngle(hands[0], hands[1]) : oneHandAngle(hands[0]);
     const a = Math.abs(angle) < STEER_DEADZONE_DEG ? 0 : angle - Math.sign(angle) * STEER_DEADZONE_DEG;
@@ -128,4 +178,70 @@ export class HandInput implements InputSource {
     const brake = this.brakeFilter.filter(rawBrake, dt);
     this.brake = brake < 0.02 ? 0 : Math.min(1, brake);
   };
+
+  private detectFace(now: number): void {
+    const v = this.video;
+    const best = this.faceDetector.detectForVideo(v, now).detections[0]?.boundingBox;
+    if (!best || !v.videoWidth) {
+      this.face = null;
+      return;
+    }
+    // Pixels -> mirrored view space (x in [0, aspect], y in [0, 1]).
+    const W = v.videoWidth;
+    const H = v.videoHeight;
+    this.face = {
+      x0: (1 - (best.originX + best.width) / W) * this.aspect,
+      x1: (1 - best.originX / W) * this.aspect,
+      y0: best.originY / H,
+      y1: (best.originY + best.height) / H,
+    };
+  }
+
+  /**
+   * Hands on the head fire their action once per touch (left = reset,
+   * right = pit). Returns the hands that are not on the head.
+   */
+  private headGestures(hands: Point[][], now: number): Point[][] {
+    const face = this.face;
+    const touching: Record<Side, boolean> = { left: false, right: false };
+    const driving: Point[][] = [];
+    for (const h of hands) {
+      if (!face || !touchesHead(h, face)) {
+        driving.push(h);
+        continue;
+      }
+      // Selfie view: the player's left hand is on the left of their face.
+      touching[palmCenter(h).x < (face.x0 + face.x1) / 2 ? 'left' : 'right'] = true;
+    }
+    for (const side of ['left', 'right'] as const) {
+      if (!touching[side]) {
+        this.onHead[side] = null;
+        continue;
+      }
+      const state = (this.onHead[side] ??= { since: now, fired: false });
+      if (state.fired || now - state.since < HEAD_HOLD_MS) continue;
+      state.fired = true;
+      if (side === 'left') this.actions.push('reset');
+      else {
+        this.actions.push('pit');
+        this.openTyreWindow();
+      }
+    }
+    return driving;
+  }
+
+  /** In the tyre window: a finger count (1..6) held steady picks that tyre and closes the window. */
+  private countFingers(hands: Point[][], now: number): void {
+    let n = 0;
+    for (const h of hands) n += fingerCount(h);
+    this.fingers = n;
+    if (n !== this.fingerValue) {
+      this.fingerValue = n;
+      this.fingerSince = now;
+      return;
+    }
+    if (n < 1 || n > 6 || now - this.fingerSince < TYRE_HOLD_MS) return;
+    this.actions.push(`tyre${n as 1 | 2 | 3 | 4 | 5 | 6}`);
+    this.tyreWindowUntil = 0;
+  }
 }

@@ -67,6 +67,50 @@ export function oneHandAngle(lm: readonly Point[]): number {
   return (Math.atan2(m.x - w.x, w.y - m.y) * 180) / Math.PI;
 }
 
+/** Fingertip / middle joint (PIP) of index, middle, ring, pinky. */
+const FINGERS: [number, number][] = [
+  [8, 6],
+  [12, 10],
+  [16, 14],
+  [20, 18],
+];
+const THUMB_TIP = 4;
+const PINKY_MCP = 17;
+
+/** Raised fingers on one hand, 0..5. */
+export function fingerCount(lm: readonly Point[]): number {
+  const w = lm[WRIST];
+  let n = 0;
+  // A straight finger's tip is well beyond its middle joint, seen from the wrist; a bent one folds back.
+  for (const [tip, pip] of FINGERS) if (dist(lm[tip], w) > dist(lm[pip], w) * 1.15) n++;
+  // The thumb folds across the palm: out when its tip is far from the pinky side.
+  if (dist(lm[THUMB_TIP], lm[PINKY_MCP]) > dist(lm[WRIST], lm[MIDDLE_MCP]) * 0.9) n++;
+  return n;
+}
+
+/** Axis-aligned box in view space. */
+export interface Box {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/**
+ * Hand on the head: the palm or a fingertip on the top half of the face or
+ * just above / beside it (a face box covers brow to chin, not the hair).
+ */
+export function touchesHead(lm: readonly Point[], face: Box): boolean {
+  const w = face.x1 - face.x0;
+  const h = face.y1 - face.y0;
+  const x0 = face.x0 - 0.45 * w;
+  const x1 = face.x1 + 0.45 * w;
+  const y0 = face.y0 - 0.9 * h;
+  const y1 = face.y0 + 0.5 * h;
+  const c = palmCenter(lm);
+  return [c, lm[8], lm[12]].some((p) => p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1);
+}
+
 /**
  * One Euro filter (Casiez et al. 2012): smooths jitter when the hand is still
  * and follows quickly when it moves, so the wheel stays calm without lag.

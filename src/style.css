@@ -99,13 +99,18 @@ html, body {
   font-weight: 700; pointer-events: none; transition: opacity 0.25s, transform 0.25s;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* Webcam preview for hand driving: bottom centre, over the cockpit, above the key help bar. */
 .hand-preview {
-  position: fixed; right: 16px; bottom: 200px; z-index: 20; pointer-events: none;
-  background: rgba(10, 14, 20, 0.75); border-radius: 8px; padding: 4px; color: #fff;
+  position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%); z-index: 20; pointer-events: none;
+  border-radius: 10px; overflow: hidden; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45); color: #fff;
 }
-.hand-preview canvas { display: block; width: 200px; border-radius: 6px; }
-.hand-preview-label { font-size: 13px; font-weight: 700; padding: 4px 2px 0; font-variant-numeric: tabular-nums; }
+.hand-preview canvas { display: block; height: min(36vh, 330px); width: auto; aspect-ratio: 4 / 3; }
+.hand-preview-label {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; background: rgba(10, 14, 20, 0.6);
+  font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center;
+}
 .hand-preview-label.lost { color: #ffb347; }
+.hand-preview-label.tyre { color: #ffd400; }
 .radio-subtitle {
   position: fixed; bottom: 92px; left: 50%; transform: translateX(-50%); max-width: min(720px, calc(100vw - 32px));
   background: rgba(10, 14, 20, 0.78); color: #fff; padding: 8px 16px; border-radius: 8px; border-left: 4px solid #ffd400;
