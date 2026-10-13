@@ -48,6 +48,7 @@
   "dependencies": {
     "@dgreenheck/ez-tree": "^1.1.0",
     "@dimforge/rapier3d-compat": "^0.21.0",
+    "@mediapipe/tasks-vision": "1.1.0",
     "n8ao": "^2.0.1",
     "peerjs": "^1.5.5",
     "postprocessing": "^6.39.5",

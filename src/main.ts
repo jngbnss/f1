@@ -10,6 +10,8 @@ import { runLobby, type LobbyResult } from './ui/Lobby';
 import { showMenu, type MenuSelection } from './ui/Menu';
 import { CAR_LIST, resolveCarId } from './vehicle/catalog';
 import { FEATURED_TRACKS, findTrack, TRACKS } from './world/tracks';
+import type { HandPreview } from './ui/HandPreview';
+import { ControlModeSwitch, type ControlMode } from './ui/ControlModeSwitch';
 
 /**
  * After a new deploy, a page loaded earlier still asks for the old hashed
@@ -158,7 +160,8 @@ async function main(): Promise<void> {
 
 /**
  * Driver aids and touch controls around the running game: brake assist from
- * the saved settings (B toggles it), on-screen controls on touch screens.
+ * the saved settings (B toggles it), on-screen controls on touch screens,
+ * webcam hand steering on desktop (G toggles it).
  */
 async function setupDriving(game: import('./core/Game').Game, touch: boolean, autopilot: boolean): Promise<void> {
   driveSettings.watch((s) => {
@@ -169,21 +172,59 @@ async function setupDriving(game: import('./core/Game').Game, touch: boolean, au
   toast.className = 'toast';
   document.body.append(toast);
   let hide = 0;
+  const show = (text: string) => {
+    toast.textContent = text;
+    toast.classList.add('show');
+    clearTimeout(hide);
+    hide = window.setTimeout(() => toast.classList.remove('show'), 1600);
+  };
   window.addEventListener('keydown', (e) => {
     if (e.code !== 'KeyB' || e.repeat) return;
     const on = !driveSettings.get().brakeAssist;
     driveSettings.set({ brakeAssist: on });
-    toast.textContent = game.difficulty.abs
-      ? '초보 난이도: 브레이크 보조는 항상 켜짐'
-      : on
-        ? '브레이크 보조 켬 (잠김 없음)'
-        : '브레이크 보조 끔 (세게 밟으면 바퀴 잠김)';
-    toast.classList.add('show');
-    clearTimeout(hide);
-    hide = window.setTimeout(() => toast.classList.remove('show'), 1600);
+    show(
+      game.difficulty.abs
+        ? '초보 난이도: 브레이크 보조는 항상 켜짐'
+        : on
+          ? '브레이크 보조 켬 (잠김 없음)'
+          : '브레이크 보조 끔 (세게 밟으면 바퀴 잠김)',
+    );
   });
   if (!touch) {
     mountVolumeControl();
+    let hand: { preview: HandPreview } | 'loading' | null = null;
+    const setMode = async (mode: ControlMode): Promise<void> => {
+      if (hand === 'loading' || (mode === 'hand') === !!hand) return;
+      if (hand) {
+        hand.preview.dispose();
+        game.input.remove('hand');
+        hand = null;
+        modeSwitch.set('keyboard');
+        show('키보드 조작');
+        return;
+      }
+      hand = 'loading';
+      modeSwitch.set('hand', true);
+      show('손 조작 준비 중… (카메라 허용)');
+      try {
+        // Lazy: keeps the MediaPipe bundle out of the startup chunk for players who never use it.
+        const [{ HandInput }, { HandPreview }] = await Promise.all([import('./input/HandInput'), import('./ui/HandPreview')]);
+        const input = await HandInput.create();
+        game.input.add(input);
+        hand = { preview: new HandPreview(input) };
+        modeSwitch.set('hand');
+        show('손 조작 켬: 두 주먹으로 핸들, 손 펴면 브레이크');
+      } catch (err) {
+        hand = null;
+        modeSwitch.set('keyboard');
+        console.error(err);
+        show(err instanceof DOMException && err.name === 'NotAllowedError' ? '카메라 권한이 거부됨' : '손 인식을 시작하지 못함');
+      }
+    };
+    const modeSwitch = new ControlModeSwitch((mode) => void setMode(mode));
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyG' && !e.repeat) void setMode(hand ? 'keyboard' : 'hand');
+    });
     return;
   }
   const { TouchControls } = await import('./ui/TouchControls');
