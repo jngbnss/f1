@@ -11,7 +11,7 @@ import { showMenu, type MenuSelection } from './ui/Menu';
 import { CAR_LIST, resolveCarId } from './vehicle/catalog';
 import { FEATURED_TRACKS, findTrack, TRACKS } from './world/tracks';
 import type { HandPreview } from './ui/HandPreview';
-import { ControlModeSwitch, type ControlMode } from './ui/ControlModeSwitch';
+import { ControlModeSwitch, readControlMode, saveControlMode, type ControlMode } from './ui/ControlModeSwitch';
 
 /**
  * After a new deploy, a page loaded earlier still asks for the old hashed
@@ -221,10 +221,18 @@ async function setupDriving(game: import('./core/Game').Game, touch: boolean, au
         show(err instanceof DOMException && err.name === 'NotAllowedError' ? '카메라 권한이 거부됨' : '손 인식을 시작하지 못함');
       }
     };
-    const modeSwitch = new ControlModeSwitch((mode) => void setMode(mode));
-    window.addEventListener('keydown', (e) => {
-      if (e.code === 'KeyG' && !e.repeat) void setMode(hand ? 'keyboard' : 'hand');
+    const modeSwitch = new ControlModeSwitch((mode) => {
+      saveControlMode(mode);
+      void setMode(mode);
     });
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'KeyG' || e.repeat || hand === 'loading') return;
+      const mode = hand ? 'keyboard' : 'hand';
+      saveControlMode(mode);
+      void setMode(mode);
+    });
+    // Picked in the menu (or last race): start the camera right away. Not for the benchmark autopilot.
+    if (!autopilot && readControlMode() === 'hand') void setMode('hand');
     return;
   }
   const { TouchControls } = await import('./ui/TouchControls');

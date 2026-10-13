@@ -8,6 +8,10 @@ import { mountTyrePicker, readStartTyre } from './TyrePicker';
 import { AI_LEVEL, AI_LEVELS, DIFFICULTIES, DIFFICULTY, readAiLevel, readDifficulty, saveAiLevel, saveDifficulty } from '../race/Difficulty';
 import { DRIVERS, readDriverIndex, saveDriverIndex } from '../race/Drivers';
 import { CALENDAR, loadSeason } from '../race/Season';
+import { isTouchDevice } from '../platform';
+import { CONTROL_MODE_LABEL, CONTROL_MODES, readControlMode, saveControlMode, type ControlMode } from './ControlModeSwitch';
+
+const CONTROL_HINTS: Record<ControlMode, string> = { keyboard: '키보드·게임패드', hand: '웹캠: 주먹 핸들 · 펴면 브레이크' };
 
 export interface MenuSelection {
   carId: string;
@@ -100,6 +104,9 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     let season: 'continue' | 'new' | null = null;
     let difficulty = readDifficulty();
     let driver = readDriverIndex();
+    // Webcam hands are a desktop option (touch screens drive with on-screen buttons / tilt).
+    const desktop = !isTouchDevice();
+    let control = readControlMode();
     const base = import.meta.env.BASE_URL;
 
     const root = el('div', 'menu');
@@ -120,6 +127,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
         </section>
         <section class="menu-step menu-race">
           <h2><b>3</b>레이스</h2>
+          <div data-group="control-wrap"><h3>조작</h3><div class="chip-row" data-group="control"></div></div>
           <h3>난이도</h3>
           <div class="chip-row" data-group="difficulty"></div>
           <h3>AI 실력</h3>
@@ -153,6 +161,8 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     const qualiRow = q<HTMLDivElement>('quali');
     const modeRow = q<HTMLDivElement>('mode');
     const aiWrap = q<HTMLDivElement>('ai-wrap');
+    const controlRow = q<HTMLDivElement>('control');
+    q<HTMLDivElement>('control-wrap').style.display = desktop ? '' : 'none';
     const summary = q<HTMLDivElement>('summary');
 
     const chip = (title: string, sub: string, selected: boolean, onPick: () => void) => {
@@ -264,7 +274,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       const t = tracks.find((x) => x.id === trackId);
       const w = readWeather();
       const seasonText = season === 'continue' && savedLive ? `시즌 R${savedLive.round + 1} ${tracks.find((x) => x.id === CALENDAR[savedLive.round])?.name ?? ''}` : season === 'new' ? `새 시즌 R1 ${tracks.find((x) => x.id === CALENDAR[0])?.name ?? ''}` : '';
-      const parts = [seasonText, DRIVERS[c.id] ? `${c.spec.brand} · ${DRIVERS[c.id][driver].ko}` : c.spec.brand, t?.name ?? '', `${DIFFICULTY[difficulty].name} · AI ${AI_LEVEL[readAiLevel(difficulty)].name}`, ai === 0 ? '자유 주행' : `${ai + 1}대 · ${quali ? '예선 + ' : ''}${laps}랩`, `${WEATHER_NAMES[w.weather] ?? w.weather} ${TIME_NAMES[w.time] ?? ''}`, COMPOUND_NAMES[readStartTyre()]];
+      const parts = [seasonText, DRIVERS[c.id] ? `${c.spec.brand} · ${DRIVERS[c.id][driver].ko}` : c.spec.brand, t?.name ?? '', `${DIFFICULTY[difficulty].name} · AI ${AI_LEVEL[readAiLevel(difficulty)].name}`, ai === 0 ? '자유 주행' : `${ai + 1}대 · ${quali ? '예선 + ' : ''}${laps}랩`, `${WEATHER_NAMES[w.weather] ?? w.weather} ${TIME_NAMES[w.time] ?? ''}`, COMPOUND_NAMES[readStartTyre()], desktop ? CONTROL_MODE_LABEL[control] : ''];
       summary.replaceChildren(...parts.filter(Boolean).map((p, i) => el(i === 0 ? 'strong' : 'span', '', p)));
       summary.style.setProperty('--team', hex(c.spec.color));
     };
@@ -273,6 +283,15 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       teamGrid.replaceChildren(...cars.map(teamCard));
       renderDetail();
       trackGrid.replaceChildren(...tracks.map(circuitCard));
+      controlRow.replaceChildren(
+        ...CONTROL_MODES.map((m) =>
+          chip(CONTROL_MODE_LABEL[m], CONTROL_HINTS[m], m === control, () => {
+            control = m;
+            saveControlMode(m);
+            render();
+          }),
+        ),
+      );
       diffRow.replaceChildren(
         ...DIFFICULTIES.map((d) =>
           chip(DIFFICULTY[d].name, DIFFICULTY[d].hint, d === difficulty, () => {
