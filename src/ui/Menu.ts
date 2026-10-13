@@ -114,7 +114,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       <div class="menu-panel">
         <header class="menu-head">
           <h1>web-sim-lab <span>Racing</span></h1>
-          <p>F1 2026 · ${cars.length}개 팀 · ${tracks.length}개 서킷</p>
+          <p>F1 2026 · ${cars.filter((c) => c.cls === 'formula').length}개 팀 · 연습용 차량 · ${tracks.length}개 서킷</p>
         </header>
         <section class="menu-step">
           <h2><b>1</b>팀 선택</h2>
@@ -184,11 +184,14 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       img.alt = c.spec.brand;
       img.loading = 'lazy';
       img.onerror = () => img.remove();
-      const { good, bad } = strengthsOf(c);
       const tags = el('div', 'tags');
-      for (const g of good) tags.append(el('span', 'good', `▲ ${g}`));
-      for (const w of bad) tags.append(el('span', 'bad', `▼ ${w}`));
-      if (!good.length && !bad.length) tags.append(el('span', 'even', '◆ 균형형'));
+      if (c.cls !== 'formula') tags.append(el('span', 'even', `◆ 연습용 · 최고 ${c.spec.top} km/h`));
+      else {
+        const { good, bad } = strengthsOf(c);
+        for (const g of good) tags.append(el('span', 'good', `▲ ${g}`));
+        for (const w of bad) tags.append(el('span', 'bad', `▼ ${w}`));
+        if (!good.length && !bad.length) tags.append(el('span', 'even', '◆ 균형형'));
+      }
       b.append(img, el('strong', '', c.spec.brand), tags);
       b.addEventListener('click', () => {
         carId = c.id;
@@ -208,10 +211,13 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       const info = el('div', 'td-info');
       const head = el('div', 'td-head');
       head.append(el('strong', '', c.name), el('span', '', `${Math.round(c.spec.kw * 1.341)} hp · ${c.spec.top} km/h · ${c.spec.kg} kg`));
-      const { good, bad } = strengthsOf(c);
       const sw = el('div', 'td-sw');
-      if (good.length) sw.append(el('p', 'good', `강점 · ${good.join(', ')}`));
-      if (bad.length) sw.append(el('p', 'bad', `약점 · ${bad.join(', ')}`));
+      if (c.cls !== 'formula') sw.append(el('p', '', `연습용 차량 · ${c.spec.top} km/h 제한 · 상대 AI도 같은 차`));
+      else {
+        const { good, bad } = strengthsOf(c);
+        if (good.length) sw.append(el('p', 'good', `강점 · ${good.join(', ')}`));
+        if (bad.length) sw.append(el('p', 'bad', `약점 · ${bad.join(', ')}`));
+      }
       const bars = el('div', 'td-bars');
       for (const s of teamStats(c)) {
         const row = el('div', 'menu-bar');

@@ -41,6 +41,10 @@ export async function runCarShot(carId: string, container: HTMLElement): Promise
 
   const car = findCar(carId);
   const visual = car.createVisual();
+  // Wheels at their static-load spring length, as on the track (the bodies are placed for it).
+  const p = car.physics;
+  const sprung = p.suspensionRestLength - (p.mass * 9.81) / p.wheels.length / p.suspensionStiffness;
+  visual.updateWheels(p.wheels.map(() => ({ grounded: true, suspensionLength: sprung, spin: 0, steerAngle: 0, slip: 0, load: 0, locked: false })));
   visual.root.traverse((o) => {
     if ((o as THREE.Mesh).isMesh) o.castShadow = true;
   });

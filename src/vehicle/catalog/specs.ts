@@ -33,6 +33,8 @@ export interface CarSpec {
   accent?: number;
   /** Electronically limited top speed (power could go faster). */
   limited?: boolean;
+  /** Real top speed (km/h) of a car whose limiter (`top`, with `limited`) holds it far below: its drag comes from this. */
+  realTop?: number;
   /** Team character (F1): multipliers around the shared 2026 baseline (top speed then follows from power and drag). */
   traits?: CarTraits;
 }
@@ -115,12 +117,16 @@ for (const spec of FORMULA) {
   spec.kw = Math.max(Math.round(REF_KW + (spec.kw - REF_KW) * SPREAD), MIN_KW);
 }
 
-export const CAR_SPECS: CarSpec[] = FORMULA;
-
-/** The safety car (Mercedes-AMG GT Black Series class): not selectable, race control only. */
+/** The safety car (Mercedes-AMG GT Black Series class): race control only. */
 export const SAFETY_CAR: CarSpec = rows('sports', [
   ['safety-car', 'Safety Car', 'GT', 'supercar', 537, 1520, 325, 'RWD', [4.6, 2.0, 1.25, 2.63], 'v8', 0xb9bec4, 0x00a19b],
 ])[0];
+
+/** Practice car: the safety car's body (no light bar), limited to 100 km/h. Its rivals are practice cars too. */
+const PRACTICE_CAR: CarSpec = { ...SAFETY_CAR, id: 'practice-amg', brand: '연습용 AMG GT', model: '(세이프티카 기반)', top: 100, limited: true, realTop: SAFETY_CAR.top };
+
+/** Selectable cars: the ten F1 teams, then the practice car. */
+export const CAR_SPECS: CarSpec[] = [...FORMULA, PRACTICE_CAR];
 
 export const CLASS_INFO: Record<CarClass, { label: string; description: string }> = {
   street: { label: '스트리트', description: '핫해치 · 고성능 세단' },

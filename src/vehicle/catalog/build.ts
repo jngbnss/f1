@@ -95,9 +95,9 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
   const mass = spec.kg;
 
   // Drag from the real top speed: P·η = c·v³ + Crr·m·g·v. Limited cars could go
-  // ~12 % faster on power, so their drag is lower and the limiter stops them.
+  // ~12 % faster on power (or up to `realTop`, the practice car), so their drag is lower and the limiter stops them.
   let vTop = spec.top / 3.6;
-  const vDrag = spec.limited ? vTop * 1.12 : vTop;
+  const vDrag = spec.realTop ? spec.realTop / 3.6 : spec.limited ? vTop * 1.12 : vTop;
   const power = spec.kw * 1000 * DRIVETRAIN;
   const formula = spec.cls === 'formula';
   const crr = formula ? CRR_F1 : CRR;
