@@ -72,7 +72,7 @@ npx tsx scripts/fetch-osm.ts [circuit]   # OpenStreetMap 주변 환경 데이터
 - 타이어 폭은 2026 규격(앞 280 mm, 뒤 375 mm)에 맞췄습니다.
 - 출력, 무게, 최고속도, 크기는 공개 제원 기준 근삿값입니다(`src/vehicle/catalog/specs.ts`). 지금은 모든 팀이 같은 성능이고 색만 다릅니다.
 - 레이스 상대는 실제 그리드처럼 팀메이트 1대 + 나머지 팀 각 2대입니다.
-- **연습용 차량**(`practice-amg`, 팀 목록 맨 끝): 세이프티카(Mercedes-AMG GT) 차체에 최고속도 100 km/h 제한입니다. AI 상대를 고르면 상대도 같은 연습용 차량입니다. 예: `?car=practice-amg&track=monza&ai=0`
+- **연습용 차량**(`practice-amg`, 차량 선택의 `연습용` 탭): 세이프티카(Mercedes-AMG GT) 차체에 최고속도 99 km/h 제한입니다. 사륜구동·고그립 타이어·강한 다운포스·발진력으로 가속·핸들링·제동 수치는 최대입니다. AI 상대를 고르면 상대도 같은 연습용 차량입니다. 예: `?car=practice-amg&track=monza&ai=0`
 - 예전의 일반차·GT·하이퍼카 등급은 뺐습니다. 코드로 만든 차체(`ParametricCarVisual`, `FormulaCarVisual`)는 GLB를 못 불러올 때의 대체용과 테스트용으로 남아 있습니다.
 
 ### 서킷

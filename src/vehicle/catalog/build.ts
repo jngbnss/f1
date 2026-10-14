@@ -87,6 +87,10 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
   }
   // Track-focused road cars carry more aero (Senna, Valkyrie, GT3 RS...).
   if (spec.body === 'supercar' && spec.kg < 1400) t.downforce = 0.7;
+  if (spec.tune) {
+    t.mu = spec.tune.mu;
+    t.downforce = spec.tune.downforce;
+  }
   const tr = spec.traits;
   if (tr) {
     t.downforce *= tr.downforce;
@@ -155,7 +159,7 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
     enginePower: power,
     mgukPower: mguk,
     activeAero: formula ? STRAIGHT_MODE : undefined,
-    engineForce: mass * G * 1.4,
+    engineForce: mass * G * (spec.tune?.launchG ?? 1.4),
     reverseForce: mass * 5,
     brakeForce: mass * G * 4,
     // Single-seaters run strong forward bias; road cars a little less.

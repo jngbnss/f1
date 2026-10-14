@@ -34,7 +34,9 @@ const STYLES: Partial<Record<BodyType, BodyStyle>> = {
   roadster: { rideHeight: 0.12, nose: 0.44, belt: 0.62, cowl: 0.42, rake: 1.6, roof: 0, rear: 'open', cabinWidth: 0.82, frontOverhang: 0.5, wing: 'none', race: false },
   mid: { rideHeight: 0.11, nose: 0.36, belt: 0.56, cowl: 0.82, rake: 2.1, roof: 0.24, rear: 'engine', cabinWidth: 0.8, frontOverhang: 0.48, wing: 'ducktail', race: false },
   gt3: { rideHeight: 0.07, nose: 0.36, belt: 0.56, cowl: 0.45, rake: 2.0, roof: 0.28, rear: 'fast', cabinWidth: 0.78, frontOverhang: 0.5, wing: 'gt', race: true },
-  supercar: { rideHeight: 0.09, nose: 0.32, belt: 0.55, cowl: 0.85, rake: 2.3, roof: 0.2, rear: 'engine', cabinWidth: 0.78, frontOverhang: 0.46, wing: 'ducktail', race: false },
+  // Front-engine GT (the AMG GT safety / practice car): long bonnet, cabin set back, fastback; bonnet and
+  // beltline high enough to clear its 0.355 m wheels (lower, the profile crossed the arches and the side panels vanished).
+  supercar: { rideHeight: 0.09, nose: 0.56, belt: 0.7, cowl: 0.5, rake: 2.0, roof: 0.22, rear: 'fast', cabinWidth: 0.78, frontOverhang: 0.46, wing: 'ducktail', race: false },
   lmp: { rideHeight: 0.06, nose: 0.36, belt: 0.58, cowl: 0.62, rake: 2.0, roof: 0.2, rear: 'engine', cabinWidth: 0.5, frontOverhang: 0.48, wing: 'lmp', race: true },
 };
 
@@ -158,7 +160,8 @@ export class ParametricCarVisual extends PrimitiveCarVisual {
     for (const side of [-1, 1]) {
       const head = this.part(this.track(new THREE.SphereGeometry(0.15, 14, 8)), light, side * W * 0.33, noseV - 0.08, -(front - 0.15), false);
       head.scale.set(1.15, 0.3, 0.8);
-      this.box(0.15, 0.07, 0.1, style.race ? carbon : paint, side * (W / 2 + 0.03), beltV + 0.08, -(cowlU - 0.15));
+      // Mirror on the door top: the tumblehome pulls the body in to ~87 % of W at the beltline.
+      this.box(0.15, 0.07, 0.1, style.race ? carbon : paint, side * (W * 0.435 + 0.06), beltV + 0.05, -(cowlU - 0.15));
     }
     // Tail lamps: a full-width bar on race cars and modern supercars, two clusters on road cars.
     if (style.race || spec.cls === 'hyper') this.part(this.track(new THREE.BoxGeometry(W * 0.8, 0.05, 0.05)), tail, 0, deckV - 0.14, -(rear + 0.02), false);

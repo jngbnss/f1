@@ -95,6 +95,9 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text 
 export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: MenuSelection): Promise<MenuSelection> {
   return new Promise((resolve) => {
     let carId = initial.carId;
+    /** Car list tab: the F1 teams or the practice car. */
+    const isF1 = (c: CarDefinition) => c.cls === 'formula';
+    let showF1 = !cars.some((c) => c.id === carId && !isF1(c));
     let trackId = initial.trackId;
     let ai = initial.ai;
     let laps = initial.laps;
@@ -117,7 +120,8 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
           <p>F1 2026 · ${cars.filter((c) => c.cls === 'formula').length}개 팀 · 연습용 차량 · ${tracks.length}개 서킷</p>
         </header>
         <section class="menu-step">
-          <h2><b>1</b>팀 선택</h2>
+          <h2><b>1</b>차량 선택</h2>
+          <div class="chip-row car-category" data-group="category"></div>
           <div class="team-grid" data-group="car"></div>
           <div class="team-detail" data-group="spec"></div>
         </section>
@@ -151,6 +155,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       </div>`;
     const q = <T extends HTMLElement>(g: string) => root.querySelector<T>(`[data-group="${g}"]`)!;
     const teamGrid = q<HTMLDivElement>('car');
+    const categoryRow = q<HTMLDivElement>('category');
     const detail = q<HTMLDivElement>('spec');
     const trackGrid = q<HTMLDivElement>('track');
     const aiRow = q<HTMLDivElement>('ai');
@@ -286,7 +291,20 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     };
 
     const render = () => {
-      teamGrid.replaceChildren(...cars.map(teamCard));
+      const practice = cars.find((c) => !isF1(c));
+      const tabs: [f1: boolean, title: string, sub: string][] = [[true, 'F1 2026', `${cars.filter(isF1).length}개 팀`]];
+      if (practice) tabs.push([false, '연습용', `${practice.spec.top} km/h 제한`]);
+      categoryRow.replaceChildren(
+        ...tabs.map(([f1, title, sub]) =>
+          chip(title, sub, f1 === showF1, () => {
+            showF1 = f1;
+            // Keep the detail panel on a car of the shown list.
+            if (isF1(cars.find((c) => c.id === carId)!) !== f1) carId = cars.find((c) => isF1(c) === f1)!.id;
+            render();
+          }),
+        ),
+      );
+      teamGrid.replaceChildren(...cars.filter((c) => isF1(c) === showF1).map(teamCard));
       renderDetail();
       trackGrid.replaceChildren(...tracks.map(circuitCard));
       controlRow.replaceChildren(

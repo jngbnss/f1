@@ -37,6 +37,8 @@ export interface CarSpec {
   realTop?: number;
   /** Team character (F1): multipliers around the shared 2026 baseline (top speed then follows from power and drag). */
   traits?: CarTraits;
+  /** Practice car: tyre μ, aero load (½ρClA) and launch force (g) in place of the body template's. */
+  tune?: { mu: number; downforce: number; launchG: number };
 }
 
 export interface CarTraits {
@@ -122,8 +124,21 @@ export const SAFETY_CAR: CarSpec = rows('sports', [
   ['safety-car', 'Safety Car', 'GT', 'supercar', 537, 1520, 325, 'RWD', [4.6, 2.0, 1.25, 2.63], 'v8', 0xb9bec4, 0x00a19b],
 ])[0];
 
-/** Practice car: the safety car's body (no light bar), limited to 100 km/h. Its rivals are practice cars too. */
-const PRACTICE_CAR: CarSpec = { ...SAFETY_CAR, id: 'practice-amg', brand: '연습용 AMG GT', model: '(세이프티카 기반)', top: 100, limited: true, realTop: SAFETY_CAR.top };
+/**
+ * Practice car: the safety car's body (no light bar), limited to 99 km/h, with everything else maxed:
+ * AWD, high-grip tyres, heavy aero and launch force (acceleration, handling and braking bars at 100). Its rivals are practice cars too.
+ */
+const PRACTICE_CAR: CarSpec = {
+  ...SAFETY_CAR,
+  id: 'practice-amg',
+  brand: '연습용 AMG GT',
+  model: '(세이프티카 기반)',
+  top: 99,
+  limited: true,
+  realTop: SAFETY_CAR.top,
+  drive: 'AWD',
+  tune: { mu: 2, downforce: 6.5, launchG: 2 },
+};
 
 /** Selectable cars: the ten F1 teams, then the practice car. */
 export const CAR_SPECS: CarSpec[] = [...FORMULA, PRACTICE_CAR];
