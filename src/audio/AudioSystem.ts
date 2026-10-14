@@ -122,11 +122,11 @@ export class AudioSystem {
     wet.gain.value = 0.5;
     reverb.connect(wet).connect(master);
     const noise = makeNoiseBuffer(ctx);
-    // b206 pack: every car runs the recorded voice loop instead of the sampled engine.
+    // B206 pack: every car runs the recorded voice loop instead of the sampled engine.
     const pack = voicePackOn();
-    const loop = pack ? VOICE_ENGINE : { file: 'audio/engine_loop.wav', baseHz: LOOP_BASE_HZ, rateExp: 1 };
+    const loop = pack ? VOICE_ENGINE : { file: 'audio/engine_loop.wav', rate: 1, baseHz: LOOP_BASE_HZ, rateExp: 1 };
     void this.loadBuffer(`${import.meta.env.BASE_URL}${loop.file}`).then((engineLoop) => {
-      this.assets = { engineLoop, reverb, noise, loopBaseHz: loop.baseHz, loopRateExp: loop.rateExp, loopOnly: pack };
+      this.assets = { engineLoop, reverb, noise, loopRate: loop.rate, loopBaseHz: loop.baseHz, loopRateExp: loop.rateExp, loopOnly: pack };
       for (const cb of this.readyCallbacks.splice(0)) cb(ctx, master, this.assets);
     });
   }

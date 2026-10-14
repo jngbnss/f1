@@ -51,7 +51,8 @@ export interface AudioAssets {
   /** Shared reverb send. */
   reverb: AudioNode;
   noise: AudioBuffer;
-  /** Loop pitch map: playbackRate = (firingHz / loopBaseHz) ** loopRateExp. */
+  /** Loop pitch map: playbackRate = loopRate * (firingHz / loopBaseHz) ** loopRateExp. */
+  loopRate: number;
   loopBaseHz: number;
   loopRateExp: number;
   /** The loop is the whole engine (b206 voice pack): no synthesized body under it. */
@@ -110,6 +111,7 @@ export class CarAudio {
   private readonly skidGain: GainNode;
   private readonly windGain: GainNode;
   private readonly nodes: AudioNode[] = [];
+  private readonly loopRate: number;
   private readonly loopBaseHz: number;
   private readonly loopRateExp: number;
   private load = 0;
@@ -123,6 +125,7 @@ export class CarAudio {
   ) {
     const bus = this.keep(ctx.createGain()); // pre-EQ engine mix
 
+    this.loopRate = assets.loopRate;
     this.loopBaseHz = assets.loopBaseHz;
     this.loopRateExp = assets.loopRateExp;
     this.loopOnly = assets.loopOnly;
@@ -215,7 +218,7 @@ export class CarAudio {
 
     const f = firingHz(p, s.rpmRatio);
     const wobble = 1 + (Math.random() - 0.5) * 0.006; // combustion irregularity
-    this.loop?.playbackRate.setTargetAtTime(Math.pow(f / this.loopBaseHz, this.loopRateExp) * wobble, t, SMOOTH);
+    this.loop?.playbackRate.setTargetAtTime(this.loopRate * Math.pow(f / this.loopBaseHz, this.loopRateExp) * wobble, t, SMOOTH);
     for (const { node, voice } of this.oscillators) node.frequency.setTargetAtTime(f * voice.mult * wobble, t, SMOOTH);
     this.combustionFilter.frequency.setTargetAtTime(f * 2, t, SMOOTH);
     this.combustionGain.gain.setTargetAtTime(p.noise * (0.3 + 0.7 * this.load), t, SMOOTH);
@@ -257,6 +260,7 @@ export class EngineVoice {
   private readonly source: AudioBufferSourceNode;
   private readonly gain: GainNode;
   private readonly filter: BiquadFilterNode;
+  private readonly loopRate: number;
   private readonly loopBaseHz: number;
   private readonly loopRateExp: number;
   private readonly loopOnly: boolean;
@@ -270,6 +274,7 @@ export class EngineVoice {
     assets: AudioAssets,
   ) {
     const loop = assets.engineLoop!;
+    this.loopRate = assets.loopRate;
     this.loopBaseHz = assets.loopBaseHz;
     this.loopRateExp = assets.loopRateExp;
     this.loopOnly = assets.loopOnly;
@@ -298,7 +303,7 @@ export class EngineVoice {
     this.panner.positionX.setTargetAtTime(x, t, SMOOTH);
     this.panner.positionY.setTargetAtTime(y, t, SMOOTH);
     this.panner.positionZ.setTargetAtTime(z, t, SMOOTH);
-    this.source.playbackRate.setTargetAtTime(Math.pow(firingHz(this.profile, rpmRatio) / this.loopBaseHz, this.loopRateExp), t, SMOOTH);
+    this.source.playbackRate.setTargetAtTime(this.loopRate * Math.pow(firingHz(this.profile, rpmRatio) / this.loopBaseHz, this.loopRateExp), t, SMOOTH);
     this.filter.frequency.setTargetAtTime(this.loopOnly ? 6000 : 900 + 2500 * throttle, t, SMOOTH);
     this.gain.gain.setTargetAtTime(ENGINE_LEVEL * this.profile.volume * (0.45 + 0.55 * throttle) * 0.9, t, SMOOTH);
   }
