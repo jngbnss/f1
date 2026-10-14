@@ -11,7 +11,7 @@ import { CALENDAR, loadSeason } from '../race/Season';
 import { isTouchDevice } from '../platform';
 import { CONTROL_MODE_LABEL, CONTROL_MODES, readControlMode, saveControlMode, type ControlMode } from './ControlModeSwitch';
 import { setVoicePack, voicePackOn } from '../audio/VoicePack';
-import { QUALITY_OPTIONS, readStoredTier, saveTier } from '../performance/Quality';
+import { QUALITY_OPTIONS, readTier, saveTier } from '../performance/Quality';
 
 const CONTROL_HINTS: Record<ControlMode, string> = { keyboard: '키보드·게임패드', hand: '웹캠: 주먹 핸들 · 속도는 자동' };
 
@@ -420,10 +420,10 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
         }),
       );
       root.querySelector('.menu-b206')!.classList.toggle('on', packOn);
-      const storedTier = readStoredTier();
+      const tier = readTier();
       qualityRow.replaceChildren(
         ...QUALITY_OPTIONS.map(([t, title, sub]) =>
-          chip(title, sub, t === storedTier, () => {
+          chip(title, sub, t === tier, () => {
             saveTier(t);
             render();
           }),

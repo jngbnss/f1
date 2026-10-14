@@ -82,9 +82,9 @@ export function readConfig(search = window.location.search): SimConfig {
   const track = p.get('track');
   const benchRaw = p.get('bench');
   const bench = benchRaw === null ? 0 : Number(benchRaw) > 1 ? Number(benchRaw) : 40;
-  // Phones: a lighter quality tier (no post-processing, smaller shadow map, 1x pixels, ...).
+  // Graphics default to the lightest tier; the menu / lobby and ?quality= change it.
   const mobile = isMobile(search);
-  const quality = detectTier(search, mobile);
+  const quality = detectTier(search);
   setQuality(quality);
   const tier = TIER_DEFAULTS[quality];
   return {

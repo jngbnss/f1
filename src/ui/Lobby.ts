@@ -7,7 +7,7 @@ import { isTouchDevice } from '../platform';
 import { COMPOUND_HINTS, COMPOUND_LIST, COMPOUND_NAMES } from '../vehicle/Tyres';
 import { TIME_OPTIONS, WEATHER_KINDS } from '../world/Weather';
 import { setVoicePack, voicePackOn } from '../audio/VoicePack';
-import { QUALITY_OPTIONS, readStoredTier, saveTier } from '../performance/Quality';
+import { QUALITY_OPTIONS, readTier, saveTier } from '../performance/Quality';
 
 /**
  * Multiplayer lobby: pick a name and a team, create a room (or join one
@@ -243,10 +243,10 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
           render();
         }),
       );
-      const storedTier = readStoredTier();
+      const tier = readTier();
       ownBox.querySelector('[data-s="quality"]')!.append(
         ...QUALITY_OPTIONS.map(([t, title, sub]) =>
-          ownCard(title, sub, t === storedTier, () => {
+          ownCard(title, sub, t === tier, () => {
             saveTier(t);
             render();
           }),

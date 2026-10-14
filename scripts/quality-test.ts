@@ -9,7 +9,7 @@
  */
 import type { DynamicResolution } from '../src/performance/DynamicResolution';
 import type { PerfSnapshot } from '../src/performance/PerformanceMonitor';
-import { detectTier, QUALITY, setQuality } from '../src/performance/Quality';
+import { detectTier, QUALITY, saveTier, setQuality } from '../src/performance/Quality';
 import { QualityGovernor } from '../src/performance/QualityGovernor';
 
 let failures = 0;
@@ -19,19 +19,19 @@ function check(ok: boolean, message: string): void {
 }
 
 console.log('Tier detection');
-check(detectTier('?quality=low', false) === 'low' && detectTier('?quality=mid', true) === 'mid', '?quality= forces the tier');
-check(detectTier('', false) === 'high', 'desktop: high (unchanged game)');
-const nav = globalThis.navigator as Navigator & { deviceMemory?: number };
-const setHw = (cores: number, memory: number) => {
-  Object.defineProperty(nav, 'hardwareConcurrency', { value: cores, configurable: true });
-  Object.defineProperty(nav, 'deviceMemory', { value: memory, configurable: true });
+const store: Record<string, string> = {};
+(globalThis as unknown as { localStorage: unknown }).localStorage = {
+  getItem: (k: string) => store[k] ?? null,
+  setItem: (k: string, v: string) => {
+    store[k] = v;
+  },
 };
-setHw(8, 8);
-check(detectTier('', true) === 'mid', 'phone with 8 cores / 8 GB: mid');
-setHw(4, 4);
-check(detectTier('', true) === 'low', 'phone with 4 cores: low');
-setHw(8, 2);
-check(detectTier('', true) === 'low', 'phone with 2 GB: low');
+check(detectTier('') === 'low', 'nothing chosen: the lightest tier');
+saveTier('high');
+check(detectTier('') === 'high', "the player's choice is remembered");
+check(detectTier('?quality=mid') === 'mid', '?quality= wins over the remembered choice');
+saveTier('low');
+check(detectTier('') === 'low', 'back to low');
 
 console.log('Tier profiles');
 setQuality('high');
