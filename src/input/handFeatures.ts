@@ -12,7 +12,6 @@ export interface Point {
 
 const WRIST = 0;
 const MIDDLE_MCP = 9;
-const TIPS = [8, 12, 16, 20];
 
 /**
  * Landmarks in a square, mirrored space: x flipped so the view is a selfie
@@ -32,20 +31,6 @@ export function palmCenter(lm: readonly Point[]): Point {
 
 function dist(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-/** Fingertip-to-wrist / palm length: fist ≈ FIST_RATIO, flat open hand ≈ OPEN_RATIO. */
-const FIST_RATIO = 1.15;
-const OPEN_RATIO = 1.85;
-
-/** How open the hand is, 0 = fist .. 1 = flat open palm. Independent of distance to the camera. */
-export function openness(lm: readonly Point[]): number {
-  const palm = dist(lm[WRIST], lm[MIDDLE_MCP]);
-  if (palm < 1e-6) return 0;
-  let sum = 0;
-  for (const t of TIPS) sum += dist(lm[t], lm[WRIST]);
-  const ratio = sum / TIPS.length / palm;
-  return Math.max(0, Math.min(1, (ratio - FIST_RATIO) / (OPEN_RATIO - FIST_RATIO)));
 }
 
 /**

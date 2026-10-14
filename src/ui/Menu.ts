@@ -11,7 +11,7 @@ import { CALENDAR, loadSeason } from '../race/Season';
 import { isTouchDevice } from '../platform';
 import { CONTROL_MODE_LABEL, CONTROL_MODES, readControlMode, saveControlMode, type ControlMode } from './ControlModeSwitch';
 
-const CONTROL_HINTS: Record<ControlMode, string> = { keyboard: '키보드·게임패드', hand: '웹캠: 주먹 핸들 · 펴면 브레이크' };
+const CONTROL_HINTS: Record<ControlMode, string> = { keyboard: '키보드·게임패드', hand: '웹캠: 주먹 핸들 · 속도는 자동' };
 
 export interface MenuSelection {
   carId: string;

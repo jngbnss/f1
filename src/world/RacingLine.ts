@@ -286,6 +286,17 @@ export class RacingLine {
     return this.segLen[i % this.points.length];
   }
 
+  /** Lowest speed limit (`limits`, m/s) from sample `i` over the next `distance` m. */
+  limitAhead(i: number, distance: number): number {
+    const count = this.points.length;
+    let limit = this.limits[i];
+    for (let j = i, d = 0; d < distance; j = (j + 1) % count) {
+      d += this.segLen[j];
+      limit = Math.min(limit, this.limits[(j + 1) % count]);
+    }
+    return limit;
+  }
+
   /** Ideal lap time (s) of the computed speed profile. */
   get idealLapTime(): number {
     let t = 0;

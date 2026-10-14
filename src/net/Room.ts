@@ -16,6 +16,7 @@ import {
   type RacePlan,
 } from './protocol';
 import { Voice } from './Voice';
+import type { ControlMode } from '../ui/ControlModeSwitch';
 
 /**
  * A multiplayer room over WebRTC (PeerJS for signalling, its free public
@@ -42,7 +43,7 @@ interface Link {
 }
 
 export class Room {
-  lobby: LobbyState = { players: [], laps: 3, aiFill: true, trackId: 'monza' };
+  lobby: LobbyState = { players: [], laps: 3, aiFill: true, trackId: 'monza', control: 'keyboard' };
   myId = '';
   plan: RacePlan | null = null;
   /** Host clock (ms) = performance.now() + offset. */
@@ -129,10 +130,11 @@ export class Room {
   }
 
   /** Host: race settings. */
-  setSettings(laps: number, aiFill: boolean): void {
+  setSettings(laps: number, aiFill: boolean, control: ControlMode): void {
     if (!this.isHost) return;
     this.lobby.laps = laps;
     this.lobby.aiFill = aiFill;
+    this.lobby.control = control;
     this.broadcastLobby();
   }
 
@@ -156,7 +158,7 @@ export class Room {
         }
       }
     }
-    const plan: RacePlan = { trackId: this.lobby.trackId, laps: this.lobby.laps, slots };
+    const plan: RacePlan = { trackId: this.lobby.trackId, laps: this.lobby.laps, control: this.lobby.control, slots };
     this.beginRace(plan);
     for (const id of this.links.keys()) this.sendTo(id, { t: 'start', plan });
     this.onStart?.(plan);

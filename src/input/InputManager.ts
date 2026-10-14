@@ -10,6 +10,8 @@ export class InputManager {
   private readonly state: VehicleInput = emptyInput();
   /** Id of the device that produced the latest non-idle input (for HUD/debug). */
   activeSource = 'none';
+  /** Only this device drives (a hands-only room); the others still send actions (reset, pit...). Null = all. */
+  onlyDriver: string | null = null;
 
   add(source: InputSource): this {
     this.sources.push(source);
@@ -33,7 +35,7 @@ export class InputManager {
     for (const source of this.sources) {
       actions.push(...source.consumeActions());
       const r = source.read();
-      if (!r) continue;
+      if (!r || (this.onlyDriver !== null && source.id !== this.onlyDriver)) continue;
       this.activeSource = source.id;
       s.throttle = Math.max(s.throttle, r.throttle);
       s.brake = Math.max(s.brake, r.brake);

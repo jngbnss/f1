@@ -2,17 +2,21 @@ import type { RacePlan, LobbyState } from '../net/protocol';
 import type { Room } from '../net/Room';
 import { CAR_LIST } from '../vehicle/catalog';
 import { lobbyVoice } from './VoiceControls';
+import { CONTROL_MODE_LABEL, CONTROL_MODES, type ControlMode } from './ControlModeSwitch';
+import { isTouchDevice } from '../platform';
 
 /**
  * Multiplayer lobby: pick a name and a team, create a room (or join one
  * from a ?room=CODE link), share the code, wait for friends; the host sets
- * laps / AI fill and starts the race. Resolves when the race starts.
+ * laps / AI fill / control mode (everyone on keyboard, or everyone on hands) and starts the race.
+ * Resolves when the race starts.
  */
 
 const TEAMS = CAR_LIST.filter((c) => c.cls === 'formula');
 const LAPS = [1, 3, 5];
 
 const css = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
+const CONTROL_SUB: Record<ControlMode, string> = { keyboard: '모두 키보드·게임패드로', hand: '모두 웹캠 손 조작 (핸들만, 속도 자동)' };
 
 function stored(key: string, fallback: string): string {
   try {
@@ -158,7 +162,9 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
 
         if (room.isHost) {
           const box = document.createElement('div');
-          box.innerHTML = '<h2>레이스 설정</h2><div class="menu-grid menu-laps" data-s="laps"></div><div class="menu-grid" data-s="ai" style="margin-top:10px"></div>';
+          box.innerHTML =
+            '<h2>레이스 설정</h2><div class="menu-grid menu-laps" data-s="laps"></div><div class="menu-grid" data-s="ai" style="margin-top:10px"></div>' +
+            '<h2>조작 <small>모두 같은 방식으로만</small></h2><div class="menu-grid" data-s="control"></div>';
           const card = (title: string, sub: string, selected: boolean, onPick: () => void) => {
             const el = document.createElement('button');
             el.type = 'button';
@@ -170,16 +176,21 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
             return el;
           };
           box.querySelector('[data-s="laps"]')!.append(
-            ...LAPS.map((n) => card(`${n} 랩`, n === 1 ? '스프린트' : n === 3 ? '기본' : '내구', n === state.laps, () => room!.setSettings(n, state.aiFill))),
+            ...LAPS.map((n) => card(`${n} 랩`, n === 1 ? '스프린트' : n === 3 ? '기본' : '내구', n === state.laps, () => room!.setSettings(n, state.aiFill, state.control))),
           );
           box.querySelector('[data-s="ai"]')!.append(
-            card('AI로 채우기', `빈 자리 ${Math.max(0, 20 - state.players.length)}대를 AI가 달림`, state.aiFill, () => room!.setSettings(state.laps, true)),
-            card('사람끼리만', `${state.players.length}대만 출발`, !state.aiFill, () => room!.setSettings(state.laps, false)),
+            card('AI로 채우기', `빈 자리 ${Math.max(0, 20 - state.players.length)}대를 AI가 달림`, state.aiFill, () => room!.setSettings(state.laps, true, state.control)),
+            card('사람끼리만', `${state.players.length}대만 출발`, !state.aiFill, () => room!.setSettings(state.laps, false, state.control)),
+          );
+          box.querySelector('[data-s="control"]')!.append(
+            ...CONTROL_MODES.map((m) => card(`${CONTROL_MODE_LABEL[m]}만`, CONTROL_SUB[m], m === state.control, () => room!.setSettings(state.laps, state.aiFill, m))),
           );
           part('settings').replaceChildren(box);
         } else {
-          part('settings').innerHTML = `<h2>레이스</h2><p class="lobby-status">${state.laps}랩 · ${state.aiFill ? 'AI로 빈자리 채움' : '사람끼리만'} · 방장이 출발을 누르면 시작합니다</p>`;
+          part('settings').innerHTML = `<h2>레이스</h2><p class="lobby-status">${state.laps}랩 · ${state.aiFill ? 'AI로 빈자리 채움' : '사람끼리만'} · 조작: ${CONTROL_MODE_LABEL[state.control]}만 · 방장이 출발을 누르면 시작합니다</p>`;
         }
+        // Hands need a desktop webcam: phones in a hands-only room can't drive.
+        if (state.control === 'hand' && isTouchDevice()) part('settings').insertAdjacentHTML('beforeend', '<p class="lobby-status error">손 조작 방은 PC 웹캠이 필요합니다. 휴대폰으로는 운전할 수 없습니다.</p>');
       }
 
       const main = part('main') as HTMLButtonElement;

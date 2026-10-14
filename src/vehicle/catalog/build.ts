@@ -90,6 +90,8 @@ export function buildPhysics(spec: CarSpec): VehicleConfig {
   if (spec.tune) {
     t.mu = spec.tune.mu;
     t.downforce = spec.tune.downforce;
+    t.cgHeight = spec.tune.cgHeight;
+    t.steer = spec.tune.steer;
   }
   const tr = spec.traits;
   if (tr) {

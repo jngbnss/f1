@@ -37,8 +37,12 @@ export interface CarSpec {
   realTop?: number;
   /** Team character (F1): multipliers around the shared 2026 baseline (top speed then follows from power and drag). */
   traits?: CarTraits;
-  /** Practice car: tyre μ, aero load (½ρClA) and launch force (g) in place of the body template's. */
-  tune?: { mu: number; downforce: number; launchG: number };
+  /**
+   * Practice car: tyre μ, aero load (½ρClA), launch force (g), centre-of-mass height (m) and
+   * steering lock (rad at standstill, rad at speed, fade speed m/s) in place of the body template's;
+   * cornerAssist: the player is held to this share of the racing line's speed limit (lifts, then brakes).
+   */
+  tune?: { mu: number; downforce: number; launchG: number; cgHeight: number; steer: [low: number, high: number, fadeSpeed: number]; cornerAssist: number };
 }
 
 export interface CarTraits {
@@ -126,7 +130,11 @@ export const SAFETY_CAR: CarSpec = rows('sports', [
 
 /**
  * Practice car: the safety car's body (no light bar), limited to 99 km/h, with everything else maxed:
- * AWD, high-grip tyres, heavy aero and launch force (acceleration, handling and braking bars at 100). Its rivals are practice cars too.
+ * AWD, high-grip tyres, heavy aero and launch force (acceleration, handling and braking bars at 100).
+ * Beginner-proof: a low centre of mass so full lock can't roll it, a lock that shrinks with speed
+ * to about what the tyres can hold (~2 g at 99 km/h), so the nose runs wide instead of the car tipping
+ * or spinning (a hairpin still gets the full low-speed lock), and a corner speed assist that lifts and
+ * brakes for the next bend so the car can follow the racing line. Its rivals are practice cars too.
  */
 const PRACTICE_CAR: CarSpec = {
   ...SAFETY_CAR,
@@ -137,7 +145,7 @@ const PRACTICE_CAR: CarSpec = {
   limited: true,
   realTop: SAFETY_CAR.top,
   drive: 'AWD',
-  tune: { mu: 2, downforce: 6.5, launchG: 2 },
+  tune: { mu: 2, downforce: 6.5, launchG: 2, cgHeight: 0.2, steer: [0.54, 0.08, 25], cornerAssist: 0.9 },
 };
 
 /** Selectable cars: the ten F1 teams, then the practice car. */

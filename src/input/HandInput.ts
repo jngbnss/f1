@@ -1,12 +1,10 @@
 import type { InputAction, InputSource, VehicleInput } from './VehicleInput';
-import { fingerCount, OneEuro, oneHandAngle, openness, palmCenter, toView, touchesHead, twoHandAngle, type Box, type Point } from './handFeatures';
+import { fingerCount, OneEuro, oneHandAngle, palmCenter, toView, touchesHead, twoHandAngle, type Box, type Point } from './handFeatures';
 import type { FaceBoxPx, HandWorkerRequest, HandWorkerResponse } from './handWorker';
 
 /** Wheel angle (deg) for full lock, and the dead zone around straight ahead. */
 const FULL_LOCK_DEG = 45;
 const STEER_DEADZONE_DEG = 3;
-/** Openness below this is still a grip (relaxed fist) — no brake. */
-const BRAKE_DEADZONE = 0.15;
 /** Keep the last command through short tracking dropouts (ms). */
 const HOLD_MS = 150;
 /** A hand must stay on the head this long to count (ms), so brushing past does nothing. */
@@ -21,9 +19,9 @@ type Side = 'left' | 'right';
 
 /**
  * Webcam hand driving (desktop): both fists hold an invisible steering wheel,
- * the tilt of the line between them steers, opening the hands brakes (the
- * more open, the harder). Throttle is automatic while not braking. One hand
- * in view still steers by its own lean.
+ * the tilt of the line between them steers. That is all the hands do: throttle
+ * is always on and the game slows the car for the corners itself (Game's corner
+ * speed assist). One hand in view still steers by its own lean.
  *
  * Gestures (need the face in view): left hand on the head = reset, right hand
  * on the head = pit call ("box this lap"); for a few seconds after a pit call
@@ -44,7 +42,6 @@ export class HandInput implements InputSource {
   /** Camera frame width / height. */
   aspect = 4 / 3;
   steer = 0;
-  brake = 0;
   /** Raised fingers while the tyre window is open (for the preview). */
   fingers = 0;
   private lastSeen = -Infinity;
@@ -57,7 +54,6 @@ export class HandInput implements InputSource {
   /** A frame is with the worker (the next one waits: no queue building up). */
   private busy = false;
   private readonly steerFilter = new OneEuro(1.2, 0.8);
-  private readonly brakeFilter = new OneEuro(2, 1);
   private actions: InputAction[] = [];
   /** Since when each hand has been on the head, and whether that touch already fired. */
   private readonly onHead: Record<Side, { since: number; fired: boolean } | null> = { left: null, right: null };
@@ -128,7 +124,7 @@ export class HandInput implements InputSource {
 
   read(): VehicleInput | null {
     if (!this.tracking) return null;
-    return { throttle: this.brake > 0 ? 0 : 1, brake: this.brake, steer: this.steer, handbrake: 0 };
+    return { throttle: 1, brake: 0, steer: this.steer, handbrake: 0 };
   }
 
   consumeActions(): InputAction[] {
@@ -176,7 +172,6 @@ export class HandInput implements InputSource {
     // After a dropout start the filters fresh instead of easing from stale values.
     if (!this.tracking) {
       this.steerFilter.reset();
-      this.brakeFilter.reset();
     }
     const dt = Math.min((now - this.lastSeen) / 1000, 0.1);
     this.lastSeen = now;
@@ -190,13 +185,6 @@ export class HandInput implements InputSource {
     const a = Math.abs(angle) < STEER_DEADZONE_DEG ? 0 : angle - Math.sign(angle) * STEER_DEADZONE_DEG;
     const rawSteer = Math.max(-1, Math.min(1, a / (FULL_LOCK_DEG - STEER_DEADZONE_DEG)));
     this.steer = Math.max(-1, Math.min(1, this.steerFilter.filter(rawSteer, dt)));
-
-    let open = 0;
-    for (const h of hands) open += openness(h);
-    open /= hands.length;
-    const rawBrake = open < BRAKE_DEADZONE ? 0 : (open - BRAKE_DEADZONE) / (1 - BRAKE_DEADZONE);
-    const brake = this.brakeFilter.filter(rawBrake, dt);
-    this.brake = brake < 0.02 ? 0 : Math.min(1, brake);
   }
 
   /** Face box in camera pixels -> mirrored view space (x in [0, aspect], y in [0, 1]). */

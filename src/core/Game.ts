@@ -91,6 +91,10 @@ const PLAYER_DOT = 0xffd23f;
 
 /** Input used while cars wait on the grid. */
 const HOLD: VehicleInput = { throttle: 0, brake: 1, steer: 0, handbrake: 1 };
+/** Hand driving: share of the racing line's speed limit the car is held to (the hands only steer). */
+const HAND_CORNER_ASSIST = 0.9;
+/** Corner speed assist look-ahead (s of travel): the pedal's reaction time. */
+const ASSIST_LOOKAHEAD = 0.5;
 
 /** Seconds a car may stay flipped before it is put back on its wheels. */
 const FLIP_RESET_DELAY = 2.5;
@@ -211,6 +215,11 @@ export class Game {
   readonly difficulty: DifficultySpec;
   /** Opponents' share of racing pace (menu "AI 실력"). */
   private readonly aiPace: number;
+  /** Practice car: share of the racing line's speed limit the player is held to (0 = off). */
+  private readonly cornerAssist: number;
+  /** Racing-line sample nearest the player (search hint for the corner assist). */
+  private assistIndex = -1;
+  private readonly assisted: VehicleInput = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
   /** Qualifying session (alone on track before the race), null otherwise. */
   private quali: Qualifying | null = null;
   /** Season round scored (once, when the player finishes). */
@@ -332,6 +341,7 @@ export class Game {
     this.player.damage.scale = diff.damage;
     this.player.tyres.punctureScale = diff.punctures;
     this.player.tyres.wearScale *= diff.tyreWear;
+    this.cornerAssist = car.spec.tune?.cornerAssist ?? 0;
 
     if (plan) {
       this.race = new RaceManager(this.track, this.netGrid(plan, playerSlot), Math.max(1, plan.laps));
@@ -1073,7 +1083,25 @@ export class Game {
     const pitPlayer = frozen ? null : (this.pitStops?.update(this.player, dt) ?? null);
     // The safety car drives itself (before the step), and the AI follow it like a car.
     if (!frozen && this.safetyCar?.fixedUpdate(dt)) this.scDone = true;
-    const playerInput = pitPlayer ?? (this.autopilot ? this.autopilot.update(dt, this.vehicles) : this.cooldown ? this.cooldown.update(dt, this.vehicles) : input);
+    let playerInput = pitPlayer ?? (this.autopilot ? this.autopilot.update(dt, this.vehicles) : this.cooldown ? this.cooldown.update(dt, this.vehicles) : input);
+    // Corner speed assist (practice car, and every car driven by hand, which has no brake): above
+    // the racing line's speed limit just ahead (which already brakes for the bends further on),
+    // lift and brake down to it. Half a second of look-ahead covers the pedal's reaction.
+    const assist = this.input.activeSource === 'hand' ? Math.max(this.cornerAssist, HAND_CORNER_ASSIST) : this.cornerAssist;
+    if (assist > 0 && playerInput === input) {
+      const line = this.racingLine;
+      const speed = this.player.physics.forwardSpeed;
+      this.assistIndex = line.nearestFrom(this.player.object3D.position, this.assistIndex);
+      const limit = line.limitAhead(this.assistIndex, Math.max(speed, 0) * ASSIST_LOOKAHEAD);
+      // Flat-out stretches (limit = top speed) stay flat out: the margin is for the bends.
+      const over = limit < this.player.physics.config.maxSpeed ? speed - limit * assist : 0;
+      if (over > 0) {
+        Object.assign(this.assisted, input);
+        this.assisted.throttle = 0;
+        this.assisted.brake = Math.max(input.brake, Math.min(over / 4, 1));
+        playerInput = this.assisted;
+      }
+    }
     this.player.fixedUpdate(frozen ? HOLD : playerInput, dt);
     if (this.race) {
       for (const r of this.race.racers) {

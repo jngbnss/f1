@@ -11,7 +11,7 @@ import { showMenu, type MenuSelection } from './ui/Menu';
 import { CAR_LIST, resolveCarId } from './vehicle/catalog';
 import { FEATURED_TRACKS, findTrack, TRACKS } from './world/tracks';
 import type { HandPreview } from './ui/HandPreview';
-import { ControlModeSwitch, readControlMode, saveControlMode, type ControlMode } from './ui/ControlModeSwitch';
+import { CONTROL_MODE_LABEL, ControlModeSwitch, readControlMode, saveControlMode, type ControlMode } from './ui/ControlModeSwitch';
 import { VoiceCommands } from './input/VoiceCommands';
 
 /**
@@ -142,7 +142,7 @@ async function main(): Promise<void> {
     await game.prepare();
     game.start();
     loading?.remove();
-    setupDriving(game, config.touch, config.bench > 0);
+    setupDriving(game, config.touch, config.bench > 0, lobby?.plan.control ?? null);
 
     if (import.meta.env.DEV || config.bench > 0 || lobby) {
       // Console handle for experiments: sim.perf.snapshot, sim.player, sim.resetPlayer() ...
@@ -162,9 +162,11 @@ async function main(): Promise<void> {
 /**
  * Driver aids and touch controls around the running game: brake assist from
  * the saved settings (B toggles it), on-screen controls on touch screens,
- * webcam hand steering on desktop (G toggles it).
+ * webcam hand steering on desktop (G toggles it). `roomControl`: a friends' race
+ * fixes the mode for everyone (hands-only: no other device drives, no switching).
  */
-async function setupDriving(game: import('./core/Game').Game, touch: boolean, autopilot: boolean): Promise<void> {
+async function setupDriving(game: import('./core/Game').Game, touch: boolean, autopilot: boolean, roomControl: ControlMode | null): Promise<void> {
+  if (roomControl === 'hand') game.input.onlyDriver = 'hand';
   driveSettings.watch((s) => {
     // The benchmark autopilot always drives with the assist (like every AI car); beginner too.
     game.player.physics.brakeAssist = s.brakeAssist || autopilot || game.difficulty.abs;
@@ -227,26 +229,32 @@ async function setupDriving(game: import('./core/Game').Game, touch: boolean, au
         }
         hand = { preview: new HandPreview(input), voice };
         modeSwitch.set('hand');
-        show(voice ? '손 조작 켬: 주먹 핸들 · 손 펴면 브레이크 · "박스 디스 랩"' : '손 조작 켬: 두 주먹으로 핸들, 손 펴면 브레이크');
+        show(voice ? '손 조작 켬: 주먹 핸들 · 속도는 자동 · "박스 디스 랩"' : '손 조작 켬: 두 주먹으로 핸들, 속도는 자동');
       } catch (err) {
         hand = null;
         modeSwitch.set('keyboard');
         console.error(err);
-        show(err instanceof DOMException && err.name === 'NotAllowedError' ? '카메라 권한이 거부됨' : '손 인식을 시작하지 못함');
+        const reason = err instanceof DOMException && err.name === 'NotAllowedError' ? '카메라 권한이 거부됨' : '손 인식을 시작하지 못함';
+        show(roomControl === 'hand' ? `${reason} · 손 조작 방: ✋ 버튼으로 다시 시도` : reason);
       }
     };
-    const modeSwitch = new ControlModeSwitch((mode) => {
-      saveControlMode(mode);
+    /** Mode asked for by the switch or the G key; a friends' race keeps everyone on its mode. */
+    const request = (mode: ControlMode): void => {
+      if (roomControl && mode !== roomControl) {
+        show(`친구 레이스: 모두 ${CONTROL_MODE_LABEL[roomControl]} 조작만`);
+        modeSwitch.set(hand ? 'hand' : 'keyboard');
+        return;
+      }
+      if (!roomControl) saveControlMode(mode);
       void setMode(mode);
-    });
+    };
+    const modeSwitch = new ControlModeSwitch(request);
     window.addEventListener('keydown', (e) => {
       if (e.code !== 'KeyG' || e.repeat || hand === 'loading') return;
-      const mode = hand ? 'keyboard' : 'hand';
-      saveControlMode(mode);
-      void setMode(mode);
+      request(hand ? 'keyboard' : 'hand');
     });
-    // Picked in the menu (or last race): start the camera right away. Not for the benchmark autopilot.
-    if (!autopilot && readControlMode() === 'hand') void setMode('hand');
+    // Picked in the menu (or last race, or the room): start the camera right away. Not for the benchmark autopilot.
+    if (!autopilot && (roomControl ?? readControlMode()) === 'hand') void setMode('hand');
     return;
   }
   const { TouchControls } = await import('./ui/TouchControls');

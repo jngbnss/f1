@@ -74,7 +74,7 @@ export class HandPreview {
       ctx.lineTo(centers[1].x * sx, centers[1].y * sy);
       ctx.stroke();
     }
-    ctx.fillStyle = hand.brake > 0 ? '#ff4d4d' : '#4dff88';
+    ctx.fillStyle = '#4dff88';
     for (const lm of hand.hands) {
       for (const p of lm) {
         ctx.beginPath();
@@ -87,7 +87,7 @@ export class HandPreview {
       ? '손이 안 보여요'
       : hand.choosingTyre
         ? `타이어 선택: 손가락 ${hand.fingers}개`
-        : `조향 ${Math.round(hand.steer * 100)}% · 브레이크 ${Math.round(hand.brake * 100)}%`;
+        : `조향 ${Math.round(hand.steer * 100)}% · 속도 자동`;
     if (text === this.lastLabel) return;
     this.lastLabel = text;
     this.label.textContent = text;

@@ -6,6 +6,7 @@
  * unordered / no-retransmit WebRTC data channel (UDP-like: a late state is
  * worthless, the next one is already on its way).
  */
+import type { ControlMode } from '../ui/ControlModeSwitch';
 
 /** Room ids on the public PeerJS broker are namespaced with this prefix. */
 export const ROOM_PREFIX = 'websimlab-r-';
@@ -30,6 +31,8 @@ export interface LobbyState {
   /** Fill the empty grid slots with AI cars (simulated by the host). */
   aiFill: boolean;
   trackId: string;
+  /** Everyone drives the same way: keyboard (and gamepad) only, or webcam hands only. */
+  control: ControlMode;
 }
 
 /** One grid slot of a networked race (index = grid position). */
@@ -46,6 +49,7 @@ export interface GridSlot {
 export interface RacePlan {
   trackId: string;
   laps: number;
+  control: ControlMode;
   slots: GridSlot[];
 }
 
