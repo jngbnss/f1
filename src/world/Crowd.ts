@@ -36,20 +36,32 @@ export interface CrowdSeat {
 const SKIN = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac];
 export const SHIRTS = [0xe10600, 0xffffff, 0x1e5bc6, 0xffd700, 0x00a19c, 0xff8700, 0x111111, 0xf596c8, 0x52e252, 0x9b59b6];
 
+/**
+ * How hard the crowd is celebrating: 1 during a race, higher for the podium
+ * ceremony. Shared by every stand's material (one uniform object).
+ */
+const excitement = { value: 1 };
+
+export function setCrowdExcitement(v: number): void {
+  excitement.value = v;
+}
+
 /** Shared material with the cheering animation; call `setTime` every frame. */
 export class CrowdMaterial extends THREE.MeshStandardMaterial {
-  private readonly uniforms = { uTime: { value: 0 } };
+  private readonly uniforms = { uTime: { value: 0 }, uExcite: excitement };
 
   constructor() {
     super({ vertexColors: true, roughness: 0.9 });
     this.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = this.uniforms.uTime;
+      shader.uniforms.uExcite = this.uniforms.uExcite;
       shader.vertexShader = shader.vertexShader
         .replace(
           '#include <common>',
           `#include <common>
           attribute float shirt;
-          uniform float uTime;`,
+          uniform float uTime;
+          uniform float uExcite;`,
         )
         .replace(
           '#include <color_vertex>',
@@ -66,13 +78,15 @@ export class CrowdMaterial extends THREE.MeshStandardMaterial {
           #ifdef USE_INSTANCING
             float id = float(gl_InstanceID);
             // Groups of fans jump at different moments; most of the time a small sway.
-            float phase = uTime * (5.0 + mod(id, 3.0)) + id * 1.37;
-            float jump = max(0.0, sin(phase)) * (0.06 + 0.14 * step(0.7, fract(sin(id * 12.9898) * 43758.5)));
+            float phase = uTime * (5.0 + mod(id, 3.0)) * mix(1.0, 1.35, clamp(uExcite - 1.0, 0.0, 1.0)) + id * 1.37;
+            float jump = max(0.0, sin(phase)) * (0.06 + 0.14 * step(0.7, fract(sin(id * 12.9898) * 43758.5))) * uExcite;
             transformed.y += jump;
+            // Arms-up swaying when the whole stand is up on its feet.
+            transformed.x += sin(phase * 0.5 + id) * 0.03 * max(0.0, uExcite - 1.0);
           #endif`,
         );
     };
-    this.customProgramCacheKey = () => 'crowd-v1';
+    this.customProgramCacheKey = () => 'crowd-v2';
   }
 
   setTime(t: number): void {

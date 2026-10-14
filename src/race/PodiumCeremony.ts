@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PIT_BUILDING_FRONT } from '../world/PitBuilding';
+import { setCrowdExcitement } from '../world/Crowd';
 import type { Track } from '../world/Track';
 
 /**
@@ -73,10 +74,18 @@ const span = (t: number, a: number, b: number) => clamp01((t - a) / (b - a));
 
 interface Figure {
   root: THREE.Group;
+  /** Upper body above the hips: twists, leans and breathes. */
+  spine: THREE.Group;
+  /** Head pivot: looks around and nods. */
+  head: THREE.Group;
   armL: THREE.Group;
   armR: THREE.Group;
+  elbowL: THREE.Group;
+  elbowR: THREE.Group;
   legL: THREE.Group;
   legR: THREE.Group;
+  kneeL: THREE.Group;
+  kneeR: THREE.Group;
   handR: THREE.Object3D;
   handL: THREE.Object3D;
   trophy: THREE.Group;
@@ -85,6 +94,36 @@ interface Figure {
   mouth: THREE.Object3D;
   /** Who this driver is spraying (figure index) right now, -1 = the crowd / nobody. */
   target: number;
+  /** Per-driver phase seed: the three never bounce or glance in lockstep. */
+  seed: number;
+}
+
+/**
+ * How worked up the drivers are over the ceremony (0 = standing at attention for
+ * the anthem, 1 = going wild). Drives the bouncing, the spine twist and how far
+ * the head swings around, so nobody ever stands frozen.
+ */
+const HYPE: [number, number][] = [
+  [0, 0.6],
+  [HOP_AT[0], 0.95],
+  [ANTHEM[0] - 0.5, 0.95],
+  [ANTHEM[0] + 0.7, 0.08],
+  [ANTHEM[1] - 0.3, 0.08],
+  [ANTHEM[1] + 0.8, 0.6],
+  [BOTTLES, 0.9],
+  [SPRAY[0], 1],
+  [PODIUM_DURATION, 0.95],
+];
+
+function hypeAt(T: number): number {
+  let v = HYPE[0][1];
+  for (let i = 1; i < HYPE.length; i++) {
+    const [ta, va] = HYPE[i - 1];
+    const [tb, vb] = HYPE[i];
+    if (T <= ta) break;
+    v = THREE.MathUtils.lerp(va, vb, smooth(clamp01((T - ta) / (tb - ta))));
+  }
+  return v;
 }
 
 /** Spray targets over time per driver (figure index; -1 = the crowd). */
@@ -195,6 +234,8 @@ export class PodiumCeremony {
       this.ui.querySelector('button')!.addEventListener('click', onSkip);
       document.body.append(this.ui);
     }
+    // The whole grandstand is on its feet for a podium, not politely watching a race.
+    setCrowdExcitement(2.4);
   }
 
   get done(): boolean {
@@ -244,6 +285,7 @@ export class PodiumCeremony {
     this.group.removeFromParent();
     for (const o of this.owned) o.dispose();
     this.ui?.remove();
+    setCrowdExcitement(1);
   }
 
   // ---------------------------------------------------------------------------
@@ -322,89 +364,111 @@ export class PodiumCeremony {
     };
     const root = new THREE.Group();
     root.name = `PodiumDriver${k + 1}`;
-    // Legs pivot at the hip, hanging down -y.
+    // Legs pivot at the hip, hanging down -y; the knee folds the shin back.
     const leg = (x: number) => {
       const hip = new THREE.Group();
       hip.position.set(x, 0.92, 0);
       const thigh = capsule(0.085, 0.36, suitDark);
       thigh.position.y = -0.22;
+      const knee = new THREE.Group();
+      knee.position.y = -0.42;
       const shin = capsule(0.072, 0.36, suitDark);
-      shin.position.y = -0.62;
+      shin.position.y = -0.2;
       const shoe = capsule(0.055, 0.17, black);
       shoe.rotation.x = Math.PI / 2;
-      shoe.position.set(0, -0.86, -0.05);
-      // Side stripe down the outside of the leg.
-      const stripe = new THREE.Mesh(this.own(new THREE.BoxGeometry(0.03, 0.78, 0.07)), trim);
-      stripe.position.set(Math.sign(x) * 0.075, -0.42, 0);
-      hip.add(thigh, shin, shoe, stripe);
+      shoe.position.set(0, -0.44, -0.05);
+      // Side stripe down the outside of the leg, in two pieces so the knee can bend.
+      const stripe = (h: number, y: number) => {
+        const s = new THREE.Mesh(this.own(new THREE.BoxGeometry(0.03, h, 0.07)), trim);
+        s.position.set(Math.sign(x) * 0.075, y, 0);
+        return s;
+      };
+      knee.add(shin, shoe, stripe(0.36, -0.2));
+      hip.add(thigh, knee, stripe(0.38, -0.21));
       root.add(hip);
-      return hip;
+      return { hip, knee };
     };
     const legL = leg(-0.1);
     const legR = leg(0.1);
+
+    // Everything above the hips hangs off the spine so the upper body can twist,
+    // lean and breathe on its own. Positions below are relative to it (root y 0.95).
+    const spine = new THREE.Group();
+    spine.position.y = 0.95;
+    root.add(spine);
     const pelvis = capsule(0.14, 0.12, suitDark);
     pelvis.rotation.z = Math.PI / 2;
     pelvis.scale.z = 0.75;
-    pelvis.position.y = 0.95;
     const torso = capsule(0.165, 0.28, suit);
     torso.scale.set(1.3, 1, 0.78);
-    torso.position.y = 1.24;
+    torso.position.y = 0.29;
     const chest = new THREE.Mesh(this.own(new THREE.BoxGeometry(0.36, 0.07, 0.04)), band);
-    chest.position.set(0, 1.32, -0.125);
+    chest.position.set(0, 0.37, -0.125);
     for (const x of [-0.205, 0.205]) {
       const stripe = new THREE.Mesh(this.own(new THREE.BoxGeometry(0.035, 0.42, 0.2)), trim);
-      stripe.position.set(x, 1.2, 0);
-      root.add(stripe);
+      stripe.position.set(x, 0.25, 0);
+      spine.add(stripe);
     }
     const collar = new THREE.Mesh(this.own(new THREE.CylinderGeometry(0.075, 0.085, 0.06, 14)), accent);
-    collar.position.y = 1.49;
+    collar.position.y = 0.54;
+    spine.add(pelvis, torso, chest, collar);
+
+    // Head pivot at the base of the neck (root y 1.50).
+    const head = new THREE.Group();
+    head.position.y = 0.55;
+    spine.add(head);
     const neck = capsule(0.055, 0.08, skin);
-    neck.position.y = 1.52;
-    const head = new THREE.Mesh(this.own(new THREE.SphereGeometry(0.12, 16, 12)), skin);
-    head.scale.set(0.92, 1.08, 1);
-    head.position.y = 1.67;
-    head.castShadow = true;
+    neck.position.y = 0.02;
+    const skull = new THREE.Mesh(this.own(new THREE.SphereGeometry(0.12, 16, 12)), skin);
+    skull.scale.set(0.92, 1.08, 1);
+    skull.position.y = 0.17;
+    skull.castShadow = true;
     // Face (towards -z): eyes and brows; ears; hair showing under the cap at the back.
     for (const x of [-0.042, 0.042]) {
       const eye = new THREE.Mesh(this.own(new THREE.SphereGeometry(0.014, 8, 6)), black);
-      eye.position.set(x, 1.675, -0.108);
+      eye.position.set(x, 0.175, -0.108);
       const brow = new THREE.Mesh(this.own(new THREE.BoxGeometry(0.04, 0.009, 0.01)), hair);
-      brow.position.set(x, 1.7, -0.108);
+      brow.position.set(x, 0.2, -0.108);
       const ear = new THREE.Mesh(this.own(new THREE.SphereGeometry(0.026, 8, 6)), skin);
       ear.scale.set(0.5, 1, 0.8);
-      ear.position.set(Math.sign(x) * 0.11, 1.665, 0.005);
-      root.add(eye, brow, ear);
+      ear.position.set(Math.sign(x) * 0.11, 0.165, 0.005);
+      head.add(eye, brow, ear);
     }
     const nose = new THREE.Mesh(this.own(new THREE.SphereGeometry(0.018, 8, 6)), skin);
-    nose.position.set(0, 1.655, -0.118);
+    nose.position.set(0, 0.155, -0.118);
     const back = new THREE.Mesh(this.own(new THREE.SphereGeometry(0.124, 14, 8, 0, Math.PI, Math.PI * 0.3, Math.PI * 0.42)), hair);
-    back.position.y = 1.68;
+    back.position.y = 0.18;
     // Team cap: crown in the team colour, second-colour brim towards the crowd.
     const crown = new THREE.Mesh(this.own(new THREE.SphereGeometry(0.128, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2)), cap);
-    crown.position.y = 1.71;
+    crown.position.y = 0.21;
     const brim = new THREE.Mesh(this.own(new THREE.CylinderGeometry(0.11, 0.11, 0.015, 16, 1, false, Math.PI / 2, Math.PI)), trim);
     brim.scale.z = 1.25;
-    brim.position.set(0, 1.715, -0.07);
-    root.add(pelvis, torso, chest, collar, neck, head, nose, back, crown, brim);
-    // Arms pivot at the shoulder, hanging down -y; rotation.x > 0 swings them forward and up.
+    brim.position.set(0, 0.215, -0.07);
+    head.add(neck, skull, nose, back, crown, brim);
+
+    // Arms pivot at the shoulder, hanging down -y; rotation.x > 0 swings them forward
+    // and up, and the elbow folds the forearm the same way.
     const arm = (x: number) => {
       const sh = new THREE.Group();
-      sh.position.set(x, 1.42, 0);
+      sh.position.set(x, 0.47, 0);
       const upper = capsule(0.058, 0.26, suit);
       upper.position.y = -0.16;
+      const elbow = new THREE.Group();
+      elbow.position.y = -0.32;
       const fore = capsule(0.05, 0.24, suit);
-      fore.position.y = -0.45;
+      fore.position.y = -0.13;
       const glove = new THREE.Mesh(this.own(new THREE.SphereGeometry(0.058, 10, 8)), black);
-      glove.position.y = -0.62;
+      glove.position.y = -0.3;
       const hand = new THREE.Object3D();
-      hand.position.y = -0.64;
-      sh.add(upper, fore, glove, hand);
-      root.add(sh);
-      return { sh, hand };
+      hand.position.y = -0.32;
+      elbow.add(fore, glove, hand);
+      sh.add(upper, elbow);
+      spine.add(sh);
+      return { sh, elbow, hand };
     };
     const L = arm(-0.22);
     const R = arm(0.22);
-    // Trophy (upright, placed at the right hand each frame): gold for the winner.
+    // Trophy (upright, placed between the hands each frame): gold for the winner.
     const trophy = new THREE.Group();
     const metal = this.own(new THREE.MeshStandardMaterial({ color: [GOLD, SILVER, BRONZE][k], metalness: 0.95, roughness: 0.22 }));
     const s = k === 0 ? 1.25 : 1;
@@ -415,7 +479,7 @@ export class PodiumCeremony {
     trophy.add(cup);
     trophy.visible = false;
     root.add(trophy);
-    // Champagne bottle in the right hand, neck along the hand's -y (= along the arm).
+    // Champagne bottle in the right hand, neck along the hand's -y (= along the forearm).
     const bottle = new THREE.Group();
     const glassMat = this.own(new THREE.MeshStandardMaterial({ color: 0x0f3a1e, roughness: 0.15, metalness: 0.1 }));
     const foil = this.own(new THREE.MeshStandardMaterial({ color: GOLD, roughness: 0.3, metalness: 0.9 }));
@@ -431,7 +495,26 @@ export class PodiumCeremony {
     bottle.visible = false;
     R.hand.add(bottle);
     this.group.add(root);
-    return { root, armL: L.sh, armR: R.sh, legL, legR, handR: R.hand, handL: L.hand, trophy, bottle, mouth, target: -1 };
+    return {
+      root,
+      spine,
+      head,
+      armL: L.sh,
+      armR: R.sh,
+      elbowL: L.elbow,
+      elbowR: R.elbow,
+      legL: legL.hip,
+      legR: legR.hip,
+      kneeL: legL.knee,
+      kneeR: legR.knee,
+      handR: R.hand,
+      handL: L.hand,
+      trophy,
+      bottle,
+      mouth,
+      target: -1,
+      seed: k * 1.7 + 0.4,
+    };
   }
 
   /** Pose driver k (0 = winner) at ceremony time T. */
@@ -586,16 +669,52 @@ export class PodiumCeremony {
       }
     }
 
+    // --- liveliness --------------------------------------------------------------------
+    // Nobody on a podium stands still. On top of the scripted pose every driver gets his
+    // own bounce, weight shift, breathing, head glances and bent joints, scaled by how
+    // worked up he is (flat during the anthem, maximum in the champagne). The three use
+    // different frequencies and phases so they never move as one block of avatars.
+    const s = f.seed;
+    const hype = hypeAt(T);
+    const bounce = Math.sin(T * (3.3 + s * 0.42) + s * 2.2);
+    const sway = Math.sin(T * (0.82 + s * 0.11) + s * 1.7);
+    const breath = Math.sin(T * (1.05 + s * 0.13) + s * 3.1);
+    const bob = Math.max(0, bounce);
+    py += bob * 0.04 * hype;
+
     root.position.set(px, py, pz);
     root.rotation.set(lean, yaw, 0, 'YXZ');
-    f.legL.rotation.x = step * 0.45;
-    f.legR.rotation.x = -step * 0.45;
+    // Legs: the walk cycle, plus knees giving under every bounce and a weight shift.
+    const shift = sway * 0.055 * (0.35 + hype);
+    f.legL.rotation.set(step * 0.45, 0, shift);
+    f.legR.rotation.set(-step * 0.45, 0, shift);
+    const squat = -(0.05 + 0.3 * bob * hype);
+    f.kneeL.rotation.x = squat - Math.max(0, step) * 0.5;
+    f.kneeR.rotation.x = squat - Math.max(0, -step) * 0.5;
+    // Spine: twists with the sway, pumps with the bounce, breathes all the time.
+    f.spine.rotation.set(-0.03 * breath - 0.07 * bounce * hype, 0.1 * sway * hype, 0.05 * sway * (0.3 + hype), 'YXZ');
+    f.spine.scale.y = 1 + 0.015 * breath;
+    // Head: at the crowd most of the time, at whoever he is spraying, nodding on the beat.
+    let headYaw = 0.2 * sway * hype;
+    if (f.target >= 0) {
+      const o = this.figures[f.target].root.position;
+      headYaw = THREE.MathUtils.clamp(Math.atan2(-(o.x - px), -(o.z - pz)) - yaw, -1, 1);
+    } else {
+      headYaw += Math.sin(T * 0.47 + s * 2.3) * 0.3 * hype;
+    }
+    f.head.rotation.set(-0.05 * hype + 0.07 * bounce * hype, headYaw, 0.04 * sway, 'YXZ');
     if (step) {
       rL += -step * 0.35;
       rR += step * 0.35;
     }
     f.armL.rotation.set(rL, 0, zL);
     f.armR.rotation.set(rR, 0, zR);
+    // Elbows: a straight plank arm is the thing that reads as a puppet. Bend most at
+    // mid-height (waving, hugging, aiming a bottle), least hanging down or fully overhead.
+    const elbow = (r: number, phase: number) => 0.2 + 0.55 * Math.sin(clamp01(Math.abs(r) / 3) * Math.PI) + 0.12 * hype * Math.sin(T * 4.1 + phase);
+    f.elbowL.rotation.x = elbow(rL, s * 1.9);
+    // The bottle points down the forearm, so the aiming arm stays nearly straight.
+    f.elbowR.rotation.x = f.bottle.visible && T >= SPRAY[0] ? 0.1 + 0.07 * Math.sin(T * 4.1 + s) : elbow(rR, s * 1.9 + 1.4);
     // Trophy upright between the hands.
     if (f.trophy.visible) {
       root.updateMatrixWorld(true);
@@ -676,13 +795,18 @@ export class PodiumCeremony {
       _pos.set(THREE.MathUtils.lerp(4, 9, e), THREE.MathUtils.lerp(deckY + 3, deckY + 9, e), THREE.MathUtils.lerp(front - 6, front - 22, e));
       _look.set(0, deckY + 1.6, stepZ);
     }
-    // Hand-held: a slow, small wobble (not on the crane).
+    // Hand-held: a shoulder-mounted camera never sits still, and an operator chasing a
+    // celebration least of all. Three octaves of drift, growing with the party; the crane
+    // shot at the end is on a jib, so it stays smooth.
     if (T < SPRAY[1]) {
-      const w = (a: number, b: number) => Math.sin(T * a + b) * 0.018 + Math.sin(T * a * 2.3 + b * 1.7) * 0.008;
+      const energy = 0.6 + 0.9 * hypeAt(T);
+      const w = (a: number, b: number) => (Math.sin(T * a + b) * 0.02 + Math.sin(T * a * 2.3 + b * 1.7) * 0.011 + Math.sin(T * a * 5.7 + b * 0.6) * 0.004) * energy;
       _pos.x += w(1.1, 0);
       _pos.y += w(1.3, 2);
-      _look.x += w(0.9, 4);
-      _look.y += w(1.2, 1);
+      _pos.z += w(0.7, 5);
+      // The operator keeps re-framing: the look point lags and overshoots a little.
+      _look.x += w(0.9, 4) * 1.8;
+      _look.y += w(1.2, 1) * 1.8;
     }
     this.shotPos.copy(this.group.localToWorld(_pos));
     this.shotLook.copy(this.group.localToWorld(_look));
