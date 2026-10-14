@@ -30,6 +30,7 @@ export function mountTyrePicker(el: HTMLElement): void {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'menu-card' + (c === current ? ' selected' : '');
+        b.setAttribute('aria-pressed', String(c === current));
         const strong = document.createElement('strong');
         const dot = document.createElement('span');
         dot.style.cssText = `display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;vertical-align:-1px;border:3px solid #${COMPOUND_COLORS[c].toString(16).padStart(6, '0')}`;

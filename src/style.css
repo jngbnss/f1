@@ -278,103 +278,173 @@ html, body {
 .vp-toggle, .volume-ctl .vp-toggle { background: #2a3038; color: #b8c2cc; border: 0; border-radius: 6px; padding: 4px 10px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
 .vp-toggle.on, .volume-ctl .vp-toggle.on { background: #e10600; color: #fff; }
 
-/* --- Start menu (F1-game style): team cards with car renders, circuit maps, race chips, summary dock --- */
+/* --- Start menu (F1-game style): three steps, each a list to compare beside the picked item's detail, and a summary dock ---
+   Red marks only the current pick, key states and the start button; team colours stay on the car step. */
 .menu {
-  display: block; padding: 28px 16px 140px;
-  background: radial-gradient(900px 500px at 15% -10%, rgba(255, 90, 95, 0.18), transparent 70%),
-    radial-gradient(800px 500px at 100% 0%, rgba(47, 111, 222, 0.16), transparent 70%), linear-gradient(180deg, #0b1119, #0f1722 60%, #0c121a);
+  display: block; padding: 24px 16px 120px;
+  background: radial-gradient(900px 500px at 15% -10%, rgba(255, 255, 255, 0.05), transparent 70%), linear-gradient(180deg, #0b1119, #0f1722 60%, #0c121a);
 }
-.menu-panel { width: min(1080px, 100%); margin: 0 auto; }
-.menu-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.menu-head h1 { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: 0.3px; }
+.menu-panel { width: min(1160px, 100%); margin: 0 auto; }
+.menu-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.menu-head h1 { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: 0.3px; }
 .menu-head p { margin: 0; color: #8b97a5; font-size: 13px; }
-.menu-step { margin-top: 26px; }
-.menu-step h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 16px; color: #e6edf3; font-weight: 700; }
-.menu-step h2 b {
-  display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #ff5a5f; color: #fff; font-size: 13px;
-}
-.menu-step h3 { margin: 14px 0 8px; font-size: 12px; font-weight: 600; color: #8b97a5; text-transform: none; letter-spacing: 0.4px; }
+.menu :focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
-/* Team cards: team colour wash, the car render, name, strength / weakness tags. */
-.team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 10px; }
+/* Step nav: where you are, what is picked, a jump to each step. */
+.menu-steps { display: flex; gap: 6px; flex-basis: 100%; }
+.step-link {
+  flex: 1; min-width: 0; min-height: 44px; display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 8px; padding: 6px 18px 6px 10px;
+  border: 0; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; background: rgba(255, 255, 255, 0.04); color: #b6c2cf; font: inherit; text-align: left; cursor: pointer;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+}
+.step-link b { grid-row: span 2; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: rgba(255, 255, 255, 0.12); font-size: 12px; }
+.step-link span { font-size: 12px; font-weight: 700; }
+.step-link small { font-size: 11px; color: #8b97a5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step-link:hover { background: rgba(255, 255, 255, 0.08); }
+.step-link[aria-current] { border-bottom-color: #ff5a5f; color: #fff; background: rgba(255, 255, 255, 0.08); }
+.step-link[aria-current] b { background: #fff; color: #0b1119; }
+
+.menu-step { margin-top: 26px; scroll-margin-top: 12px; }
+.step-head { position: relative; display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding-bottom: 8px; }
+/* A slanted rule under each step: a little speed, no motion. */
+.step-head::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.35) 0 120px, rgba(255, 255, 255, 0.08) 120px); clip-path: polygon(0 0, 100% 0, calc(100% - 4px) 100%, 0 100%);
+}
+.menu-step h2 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 17px; color: #e6edf3; font-weight: 800; }
+.menu-step h2 b {
+  display: grid; place-items: center; width: 26px; height: 26px; background: #e6edf3; color: #0b1119; font-size: 13px;
+  clip-path: polygon(18% 0, 100% 0, 82% 100%, 0 100%);
+}
+.step-pick { flex: 1; min-width: 0; color: #8b97a5; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; visibility: hidden; }
+.menu-step.folded .step-pick { visibility: visible; }
+.menu-step.folded .step-body { display: none; }
+.step-fold {
+  margin-left: auto; min-height: 36px; padding: 4px 12px; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 8px; background: transparent;
+  color: #b6c2cf; font: 600 12px system-ui, sans-serif; cursor: pointer;
+}
+.step-fold:hover { background: rgba(255, 255, 255, 0.08); }
+.menu-step h3 { margin: 14px 0 8px; font-size: 12px; font-weight: 600; color: #8b97a5; text-transform: none; letter-spacing: 0.4px; }
+.menu-step h3 small { font-weight: 400; margin-left: 6px; color: #6f7c89; }
+
+/* Step 1: team cards on the left, the picked car's detail on the right. */
+.car-category { margin-bottom: 12px; }
+.car-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+.car-side { position: sticky; top: 12px; }
+.team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
 .team-card {
-  position: relative; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; text-align: left; cursor: pointer;
+  position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px 12px 12px; text-align: left; cursor: pointer;
   font: inherit; color: inherit; border-radius: 12px; border: 2px solid rgba(255, 255, 255, 0.06); overflow: hidden;
-  background: linear-gradient(150deg, color-mix(in srgb, var(--team) 55%, transparent), rgba(255, 255, 255, 0.04) 70%);
-  transition: transform 0.12s, border-color 0.12s;
+  background: linear-gradient(150deg, color-mix(in srgb, var(--team) 32%, transparent), rgba(255, 255, 255, 0.03) 70%);
+  transition: transform 0.12s, border-color 0.12s, background 0.12s;
 }
 .team-card::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--accent); }
 .team-card:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.22); }
-.team-card.selected { border-color: #fff; box-shadow: 0 0 0 3px color-mix(in srgb, var(--team) 60%, transparent), 0 8px 24px rgba(0, 0, 0, 0.35); }
+.team-card.selected { border-color: var(--team); background: linear-gradient(150deg, color-mix(in srgb, var(--team) 62%, transparent), rgba(255, 255, 255, 0.08) 75%); }
 .team-card img { width: 100%; aspect-ratio: 16 / 8; object-fit: cover; object-position: 50% 58%; filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.4)); }
-.team-card strong { font-size: 16px; font-weight: 800; }
+.team-card strong { font-size: 16px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tags { display: flex; flex-wrap: wrap; gap: 4px; }
-.tags span, .td-sw p { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
-.tags .good, .td-sw .good { background: rgba(43, 213, 111, 0.16); color: #6ee7a0; }
-.tags .bad, .td-sw .bad { background: rgba(255, 90, 95, 0.16); color: #ff9a9d; }
+.tags span { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.tags .good { background: rgba(43, 213, 111, 0.16); color: #6ee7a0; }
+.tags .even { background: rgba(255, 210, 63, 0.16); color: #ffd23f; }
 
-/* Selected team: large render, figures, the seven stat bars. */
-.team-detail {
-  display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: center; margin-top: 12px;
-  padding: 14px 16px; border-radius: 14px; background: linear-gradient(120deg, color-mix(in srgb, var(--team) 30%, transparent), rgba(255, 255, 255, 0.04) 60%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+/* "Picked" reads from three cues: border, background and a check badge. */
+.team-card.selected::before, .circuit-card.selected::before, .chip.selected::before, .menu-race .menu-card.selected::before {
+  content: '✓'; position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; color: #0b1119; font: 900 12px/1 system-ui, sans-serif; z-index: 1;
 }
-.team-detail img { width: 100%; filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.45)); }
-.td-head strong { display: block; font-size: 20px; font-weight: 800; }
-.td-head span { color: #b6c2cf; font-size: 13px; }
-.td-sw { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
-.td-sw p { margin: 0; font-size: 12px; padding: 4px 10px; }
-.td-bars .menu-bar { grid-template-columns: 64px 1fr 104px; }
 
-/* Circuit cards: the outline (start line in red), flag and name, place, length and corners. */
-.circuit-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
-.circuit-heading h2 { margin-bottom: 0; flex: none; }
-.circuit-sort { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
-.circuit-sort .chip { min-width: 0; padding: 5px 9px; border-width: 1px; border-radius: 7px; }
-.circuit-sort .chip strong { font-size: 11px; font-weight: 650; }
-.circuit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.team-detail {
+  display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: 14px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--team) 28%, transparent), rgba(255, 255, 255, 0.04) 60%);
+  animation: menu-in 0.18s ease-out;
+}
+.team-detail.inline { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; column-gap: 16px; }
+.team-detail.inline > :not(img) { grid-column: 2; }
+.team-detail.inline > img { grid-column: 1; grid-row: 1 / span 5; align-self: center; }
+.team-detail img { width: 100%; filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.45)); }
+.td-head strong { display: block; font-size: 20px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-head span { color: #b6c2cf; font-size: 13px; }
+.td-drivers .chip { flex: 1; min-width: 0; }
+.td-drivers .chip strong { font-size: 13px; word-break: keep-all; }
+.td-bars .menu-bar { grid-template-columns: 70px 1fr 96px; margin: 6px 0; }
+.td-fit { margin: 0; padding: 9px 12px; border-radius: 8px; background: rgba(0, 0, 0, 0.25); color: #d4dde6; font: 600 13px/1.45 system-ui, sans-serif; }
+.td-fit.good { border-left: 3px solid #2bd56f; }
+.td-fit.bad { border-left: 3px solid #ffb35a; }
+.td-fit.even { border-left: 3px solid rgba(255, 255, 255, 0.3); }
+
+/* Step 2: the picked circuit across the top, then filters / sort and every circuit. */
+.circuit-detail {
+  display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; align-items: center; min-height: 160px; max-height: 190px; padding: 14px 20px;
+  border-radius: 14px; background: linear-gradient(125deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03) 60%); overflow: hidden;
+}
+.cd-empty { grid-column: 1 / -1; margin: 0; color: #b6c2cf; }
+.cd-map svg { display: block; width: 100%; max-height: 150px; }
+.cd-map .trk-base { fill: none; stroke: rgba(0, 0, 0, 0.5); stroke-width: 7; stroke-linejoin: round; }
+.cd-map .trk { fill: none; stroke: #fff; stroke-width: 2.8; stroke-linejoin: round; }
+.cd-map .trk-start { stroke: #ff5a5f; stroke-width: 2.6; stroke-linecap: round; }
+.cd-body { min-width: 0; animation: menu-in 0.18s ease-out; }
+.cd-title { display: flex; align-items: baseline; gap: 8px 10px; flex-wrap: wrap; }
+.cd-title strong { font-size: 22px; font-weight: 800; }
+.cd-title span { color: #c9d4de; font: 700 13px system-ui, sans-serif; }
+.cd-body > p { max-width: 720px; margin: 6px 0 10px; color: #b8c4d0; font: 13px/1.5 system-ui, sans-serif; }
+.cd-stats { display: inline-flex; gap: 1px; overflow: hidden; border-radius: 8px; margin-right: 10px; vertical-align: middle; }
+.cd-stats > div { display: flex; flex-direction: column; min-width: 80px; padding: 5px 10px; background: rgba(0, 0, 0, 0.25); }
+.cd-stats span { color: #8593a1; font: 10px system-ui, sans-serif; }
+.cd-stats b { margin-top: 2px; color: #fff; font: 750 13px system-ui, sans-serif; }
+.cd-tags { display: inline-flex; flex-wrap: wrap; gap: 6px; vertical-align: middle; }
+.cd-tags span { padding: 3px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.09); color: #d4dde6; font: 650 11px system-ui, sans-serif; }
+.cc {
+  display: inline-block; margin-right: 5px; padding: 0 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.14);
+  font-style: normal; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; vertical-align: 1px;
+}
+.cd-title .cc { align-self: center; margin: 0; }
+
+.circuit-tools { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px 20px; margin: 14px 0 8px; flex-wrap: wrap; }
+.circuit-filters { display: flex; flex-direction: column; gap: 6px; }
+.circuit-filters .chip-row { align-items: center; gap: 6px; }
+.filter-label { width: 44px; color: #8b97a5; font-size: 12px; font-weight: 600; }
+.circuit-filters .chip { min-width: 0; min-height: 36px; justify-content: center; padding: 4px 26px 4px 12px; border-width: 1px; border-radius: 999px; }
+.circuit-filters .chip:not(.selected) { padding-right: 12px; }
+.circuit-filters .chip strong { font-size: 12px; font-weight: 650; }
+.circuit-filters .chip.selected::before { top: 50%; right: 5px; width: 16px; height: 16px; font-size: 10px; transform: translateY(-50%); }
+.circuit-sort { display: flex; align-items: center; gap: 8px; color: #8b97a5; font-size: 12px; font-weight: 600; }
+.circuit-sort select {
+  min-height: 40px; padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.2); background: #141c26; color: #e6edf3; font: 600 13px system-ui, sans-serif;
+}
+.circuit-note { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; color: #8b97a5; font-size: 12px; }
+.circuit-note:empty { display: none; }
+.circuit-note.warn { padding: 8px 12px; border-radius: 8px; background: rgba(255, 179, 90, 0.12); color: #ffd3a1; }
+.link-btn { min-height: 32px; padding: 2px 10px; border: 1px solid currentColor; border-radius: 6px; background: transparent; color: inherit; font: 600 12px system-ui, sans-serif; cursor: pointer; }
+
+.circuit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
 .circuit-card {
-  display: flex; flex-direction: column; gap: 2px; padding: 8px 10px 10px; text-align: left; cursor: pointer; font: inherit; color: inherit;
+  position: relative; display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 8px 10px 10px; text-align: left; cursor: pointer; font: inherit; color: inherit;
   border-radius: 12px; border: 2px solid rgba(255, 255, 255, 0.06); background: rgba(255, 255, 255, 0.04); transition: border-color 0.12s, background 0.12s;
 }
 .circuit-card:hover { background: rgba(255, 255, 255, 0.08); }
 .circuit-card.selected { border-color: #ff5a5f; background: rgba(255, 90, 95, 0.12); }
-.circuit-card svg { width: 100%; aspect-ratio: 1; margin-bottom: 4px; }
+.circuit-card svg { width: 72%; margin: 0 auto 4px; aspect-ratio: 1; }
 .circuit-card .trk-base { fill: none; stroke: rgba(0, 0, 0, 0.45); stroke-width: 6; stroke-linejoin: round; }
 .circuit-card .trk { fill: none; stroke: #dfe7ef; stroke-width: 2.6; stroke-linejoin: round; }
 .circuit-card.selected .trk { stroke: #fff; }
 .circuit-card .trk-start { stroke: #ff5a5f; stroke-width: 2.4; stroke-linecap: round; }
-.circuit-card strong { font-size: 13px; font-weight: 700; line-height: 1.25; }
-.circuit-card span { font-size: 11px; color: #9fb0c0; }
+.circuit-card strong { font-size: 13px; font-weight: 700; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.circuit-card span { font-size: 11px; color: #9fb0c0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .circuit-card em { font-style: normal; font-size: 11px; color: #c9d4de; font-weight: 600; }
-.circuit-detail {
-  display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 22px; align-items: center; margin-top: 12px; padding: 16px 20px;
-  border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; background: linear-gradient(125deg, rgba(255, 90, 95, 0.12), rgba(255, 255, 255, 0.04) 50%, rgba(47, 111, 222, 0.08));
-}
-.cd-map svg { display: block; width: 100%; max-height: 190px; }
-.cd-map .trk-base { fill: none; stroke: rgba(0, 0, 0, 0.5); stroke-width: 7; stroke-linejoin: round; }
-.cd-map .trk { fill: none; stroke: #fff; stroke-width: 2.8; stroke-linejoin: round; }
-.cd-map .trk-start { stroke: #ff5a5f; stroke-width: 2.6; stroke-linecap: round; }
-.cd-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.cd-title strong { font-size: 22px; font-weight: 800; }
-.cd-title span { color: #ff8d91; font: 700 12px system-ui, sans-serif; }
-.cd-body > p { max-width: 660px; margin: 9px 0 12px; color: #b8c4d0; font: 13px/1.55 system-ui, sans-serif; }
-.cd-stats { display: flex; gap: 1px; margin-top: 12px; overflow: hidden; border-radius: 8px; }
-.cd-stats > div { display: flex; flex-direction: column; min-width: 90px; padding: 7px 10px; background: rgba(0, 0, 0, 0.22); }
-.cd-stats span { color: #8593a1; font: 10px system-ui, sans-serif; }
-.cd-stats b { margin-top: 2px; color: #fff; font: 750 13px system-ui, sans-serif; letter-spacing: 0.03em; }
-.cd-stats > div:last-child b { color: #ff6b70; letter-spacing: 0.08em; }
-.cd-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.cd-tags span { padding: 3px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.09); color: #d4dde6; font: 650 11px system-ui, sans-serif; }
+.cc-level { align-self: flex-start; margin-top: 3px; padding: 1px 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); color: #d4dde6; font-size: 11px; font-weight: 700; }
 
-/* Race options as compact chips (the weather / tyre pickers' cards get the same look). */
+/* Step 3: the settings you check every time in one area; the rest folded away. */
+.race-main { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 4px 24px; }
+.race-group h3:first-child, .menu-race .menu-pickers h2:first-child { margin-top: 6px; }
 .chip-row, .menu-race .menu-grid { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip, .menu-race .menu-card {
-  display: flex; flex-direction: column; gap: 2px; min-width: 96px; padding: 8px 12px; text-align: left; cursor: pointer; font: inherit; color: inherit;
-  border-radius: 10px; border: 2px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.05);
+  position: relative; display: flex; flex-direction: column; gap: 2px; min-width: 96px; min-height: 44px; padding: 7px 30px 7px 12px; text-align: left; cursor: pointer;
+  font: inherit; color: inherit; border-radius: 10px; border: 2px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.05);
 }
-.chip:hover, .menu-race .menu-card:hover { background: rgba(255, 255, 255, 0.1); }
-.chip.selected, .menu-race .menu-card.selected { border-color: #ff5a5f; background: rgba(255, 90, 95, 0.14); }
+.chip:hover, .menu-race .menu-card:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.3); }
+.chip.selected, .menu-race .menu-card.selected { border-color: #ff5a5f; background: rgba(255, 90, 95, 0.16); }
+.chip.selected::before, .menu-race .menu-card.selected::before { width: 16px; height: 16px; font-size: 10px; top: 5px; right: 5px; }
 .chip strong, .menu-race .menu-card strong { font-size: 14px; }
 .chip span, .menu-race .menu-card span { font-size: 11px; color: #9fb0c0; }
 .chip-input { flex-direction: row; align-items: center; gap: 8px; }
@@ -384,49 +454,71 @@ html, body {
 }
 .menu-race .menu-pickers h2 { margin: 14px 0 8px; font-size: 12px; font-weight: 600; color: #8b97a5; }
 .menu-race .menu-pickers h2 b { display: none; }
+.menu-advanced { margin-top: 18px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px; }
+.menu-advanced summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 700; color: #e6edf3; }
+.menu-advanced summary small { color: #8b97a5; font-weight: 400; font-size: 12px; }
 
-/* Summary dock: always at hand, with the start buttons. */
+/* Summary dock: one line of what is picked, and start as the one primary action. */
 .menu-dock {
-  position: fixed; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 10px; padding: 12px max(16px, calc((100vw - 1080px) / 2));
-  background: rgba(9, 13, 19, 0.92); backdrop-filter: blur(8px); border-top: 1px solid rgba(255, 255, 255, 0.08);
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 10px max(16px, calc((100vw - 1160px) / 2));
+  background: rgba(9, 13, 19, 0.94); backdrop-filter: blur(8px); border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
-.menu-summary { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 13px; color: #b6c2cf; }
-.menu-summary strong { font-size: 16px; color: #fff; padding-left: 10px; border-left: 4px solid var(--team); }
-.menu-summary span + span::before, .menu-summary strong + span::before { content: '·'; margin-right: 10px; color: #56616d; }
-.menu-dock .menu-start { width: auto; margin: 0; padding: 12px 26px; font-size: 17px; }
-.menu-dock .menu-mp {
-  padding: 12px 16px; border: 0; border-radius: 10px; cursor: pointer; font: inherit; font-weight: 700; background: #2f6fde; color: #fff;
+.menu-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: #b6c2cf; }
+.menu-summary strong { font-size: 15px; color: #fff; padding-left: 10px; border-left: 4px solid var(--team); }
+.menu-summary span::before { content: '·'; margin: 0 8px; color: #56616d; }
+.menu-missing { min-height: 44px; padding: 8px 12px; border: 1px solid #ffb35a; border-radius: 8px; background: rgba(255, 179, 90, 0.12); color: #ffd3a1; font: 700 13px system-ui, sans-serif; cursor: pointer; }
+.menu-missing[hidden] { display: none; }
+.menu-extra { display: flex; gap: 6px; }
+.menu-extra button {
+  min-height: 44px; padding: 8px 12px; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 8px; cursor: pointer; font: 600 13px system-ui, sans-serif;
+  background: transparent; color: #b6c2cf; display: flex; align-items: center; gap: 6px;
 }
-.menu-dock .menu-podium {
-  padding: 12px 16px; border: 2px solid #d8b04a; border-radius: 10px; cursor: pointer; font: inherit; font-weight: 700; background: rgba(216, 176, 74, 0.12); color: #f3d98c;
+.menu-extra button em { font-style: normal; }
+.menu-extra button:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.menu-dock .menu-b206 { font-weight: 800; letter-spacing: 1px; }
+.menu-dock .menu-b206.on { border-color: #ff5ea8; background: rgba(255, 94, 168, 0.16); color: #ffd7ea; }
+.menu-dock .menu-start {
+  width: auto; min-height: 48px; margin: 0; padding: 10px 30px; font-size: 18px; font-weight: 800;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); border-radius: 4px;
 }
-.menu-dock .menu-podium:hover { background: rgba(216, 176, 74, 0.25); }
-.menu-dock .menu-b206 {
-  padding: 12px 16px; border: 2px solid #6d7684; border-radius: 10px; cursor: pointer; font: inherit; font-weight: 800; letter-spacing: 1px;
-  background: rgba(255, 255, 255, 0.05); color: #9aa6b4;
+.menu-dock .menu-start:disabled { background: #3a434e; color: #8b97a5; cursor: not-allowed; }
+
+@keyframes menu-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .menu *, .menu *::before, .menu *::after { animation: none !important; transition: none !important; }
 }
-.menu-dock .menu-b206:hover { background: rgba(255, 255, 255, 0.12); }
-.menu-dock .menu-b206.on { border-color: #ff5ea8; background: rgba(255, 94, 168, 0.18); color: #ffd7ea; }
-@media (max-width: 720px) {
-  .menu { padding: 16px 12px 170px; }
-  .team-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .team-detail { grid-template-columns: 1fr; }
+
+/* Tablet: the car detail moves under the picked card; three circuit columns. */
+@media (max-width: 900px) {
+  .car-layout { grid-template-columns: 1fr; }
+  .car-side { display: none; }
+  .team-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .circuit-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .circuit-heading { align-items: flex-start; flex-direction: column; }
-  .circuit-sort { justify-content: flex-start; }
-  .circuit-detail { grid-template-columns: 110px minmax(0, 1fr); gap: 12px; padding: 12px; }
-  .cd-title strong { font-size: 17px; }
-  .cd-stats { flex-wrap: wrap; }
-  .cd-stats > div { min-width: 62px; padding: 5px 7px; }
-  .menu-dock { flex-wrap: wrap; }
-  .menu-summary { flex-basis: 100%; }
-  .menu-dock .menu-start { flex: 1; }
+  .race-main { grid-template-columns: 1fr; }
+  .menu-extra em { display: none; }
 }
-.circuit-card .cc {
-  display: inline-block; margin-right: 5px; padding: 0 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.14);
-  font-style: normal; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; vertical-align: 1px;
+/* Phone: two columns, the circuit detail without its big map, a slim dock. */
+@media (max-width: 600px) {
+  .menu { padding: 14px 12px 128px; }
+  .menu-head h1 { font-size: 22px; }
+  .menu-head p { display: none; }
+  .step-link { padding: 4px 14px 4px 8px; }
+  .team-grid, .circuit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .team-detail.inline { display: flex; }
+  .team-detail.inline > img { max-height: 110px; object-fit: contain; }
+  .circuit-detail { grid-template-columns: 1fr; min-height: 0; max-height: none; padding: 12px 14px; }
+  .cd-map { display: none; }
+  .circuit-card svg { width: 56%; }
+  .cd-title strong { font-size: 18px; }
+  .cd-stats { display: flex; margin: 0 0 8px; }
+  .cd-stats > div { flex: 1; min-width: 0; }
+  .circuit-tools { flex-direction: column; align-items: stretch; }
+  .menu-dock { flex-wrap: wrap; gap: 6px 8px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
+  .menu-summary { flex-basis: 100%; font-size: 12px; }
+  .menu-summary strong { font-size: 13px; }
+  .menu-dock .menu-start { flex: 1; padding: 8px 16px; font-size: 16px; }
+  .menu-missing { flex-basis: 100%; }
 }
-.tags .even { background: rgba(255, 210, 63, 0.16); color: #ffd23f; }
 .quali-panel {
   position: fixed; top: 96px; left: 50%; transform: translateX(-50%); display: flex; gap: 14px; align-items: baseline;
   background: rgba(10, 14, 20, 0.82); color: #e6edf3; border-radius: 10px; padding: 8px 16px; font-size: 13px; white-space: nowrap;

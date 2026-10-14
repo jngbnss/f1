@@ -145,6 +145,7 @@ export function mountWeatherPicker(el: HTMLElement): void {
           const b = document.createElement('button');
           b.type = 'button';
           b.className = 'menu-card' + (k === current() ? ' selected' : '');
+          b.setAttribute('aria-pressed', String(k === current()));
           const strong = document.createElement('strong');
           strong.textContent = title;
           const span = document.createElement('span');

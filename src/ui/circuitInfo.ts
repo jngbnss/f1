@@ -38,3 +38,40 @@ export const CIRCUIT_INFO: Record<string, CircuitInfo> = {
   lusail: { code: 'QAT', corners: 16, difficulty: 4, character: '빠른 연속 코너', description: '중고속 코너가 대부분이라 부드러운 조향과 타이어 관리가 기록을 좌우합니다.', tags: ['야간', '중고속', '타이어 관리'] },
   yasmarina: { code: 'UAE', corners: 16, difficulty: 3, character: '정밀한 야간 레이스', description: '긴 직선의 추월 구간과 느린 기술 구간이 명확히 나뉘어 있습니다.', tags: ['야간', '추월', '저속 구간'] },
 };
+
+/** The menu's circuit filters: broad character groups (a circuit can be in several). */
+export const CIRCUIT_KINDS = ['고속', '시가지', '테크니컬', '고저차'] as const;
+export type CircuitKind = (typeof CIRCUIT_KINDS)[number];
+
+export const CIRCUIT_KIND_OF: Record<string, CircuitKind[]> = {
+  melbourne: ['고속'],
+  shanghai: ['테크니컬'],
+  suzuka: ['고속', '테크니컬'],
+  sakhir: ['테크니컬'],
+  jeddah: ['고속', '시가지'],
+  miami: ['시가지', '테크니컬'],
+  montreal: ['시가지'],
+  monaco: ['시가지', '테크니컬'],
+  catalunya: ['테크니컬'],
+  spielberg: ['고속', '고저차'],
+  silverstone: ['고속'],
+  spa: ['고속', '고저차'],
+  budapest: ['테크니컬'],
+  zandvoort: ['테크니컬', '고저차'],
+  monza: ['고속'],
+  madrid: ['시가지', '테크니컬'],
+  baku: ['시가지'],
+  singapore: ['시가지', '테크니컬'],
+  austin: ['고저차', '테크니컬'],
+  mexicocity: ['고속'],
+  saopaulo: ['고저차'],
+  lasvegas: ['고속', '시가지'],
+  lusail: ['고속'],
+  yasmarina: ['테크니컬'],
+};
+
+export type DifficultyLevel = '입문' | '중급' | '고급';
+export const DIFFICULTY_LEVELS: DifficultyLevel[] = ['입문', '중급', '고급'];
+export const difficultyLevel = (d: number): DifficultyLevel => (d <= 2 ? '입문' : d === 3 ? '중급' : '고급');
+/** Difficulty as text, never colour or dots alone: `고급 5/5`. */
+export const difficultyText = (d: number): string => `${difficultyLevel(d)} ${d}/5`;

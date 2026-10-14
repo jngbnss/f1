@@ -104,9 +104,9 @@ body.touch .speedo .rpm { margin: 4px auto; }
 
 /* ---- Menu on phones ---- */
 @media (max-width: 720px), (max-height: 520px) {
-  .menu { padding: 10px; place-items: start center; }
+  .menu.lobby { padding: 10px; place-items: start center; }
   .menu h1 { font-size: 22px; }
-  .menu h2 { margin: 14px 0 8px; }
+  .menu.lobby h2 { margin: 14px 0 8px; }
   .menu-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
   .menu-card { padding: 10px 12px; }
   .menu-bar { grid-template-columns: 56px 1fr 92px; }
