@@ -33,6 +33,20 @@ npx tsx scripts/scene-stats.ts monza  # 서킷 장면의 삼각형/드로우콜 
 npx tsx scripts/fetch-osm.ts [circuit]   # OpenStreetMap 주변 환경 데이터 다시 받기
 ```
 
+### 멀티플레이 연결 설정
+
+멀티플레이는 WebRTC 직접 연결을 우선하고, 일시적으로 끊기면 같은 참가자 슬롯으로 60초 동안 자동 재접속합니다. 대기실과 레이스 화면에는 `직접 연결`, `TURN 릴레이 연결`, `재연결 중` 상태가 표시됩니다.
+
+통신사 CGNAT·회사망처럼 직접 연결이 막힌 환경에서는 TURN 계정이 필요합니다. 로컬 `.env` 또는 GitHub Actions 저장소 secrets에 다음 값을 설정합니다. TURN 주소는 쉼표로 여러 개 지정할 수 있으며 UDP/TCP 3478과 TLS 443 주소를 함께 두는 것을 권장합니다.
+
+```dotenv
+VITE_TURN_URLS=turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp,turns:turn.example.com:443?transport=tcp
+VITE_TURN_USERNAME=temporary-username
+VITE_TURN_CREDENTIAL=temporary-credential
+```
+
+GitHub Pages 배포에서는 각각 `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL` secret으로 전달됩니다. 설정하지 않으면 공개 STUN을 사용한 직접 연결만 시도하며, 소스에 들어 있던 DNS가 끊긴 PeerJS 공개 TURN 주소는 사용하지 않습니다.
+
 ## 조작
 
 | 키 | 동작 |

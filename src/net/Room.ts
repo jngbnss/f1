@@ -29,8 +29,11 @@ import type { ControlMode } from '../ui/ControlModeSwitch';
 const F1_TEAMS = ['f1-ferrari', 'f1-mercedes', 'f1-redbull', 'f1-mclaren', 'f1-aston', 'f1-alpine', 'f1-williams', 'f1-racingbulls', 'f1-haas', 'f1-audi'];
 /** Unreliable, unordered channel for car states (same id on both ends, no renegotiation). */
 const STATE_CHANNEL_ID = 100;
-/** No message from a peer for this long (ms) = gone. */
-const TIMEOUT = 15000;
+/** JavaScript timers are commonly suspended in background/mobile tabs. */
+const TIMEOUT = 45000;
+/** Keep a disconnected player's slot while a transient network failure reconnects. */
+const RECONNECT_GRACE = 60000;
+const RECONNECT_DELAYS = [500, 1000, 2000, 5000, 10000] as const;
 /** Host starts anyway if someone takes longer than this (ms) to load the race. */
 const LOAD_TIMEOUT = 30000;
 /** Time between "go" and the green light (ms): the start-light countdown plus slack. */
@@ -42,6 +45,8 @@ interface Link {
   lastSeen: number;
 }
 
+export type ConnectionState = 'connected' | 'reconnecting';
+
 export class Room {
   lobby: LobbyState = { players: [], laps: 3, aiFill: true, trackId: 'monza', control: 'keyboard' };
   myId = '';
@@ -50,9 +55,18 @@ export class Room {
   private offset = 0;
   private bestRtt = Infinity;
   private readonly links = new Map<string, Link>();
+  private readonly pendingDrops = new Map<string, number>();
   private hostLink: Link | null = null;
   private timers: number[] = [];
+  private reconnectTimer = 0;
+  private reconnectStarted = 0;
+  private reconnectAttempt = 0;
+  private clockStarted = false;
+  private profileName = '';
+  private profileTeam = '';
   private closed = false;
+  connectionState: ConnectionState = 'connected';
+  connectionDetail = '연결됨';
   /** Host: peers that finished loading the race. */
   private loaded = new Set<string>();
   private goSent = false;
@@ -66,6 +80,7 @@ export class Room {
   onStates?: (states: CarState[]) => void;
   onLeft?: (id: string) => void;
   onEnd?: (reason: string) => void;
+  onConnection?: (state: ConnectionState, detail: string) => void;
   /** Voice chat over the same peers (listens right away; the mic only when turned on). */
   readonly voice: Voice;
 
@@ -79,6 +94,13 @@ export class Room {
     peer.on('disconnected', () => {
       // Lost the broker only (open connections keep working); reconnect so others can still join.
       if (!this.closed && !peer.destroyed) peer.reconnect();
+    });
+    peer.on('open', () => {
+      if (!this.isHost && this.connectionState === 'reconnecting') this.scheduleReconnect(0);
+    });
+    peer.on('error', (error) => {
+      console.warn('[multiplayer] PeerJS error', error.type, error.message);
+      if (!this.isHost && this.connectionState === 'reconnecting') this.scheduleReconnect(1000);
     });
   }
 
@@ -103,7 +125,9 @@ export class Room {
   static async join(code: string, name: string, team: string): Promise<Room> {
     const peer = await openPeer();
     const room = new Room(peer, false, code.toUpperCase());
-    await room.connectToHost(name, team);
+    room.profileName = cleanName(name);
+    room.profileTeam = team;
+    await room.connectToHost();
     return room;
   }
 
@@ -125,6 +149,8 @@ export class Room {
       }
       this.broadcastLobby();
     } else {
+      this.profileName = cleanName(name);
+      this.profileTeam = team;
       this.send({ t: 'profile', name, team });
     }
   }
@@ -203,6 +229,8 @@ export class Room {
       clearInterval(t);
       clearTimeout(t);
     }
+    for (const t of this.pendingDrops.values()) clearTimeout(t);
+    clearTimeout(this.reconnectTimer);
     setTimeout(() => this.peer.destroy(), 200);
   }
 
@@ -214,20 +242,22 @@ export class Room {
       conn.on('open', () => {
         link.state = stateChannel(conn);
         link.state.onmessage = (e) => this.onHostStates(conn.peer, e.data as ArrayBuffer);
+        this.watchTransport(link);
       });
       conn.on('data', (raw) => {
         link.lastSeen = performance.now();
         this.onHostMessage(conn.peer, link, raw as Message);
       });
-      conn.on('close', () => this.dropPeer(conn.peer));
-      conn.on('error', () => this.dropPeer(conn.peer));
+      conn.on('close', () => this.disconnectPeer(conn.peer, link));
+      conn.on('error', () => this.disconnectPeer(conn.peer, link));
     });
-    // Relay tick + liveness check.
+    // Relay tick + liveness check. TIMEOUT is deliberately longer than normal
+    // browser background throttling; a timed-out peer still gets a reconnect grace.
     this.timers.push(
       window.setInterval(() => this.flushStates(), 1000 / STATE_HZ),
       window.setInterval(() => {
         const now = performance.now();
-        for (const [id, l] of this.links) if (now - l.lastSeen > TIMEOUT) this.dropPeer(id);
+        for (const [id, l] of this.links) if (now - l.lastSeen > TIMEOUT) this.disconnectPeer(id, l);
       }, 1000),
     );
   }
@@ -235,6 +265,25 @@ export class Room {
   private onHostMessage(id: string, link: Link, msg: Message): void {
     switch (msg.t) {
       case 'hello': {
+        const player = this.lobby.players.find((p) => p.id === id);
+        if (player) {
+          const current = this.links.get(id);
+          if (current && current !== link) return this.reject(link.conn, '같은 참가자가 이미 연결되어 있습니다');
+          const pending = this.pendingDrops.get(id);
+          if (this.plan && pending === undefined) return this.reject(link.conn, '레이스가 이미 시작됐습니다');
+          if (pending !== undefined) {
+            clearTimeout(pending);
+            this.pendingDrops.delete(id);
+          }
+          this.links.set(id, link);
+          if (!this.plan) {
+            player.name = cleanName(msg.name);
+            player.team = this.freeTeam(msg.team, id);
+          }
+          this.sendTo(id, { t: 'lobby', state: this.lobby, you: id });
+          this.voice.setPeers(this.lobby.players.map((p) => p.id));
+          return;
+        }
         if (this.plan) return this.reject(link.conn, '레이스가 이미 시작됐습니다');
         if (this.lobby.players.length >= MAX_CARS) return this.reject(link.conn, '방이 가득 찼습니다 (최대 20명)');
         this.links.set(id, link);
@@ -303,11 +352,21 @@ export class Room {
     this.onGo?.(startAt);
   }
 
-  private dropPeer(id: string): void {
-    const link = this.links.get(id);
-    if (!link) return;
+  /** Stop relaying now, but preserve the player/slot for a transient reconnect. */
+  private disconnectPeer(id: string, expected: Link): void {
+    if (this.links.get(id) !== expected) return;
     this.links.delete(id);
-    link.conn.close();
+    expected.conn.close();
+    this.voice.drop(id);
+    if (this.pendingDrops.has(id)) return;
+    const timer = window.setTimeout(() => this.dropPeer(id), RECONNECT_GRACE);
+    this.pendingDrops.set(id, timer);
+  }
+
+  private dropPeer(id: string): void {
+    const timer = this.pendingDrops.get(id);
+    clearTimeout(timer);
+    this.pendingDrops.delete(id);
     this.lobby.players = this.lobby.players.filter((p) => p.id !== id);
     this.voice.drop(id);
     if (this.plan) {
@@ -353,57 +412,112 @@ export class Room {
 
   // --- client --------------------------------------------------------------
 
-  private connectToHost(name: string, team: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const conn = this.peer.connect(ROOM_PREFIX + this.code, { serialization: 'json', reliable: true });
-      const link: Link = { conn, state: null, lastSeen: performance.now() };
-      this.hostLink = link;
-      let accepted = false;
-      const fail = (reason: string) => {
-        if (!accepted) reject(new Error(reason));
-        else this.end(reason);
-      };
-      this.peer.on('error', (e) => {
-        if (e.type === 'peer-unavailable') fail('방을 찾을 수 없습니다 (코드를 확인하세요)');
-        else if (!accepted) fail(`연결 실패: ${e.type}`);
-      });
-      conn.on('open', () => {
-        link.state = stateChannel(conn);
-        link.state.onmessage = (e) => {
-          link.lastSeen = performance.now();
-          this.onStates?.(decodeStates(e.data as ArrayBuffer));
-        };
-        conn.send({ t: 'hello', name, team } satisfies Message);
-        this.startClock();
-      });
-      conn.on('data', (raw) => {
+  private connectToHost(): Promise<void> {
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    this.openHostLink(resolve, reject);
+    return promise;
+  }
+
+  private openHostLink(initialResolve?: () => void, initialReject?: (reason: Error) => void): void {
+    if (this.closed) return;
+    if (this.peer.disconnected) {
+      if (!this.peer.destroyed) this.peer.reconnect();
+      if (initialReject) {
+        initialReject(new Error('시그널링 서버에 연결되지 않았습니다'));
+        this.end('시그널링 서버에 연결되지 않았습니다');
+      } else {
+        this.scheduleReconnect(1000);
+      }
+      return;
+    }
+
+    const conn = this.peer.connect(ROOM_PREFIX + this.code, { serialization: 'json', reliable: true });
+    const link: Link = { conn, state: null, lastSeen: performance.now() };
+    this.hostLink = link;
+    let accepted = false;
+    let settled = false;
+    const onPeerError = (e: { type?: string }) => {
+      const reason = e.type === 'peer-unavailable' ? '방을 찾을 수 없습니다 (코드를 확인하세요)' : `연결 실패: ${e.type ?? 'unknown'}`;
+      fail(reason, e.type === 'peer-unavailable');
+    };
+    const cleanup = () => this.peer.off('error', onPeerError);
+    const fail = (reason: string, terminal = false) => {
+      if (settled || this.hostLink !== link) return;
+      settled = true;
+      cleanup();
+      conn.close();
+      this.hostLink = null;
+      if (!accepted && initialReject) {
+        initialReject(new Error(reason));
+        this.end(reason);
+      } else if (terminal) {
+        this.end(reason);
+      } else {
+        this.beginReconnect(reason);
+      }
+    };
+    this.peer.on('error', onPeerError);
+    conn.on('open', () => {
+      link.state = stateChannel(conn);
+      link.state.onmessage = (e) => {
         link.lastSeen = performance.now();
-        const msg = raw as Message;
-        if (msg.t === 'lobby') {
-          this.lobby = msg.state;
-          this.myId = msg.you;
-          this.voice.setPeers(msg.state.players.map((p) => p.id));
-          if (!accepted) {
-            accepted = true;
-            resolve();
-          }
-          this.onLobby?.(msg.state);
-        } else if (msg.t === 'bye') {
-          fail(msg.reason);
-        } else {
-          this.onClientMessage(msg);
-        }
-      });
-      conn.on('close', () => fail('방장과 연결이 끊어졌습니다'));
-      this.timers.push(
-        window.setInterval(() => {
-          if (performance.now() - link.lastSeen > TIMEOUT) fail('방장과 연결이 끊어졌습니다');
-        }, 1000),
-      );
-      setTimeout(() => {
-        if (!accepted) fail('방에 연결하지 못했습니다 (시간 초과)');
-      }, 20000);
+        this.onStates?.(decodeStates(e.data as ArrayBuffer));
+      };
+      this.watchTransport(link);
+      conn.send({ t: 'hello', name: this.profileName, team: this.profileTeam } satisfies Message);
+      this.startClock();
     });
+    conn.on('data', (raw) => {
+      if (this.hostLink !== link) return;
+      link.lastSeen = performance.now();
+      const msg = raw as Message;
+      if (msg.t === 'lobby') {
+        this.lobby = msg.state;
+        this.myId = msg.you;
+        this.voice.setPeers(msg.state.players.map((p) => p.id));
+        if (!accepted) {
+          accepted = true;
+          settled = false;
+          cleanup();
+          this.reconnectAttempt = 0;
+          this.reconnectStarted = 0;
+          this.setConnection('connected', this.connectionDetail === '재연결 중…' ? '다시 연결됨' : this.connectionDetail);
+          initialResolve?.();
+        }
+        this.onLobby?.(msg.state);
+      } else if (msg.t === 'bye') {
+        fail(msg.reason, true);
+      } else {
+        this.onClientMessage(msg);
+      }
+    });
+    conn.on('close', () => fail('방장과 연결이 끊어졌습니다'));
+    conn.on('error', () => fail('데이터 연결 오류'));
+    const timeout = window.setTimeout(() => {
+      if (!accepted) fail(initialReject ? '방에 연결하지 못했습니다 (시간 초과)' : '재연결 시간 초과');
+    }, 20000);
+    this.timers.push(timeout);
+  }
+
+  private beginReconnect(reason: string): void {
+    if (this.closed) return;
+    if (!this.reconnectStarted) this.reconnectStarted = performance.now();
+    if (performance.now() - this.reconnectStarted >= RECONNECT_GRACE) {
+      this.end(`${reason} (재연결 실패)`);
+      return;
+    }
+    this.setConnection('reconnecting', '재연결 중…');
+    const delay = RECONNECT_DELAYS[Math.min(this.reconnectAttempt++, RECONNECT_DELAYS.length - 1)];
+    this.scheduleReconnect(delay);
+  }
+
+  private scheduleReconnect(delay: number): void {
+    if (this.closed || this.isHost) return;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = 0;
+      this.openHostLink();
+    }, delay);
   }
 
   private onClientMessage(msg: Message): void {
@@ -435,13 +549,56 @@ export class Room {
 
   /** Clock sync: a burst of pings, then one per second (also the keep-alive). */
   private startClock(): void {
+    if (this.clockStarted) return;
+    this.clockStarted = true;
     const ping = () => this.send({ t: 'ping', a: performance.now() });
     for (let i = 0; i < 6; i++) this.timers.push(window.setTimeout(ping, i * 150));
-    this.timers.push(window.setInterval(ping, 1000));
+    this.timers.push(
+      window.setInterval(ping, 1000),
+      window.setInterval(() => {
+        const link = this.hostLink;
+        if (link && performance.now() - link.lastSeen > TIMEOUT) {
+          link.conn.close();
+          this.beginReconnect('방장의 응답이 없습니다');
+        }
+      }, 1000),
+    );
   }
 
   private send(msg: Message): void {
     if (this.hostLink?.conn.open) this.hostLink.conn.send(msg);
+  }
+
+  private watchTransport(link: Link): void {
+    const pc = link.conn.peerConnection;
+    pc.addEventListener('connectionstatechange', () => {
+      if (pc.connectionState === 'connected') void this.describeTransport(link);
+      else if (!this.isHost && this.hostLink === link && pc.connectionState === 'failed') {
+        link.conn.close();
+      }
+    });
+    if (pc.connectionState === 'connected') void this.describeTransport(link);
+  }
+
+  private async describeTransport(link: Link): Promise<void> {
+    if (this.isHost || this.hostLink !== link) return;
+    const stats = await link.conn.peerConnection.getStats();
+    let detail = '연결됨';
+    for (const report of stats.values()) {
+      if (report.type !== 'candidate-pair' || report.state !== 'succeeded' || (!report.nominated && report.nominated !== undefined)) continue;
+      const local = stats.get(report.localCandidateId);
+      const remote = stats.get(report.remoteCandidateId);
+      detail = local?.candidateType === 'relay' || remote?.candidateType === 'relay' ? 'TURN 릴레이 연결' : '직접 연결';
+      if (Number.isFinite(report.currentRoundTripTime)) detail += ` · ${Math.round(report.currentRoundTripTime * 1000)} ms`;
+      break;
+    }
+    this.setConnection('connected', detail);
+  }
+
+  private setConnection(state: ConnectionState, detail: string): void {
+    this.connectionState = state;
+    this.connectionDetail = detail;
+    this.onConnection?.(state, detail);
   }
 
   private end(reason: string): void {
@@ -452,6 +609,7 @@ export class Room {
       clearInterval(t);
       clearTimeout(t);
     }
+    clearTimeout(this.reconnectTimer);
     this.onEnd?.(reason);
     setTimeout(() => this.peer.destroy(), 200);
   }
@@ -460,18 +618,32 @@ export class Room {
 export const TEAM_IDS = F1_TEAMS;
 
 function openPeer(id?: string): Promise<Peer> {
-  return new Promise((resolve, reject) => {
-    const peer = id ? new Peer(id, { debug: 1 }) : new Peer({ debug: 1 });
-    const onError = (e: unknown) => {
-      peer.destroy();
-      reject(e);
-    };
-    peer.once('open', () => {
-      peer.off('error', onError);
-      resolve(peer);
+  const { promise, resolve, reject } = Promise.withResolvers<Peer>();
+  const configuredTurn = import.meta.env.VITE_TURN_URLS as string | undefined;
+  const turnUrls = configuredTurn
+    ?.split(',')
+    .map((url: string) => url.trim())
+    .filter(Boolean);
+  const iceServers: RTCIceServer[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
+  if (turnUrls?.length) {
+    iceServers.push({
+      urls: turnUrls,
+      username: import.meta.env.VITE_TURN_USERNAME,
+      credential: import.meta.env.VITE_TURN_CREDENTIAL,
     });
-    peer.once('error', onError);
+  }
+  const options = { debug: 1, config: { iceServers, sdpSemantics: 'unified-plan' as const } };
+  const peer = id ? new Peer(id, options) : new Peer(options);
+  const onError = (e: unknown) => {
+    peer.destroy();
+    reject(e);
+  };
+  peer.once('open', () => {
+    peer.off('error', onError);
+    resolve(peer);
   });
+  peer.once('error', onError);
+  return promise;
 }
 
 /** Negotiated channel on the connection's RTCPeerConnection: both ends create it with the same id. */

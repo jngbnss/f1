@@ -234,6 +234,9 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
         style.remove();
         resolve({ room: r, plan });
       };
+      r.onConnection = (state, detail) => {
+        status(detail, state === 'reconnecting');
+      };
       r.onEnd = (reason) => {
         room = null;
         status(reason, true);
@@ -258,7 +261,7 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
         const { Room } = await import('../net/Room');
         const r = code ? await Room.join(code, currentName(), team) : await Room.create(currentName(), team);
         wire(r);
-        status(r.isHost ? '방이 열렸습니다. 친구에게 코드를 보내세요.' : '참가했습니다!');
+        status(r.isHost ? '방이 열렸습니다. 친구에게 코드를 보내세요.' : r.connectionDetail);
       } catch (e) {
         status(e instanceof Error ? e.message : `연결 실패: ${String((e as { type?: string }).type ?? e)}`, true);
       }

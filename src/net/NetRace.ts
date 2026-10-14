@@ -69,6 +69,11 @@ export class NetRace {
     };
     room.onLeft = (id) => this.dropPlayer(id);
     room.onEnd = (reason) => this.say(`${reason} — Esc: 메뉴`, true);
+    room.onConnection = (state, detail) => {
+      if (state === 'reconnecting') this.say(detail, true);
+      else if (this.goAt === null) this.say('다른 플레이어를 기다리는 중…');
+      else this.say(null);
+    };
     window.addEventListener('pagehide', () => room.leave());
   }
 

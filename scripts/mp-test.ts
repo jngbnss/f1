@@ -156,6 +156,18 @@ async function main(): Promise<void> {
     const t0 = await Promise.all(tabs.map((t) => t.evaluate<number>(`performance.now()`)));
     console.log('clock (ms) per window at green:', t0.map((t) => Math.round(t)).join(', '));
     for (const tab of tabs) await key(tab, 'keyDown');
+    // A brief data-channel failure must recover into the same race slot.
+    if (tabs.length > 1) {
+      await tabs[1].evaluate(`window.netRoom.hostLink.conn.close(); true`);
+      await until(
+        tabs[1],
+        `window.netRoom.connectionState === 'connected' && window.netRoom.hostLink?.conn.open`,
+        15000,
+        'client reconnect',
+      );
+      await until(host, `window.netRoom.lobby.players.length === ${players}`, 5000, 'reconnected player kept on host');
+      console.log(`P2 reconnected: ${await tabs[1].evaluate<string>(`window.netRoom.connectionDetail`)}`);
+    }
     const sample = () =>
       Promise.all(tabs.map((t) => t.evaluate<[string, number, number][]>(`window.sim.race.racers.map((r) => [r.name, r.vehicle.position.x, r.vehicle.position.z])`)));
     await sleep(1500);
