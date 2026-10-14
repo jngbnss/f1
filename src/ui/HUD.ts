@@ -273,7 +273,9 @@ export class HUD {
     this.lastBoardUpdate = now;
     const standings = race.standings();
     const position = standings.indexOf(me) + 1;
-    els.pos.innerHTML = `<span>POS</span><b>${position}<small>/${standings.length}</small></b><span>LAP</span><b>${race.lapOf(me)}<small>/${race.laps}</small></b>`;
+    els.pos.innerHTML =
+      `<div class="race-place"><span>현재 순위</span><b>P${position}</b><small> / ${standings.length}</small></div>` +
+      `<div class="race-lap"><span>레이스 랩</span><b>${race.lapOf(me)}</b><small> / ${race.laps}</small></div>`;
 
     // Timing tower, F1 TV style: position, team colour, car, gap to the leader, tyre, pit.
     // It stops above the tyre panel: when the screen is short, the top of the order plus the
@@ -286,6 +288,12 @@ export class HUD {
       shown = meAt < top + 1 ? shown.slice(0, rows) : [...shown.slice(0, top), -1, ...[meAt - 1, meAt, meAt + 1].filter((k) => k < standings.length)];
     }
     els.board.replaceChildren(
+      (() => {
+        const head = document.createElement('li');
+        head.className = 'board-head';
+        head.innerHTML = '<strong>실시간 순위</strong><span>선두 간격</span>';
+        return head;
+      })(),
       ...shown.map((i) => {
         if (i < 0) {
           const gapRow = document.createElement('li');
@@ -303,6 +311,12 @@ export class HUD {
         const name = document.createElement('span');
         name.className = 'name';
         name.textContent = r.name;
+        if (r === me) {
+          const you = document.createElement('small');
+          you.className = 'you';
+          you.textContent = 'YOU';
+          name.append(you);
+        }
         const gap = document.createElement('span');
         gap.className = 'gap';
         const g = i > 0 ? race.gap(standings[0], r) : null;

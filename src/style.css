@@ -22,8 +22,9 @@ html, body {
 .hud .warn { color: #ffcc66; }
 .hud .bad { color: #ff7b72; }
 .speedo {
-  position: fixed; right: 24px; bottom: 20px; color: #fff; text-align: right;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6); pointer-events: none;
+  position: fixed; right: 16px; bottom: 16px; min-width: 176px; padding: 10px 12px; color: #fff; text-align: right;
+  border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; background: linear-gradient(145deg, rgba(8, 12, 18, 0.9), rgba(17, 24, 34, 0.72));
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28); text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6); pointer-events: none;
 }
 .speedo .value { font-size: 56px; font-weight: 700; line-height: 1; }
 .speedo .unit { font-size: 14px; opacity: 0.8; }
@@ -86,11 +87,13 @@ html, body {
 .menu-start small { font-weight: 400; opacity: 0.8; font-size: 12px; }
 .menu-note { font-size: 11px; color: #7f8c99; margin-top: 14px; }
 .laps {
-  position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 18px;
-  background: rgba(10, 14, 20, 0.62); color: #e6edf3; padding: 8px 16px; border-radius: 8px;
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 0;
+  background: rgba(8, 12, 18, 0.86); color: #e6edf3; padding: 0; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2); overflow: hidden;
   font-size: 12px; pointer-events: none;
 }
-.laps div { display: flex; flex-direction: column; align-items: center; }
+.laps div { display: flex; flex-direction: column; align-items: center; min-width: 76px; padding: 7px 11px; border-left: 1px solid rgba(255, 255, 255, 0.08); }
+.laps div:first-child { border-left: 0; background: rgba(255, 90, 95, 0.13); }
 .laps span { color: #8b97a5; font-size: 10px; }
 .laps b { font-size: 16px; font-variant-numeric: tabular-nums; }
 .toast {
@@ -144,23 +147,33 @@ html, body {
   .trackname small { display: none; }
 }
 .race-pos {
-  position: fixed; top: 64px; left: 50%; transform: translateX(-50%); display: flex; align-items: baseline; gap: 8px;
-  color: #fff; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7); pointer-events: none;
+  position: fixed; top: 70px; left: 50%; transform: translateX(-50%); display: flex; align-items: stretch; gap: 1px;
+  color: #fff; border-radius: 9px; overflow: hidden; background: rgba(8, 12, 18, 0.86); box-shadow: 0 5px 20px rgba(0, 0, 0, 0.22);
+  font-family: system-ui, sans-serif; font-variant-numeric: tabular-nums; pointer-events: none;
 }
-.race-pos span { font-size: 11px; opacity: 0.8; }
-.race-pos b { font-size: 26px; margin-right: 10px; }
-.race-pos small { font-size: 13px; opacity: 0.8; }
+.race-pos > div { display: grid; grid-template-columns: auto auto; align-items: baseline; padding: 7px 13px; background: rgba(255, 255, 255, 0.03); }
+.race-pos .race-place { border-top: 3px solid #ff5a5f; }
+.race-pos .race-lap { border-top: 3px solid #e6edf3; }
+.race-pos span { grid-column: 1 / -1; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: #9eabb8; }
+.race-pos b { font-size: 24px; line-height: 1; }
+.race-pos small { font-size: 12px; opacity: 0.65; margin-left: 3px; }
 .board {
-  position: fixed; top: 96px; right: 16px; margin: 0; padding: 6px 0; list-style: none; width: 196px;
-  background: rgba(10, 14, 20, 0.72); color: #e6edf3; border-radius: 8px; font: 12px/1.45 system-ui, sans-serif;
+  position: fixed; top: 96px; right: 16px; margin: 0; padding: 0 0 6px; list-style: none; width: 210px; overflow: hidden;
+  background: rgba(8, 12, 18, 0.84); color: #e6edf3; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; font: 12px/1.45 system-ui, sans-serif;
+  box-shadow: 0 7px 24px rgba(0, 0, 0, 0.25);
   font-variant-numeric: tabular-nums; pointer-events: none;
 }
+.board li.board-head { display: flex; justify-content: space-between; height: auto; padding: 7px 9px 6px; background: rgba(255, 255, 255, 0.07); color: #fff; }
+.board-head strong { font-size: 11px; letter-spacing: 0.02em; }
+.board-head span { font-size: 9px; color: #8b97a5; align-self: center; }
 .board li { display: grid; grid-template-columns: 22px 4px 1fr 52px 18px; align-items: center; gap: 6px; padding: 0 8px; height: 18px; }
 /* One line per car: a penalty badge must never wrap a name onto a second line (the tower then ran into the tyre panel). */
 .board .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .board li.gap-row { height: 8px; background: none; }
 .board li:nth-child(odd) { background: rgba(255, 255, 255, 0.03); }
-.board li.me { background: rgba(255, 210, 63, 0.18); color: #ffd23f; font-weight: 700; }
+.board li.me { position: relative; background: linear-gradient(90deg, rgba(255, 90, 95, 0.32), rgba(255, 210, 63, 0.13)); color: #fff; font-weight: 800; }
+.board li.me::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: #ff5a5f; }
+.board .you { display: inline-block; margin-left: 5px; padding: 0 3px; border-radius: 3px; background: #ff5a5f; color: #fff; font-size: 7px; line-height: 12px; vertical-align: 1px; }
 .board li b { text-align: right; opacity: 0.85; }
 .board .penalty { margin-left: 4px; color: #ffb020; font-size: 10px; font-weight: 700; }
 .board i { display: block; width: 4px; height: 13px; border-radius: 1px; }
@@ -168,8 +181,9 @@ html, body {
 .board .gap.pit { color: #2bd56f; font-weight: 700; opacity: 1; }
 .board em { font-style: normal; font-weight: 800; font-size: 10px; text-align: center; border: 1.5px solid; border-radius: 50%; line-height: 13px; height: 13px; }
 .car-panel {
-  position: fixed; right: 16px; bottom: 118px; width: 196px; padding: 8px 10px; border-radius: 8px;
-  background: rgba(10, 14, 20, 0.72); color: #e6edf3; font: 12px/1.4 system-ui, sans-serif; pointer-events: none;
+  position: fixed; right: 16px; bottom: 138px; width: 188px; padding: 9px 10px; border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(8, 12, 18, 0.84); color: #e6edf3; font: 12px/1.4 system-ui, sans-serif; pointer-events: none;
+  box-shadow: 0 7px 24px rgba(0, 0, 0, 0.22);
   font-variant-numeric: tabular-nums;
 }
 .car-panel .tyre { display: flex; gap: 8px; align-items: center; }
@@ -313,6 +327,11 @@ html, body {
 .td-bars .menu-bar { grid-template-columns: 64px 1fr 104px; }
 
 /* Circuit cards: the outline (start line in red), flag and name, place, length and corners. */
+.circuit-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
+.circuit-heading h2 { margin-bottom: 0; flex: none; }
+.circuit-sort { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+.circuit-sort .chip { min-width: 0; padding: 5px 9px; border-width: 1px; border-radius: 7px; }
+.circuit-sort .chip strong { font-size: 11px; font-weight: 650; }
 .circuit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .circuit-card {
   display: flex; flex-direction: column; gap: 2px; padding: 8px 10px 10px; text-align: left; cursor: pointer; font: inherit; color: inherit;
@@ -328,6 +347,25 @@ html, body {
 .circuit-card strong { font-size: 13px; font-weight: 700; line-height: 1.25; }
 .circuit-card span { font-size: 11px; color: #9fb0c0; }
 .circuit-card em { font-style: normal; font-size: 11px; color: #c9d4de; font-weight: 600; }
+.circuit-detail {
+  display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 22px; align-items: center; margin-top: 12px; padding: 16px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; background: linear-gradient(125deg, rgba(255, 90, 95, 0.12), rgba(255, 255, 255, 0.04) 50%, rgba(47, 111, 222, 0.08));
+}
+.cd-map svg { display: block; width: 100%; max-height: 190px; }
+.cd-map .trk-base { fill: none; stroke: rgba(0, 0, 0, 0.5); stroke-width: 7; stroke-linejoin: round; }
+.cd-map .trk { fill: none; stroke: #fff; stroke-width: 2.8; stroke-linejoin: round; }
+.cd-map .trk-start { stroke: #ff5a5f; stroke-width: 2.6; stroke-linecap: round; }
+.cd-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.cd-title strong { font-size: 22px; font-weight: 800; }
+.cd-title span { color: #ff8d91; font: 700 12px system-ui, sans-serif; }
+.cd-body > p { max-width: 660px; margin: 9px 0 12px; color: #b8c4d0; font: 13px/1.55 system-ui, sans-serif; }
+.cd-stats { display: flex; gap: 1px; margin-top: 12px; overflow: hidden; border-radius: 8px; }
+.cd-stats > div { display: flex; flex-direction: column; min-width: 90px; padding: 7px 10px; background: rgba(0, 0, 0, 0.22); }
+.cd-stats span { color: #8593a1; font: 10px system-ui, sans-serif; }
+.cd-stats b { margin-top: 2px; color: #fff; font: 750 13px system-ui, sans-serif; letter-spacing: 0.03em; }
+.cd-stats > div:last-child b { color: #ff6b70; letter-spacing: 0.08em; }
+.cd-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.cd-tags span { padding: 3px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.09); color: #d4dde6; font: 650 11px system-ui, sans-serif; }
 
 /* Race options as compact chips (the weather / tyre pickers' cards get the same look). */
 .chip-row, .menu-race .menu-grid { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -374,6 +412,12 @@ html, body {
   .team-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .team-detail { grid-template-columns: 1fr; }
   .circuit-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .circuit-heading { align-items: flex-start; flex-direction: column; }
+  .circuit-sort { justify-content: flex-start; }
+  .circuit-detail { grid-template-columns: 110px minmax(0, 1fr); gap: 12px; padding: 12px; }
+  .cd-title strong { font-size: 17px; }
+  .cd-stats { flex-wrap: wrap; }
+  .cd-stats > div { min-width: 62px; padding: 5px 7px; }
   .menu-dock { flex-wrap: wrap; }
   .menu-summary { flex-basis: 100%; }
   .menu-dock .menu-start { flex: 1; }

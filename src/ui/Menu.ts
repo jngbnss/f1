@@ -101,6 +101,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     const isF1 = (c: CarDefinition) => c.cls === 'formula';
     let showF1 = !cars.some((c) => c.id === carId && !isF1(c));
     let trackId = initial.trackId;
+    let circuitSort: 'calendar' | 'difficulty' | 'short' | 'long' | 'corners' = 'calendar';
     let ai = initial.ai;
     let laps = initial.laps;
     let quali = initial.quali;
@@ -128,8 +129,9 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
           <div class="team-detail" data-group="spec"></div>
         </section>
         <section class="menu-step">
-          <h2><b>2</b>서킷</h2>
+          <div class="circuit-heading"><h2><b>2</b>서킷</h2><div class="circuit-sort" data-group="track-sort"></div></div>
           <div class="circuit-grid" data-group="track"></div>
+          <div class="circuit-detail" data-group="track-detail"></div>
         </section>
         <section class="menu-step menu-race">
           <h2><b>3</b>레이스</h2>
@@ -163,6 +165,8 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     const categoryRow = q<HTMLDivElement>('category');
     const detail = q<HTMLDivElement>('spec');
     const trackGrid = q<HTMLDivElement>('track');
+    const trackSort = q<HTMLDivElement>('track-sort');
+    const trackDetail = q<HTMLDivElement>('track-detail');
     const aiRow = q<HTMLDivElement>('ai');
     const lapWrap = q<HTMLDivElement>('laps-wrap');
     const lapRow = q<HTMLDivElement>('laps');
@@ -278,13 +282,41 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       const name = el('strong');
       if (info) name.append(el('i', 'cc', info.code));
       name.append(t.name);
-      b.append(name, el('span', '', `${t.location}`), el('em', '', `${t.lengthKm} km${info ? ` · 코너 ${info.corners}` : ''}`));
+      b.append(name, el('span', '', `${t.location}`), el('em', '', `${t.lengthKm} km${info ? ` · 코너 ${info.corners} · 난이도 ${info.difficulty}` : ''}`));
       b.addEventListener('click', () => {
         trackId = t.id;
         render();
       });
       b.addEventListener('dblclick', start);
       return b;
+    };
+
+    const renderCircuitDetail = () => {
+      const t = tracks.find((x) => x.id === trackId)!;
+      const info = CIRCUIT_INFO[t.id];
+      const map = MAPS[t.id];
+      const visual = el('div', 'cd-map');
+      if (map) {
+        const [sx, sy] = map.start;
+        const [dx, dy] = map.dir;
+        const lx = -dy * 3.5;
+        const ly = dx * 3.5;
+        visual.innerHTML = `<svg viewBox="0 0 100 100" aria-hidden="true"><path class="trk-base" d="${map.d}"/><path class="trk" d="${map.d}"/><line class="trk-start" x1="${sx - lx}" y1="${sy - ly}" x2="${sx + lx}" y2="${sy + ly}"/></svg>`;
+      }
+      const body = el('div', 'cd-body');
+      const title = el('div', 'cd-title');
+      title.append(el('strong', '', t.name), el('span', '', info?.character ?? t.location));
+      const stats = el('div', 'cd-stats');
+      const stat = (label: string, value: string) => {
+        const item = el('div');
+        item.append(el('span', '', label), el('b', '', value));
+        return item;
+      };
+      stats.append(stat('길이', `${t.lengthKm.toFixed(1)} km`), stat('코너', String(info?.corners ?? '—')), stat('난이도', info ? `${'●'.repeat(info.difficulty)}${'○'.repeat(5 - info.difficulty)}` : '—'));
+      const tags = el('div', 'cd-tags');
+      for (const tag of info?.tags ?? []) tags.append(el('span', '', tag));
+      body.append(title, stats, el('p', '', info?.description ?? `${t.location}에 위치한 서킷입니다.`), tags);
+      trackDetail.replaceChildren(visual, body);
     };
 
     const renderSummary = () => {
@@ -313,7 +345,26 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       );
       teamGrid.replaceChildren(...cars.filter((c) => isF1(c) === showF1).map(teamCard));
       renderDetail();
-      trackGrid.replaceChildren(...tracks.map(circuitCard));
+      const sortOptions: [typeof circuitSort, string][] = [
+        ['calendar', '캘린더순'],
+        ['difficulty', '난이도순'],
+        ['short', '짧은 거리순'],
+        ['long', '긴 거리순'],
+        ['corners', '코너 많은순'],
+      ];
+      trackSort.replaceChildren(
+        ...sortOptions.map(([value, label]) => chip(label, '', circuitSort === value, () => {
+          circuitSort = value;
+          render();
+        })),
+      );
+      const shownTracks = [...tracks];
+      if (circuitSort === 'difficulty') shownTracks.sort((a, b) => (CIRCUIT_INFO[a.id]?.difficulty ?? 0) - (CIRCUIT_INFO[b.id]?.difficulty ?? 0) || a.lengthKm - b.lengthKm);
+      if (circuitSort === 'short') shownTracks.sort((a, b) => a.lengthKm - b.lengthKm);
+      if (circuitSort === 'long') shownTracks.sort((a, b) => b.lengthKm - a.lengthKm);
+      if (circuitSort === 'corners') shownTracks.sort((a, b) => (CIRCUIT_INFO[b.id]?.corners ?? 0) - (CIRCUIT_INFO[a.id]?.corners ?? 0));
+      trackGrid.replaceChildren(...shownTracks.map(circuitCard));
+      renderCircuitDetail();
       controlRow.replaceChildren(
         ...CONTROL_MODES.map((m) =>
           chip(CONTROL_MODE_LABEL[m], CONTROL_HINTS[m], m === control, () => {
