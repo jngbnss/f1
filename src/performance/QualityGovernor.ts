@@ -23,6 +23,11 @@ export class QualityGovernor {
     private readonly slowMs = 20,
     /** Slow windows in a row before the next step. */
     private readonly patience = 3,
+    /**
+     * Frame time (ms) so bad that waiting for the resolution to bottom out first
+     * (about 9 s of stutter) is not worth it: shed features right away.
+     */
+    private readonly panicMs = 40,
   ) {}
 
   /** Call every frame after DynamicResolution.update. */
@@ -30,7 +35,8 @@ export class QualityGovernor {
     if (perf.windowId === this.lastWindow || perf.frameTimeAvg === 0) return;
     this.lastWindow = perf.windowId;
     if (now < this.cooldownUntil || this.step >= this.steps.length) return;
-    this.slowWindows = this.resolution.atMinimum && perf.frameTimeAvg > this.slowMs ? this.slowWindows + 1 : 0;
+    const slow = perf.frameTimeAvg > this.slowMs && (this.resolution.atMinimum || perf.frameTimeAvg > this.panicMs);
+    this.slowWindows = slow ? this.slowWindows + 1 : 0;
     if (this.slowWindows < this.patience) return;
     this.slowWindows = 0;
     // Give the change a few seconds (recompiles, new frame times) before judging again.

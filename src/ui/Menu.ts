@@ -11,6 +11,7 @@ import { CALENDAR, loadSeason } from '../race/Season';
 import { isTouchDevice } from '../platform';
 import { CONTROL_MODE_LABEL, CONTROL_MODES, readControlMode, saveControlMode, type ControlMode } from './ControlModeSwitch';
 import { setVoicePack, voicePackOn } from '../audio/VoicePack';
+import { QUALITY_OPTIONS, readStoredTier, saveTier } from '../performance/Quality';
 
 const CONTROL_HINTS: Record<ControlMode, string> = { keyboard: '키보드·게임패드', hand: '웹캠: 주먹 핸들 · 속도는 자동' };
 
@@ -144,6 +145,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
           <div data-group="laps-wrap"><h3>랩 수</h3><div class="chip-row" data-group="laps"></div>
             <h3>예선</h3><div class="chip-row" data-group="quali"></div></div>
           <h3>보이스 팩</h3><div class="chip-row" data-group="voicepack"></div>
+          <h3>그래픽 <small>느리면 낮춰 보세요</small></h3><div class="chip-row" data-group="quality"></div>
           <div class="menu-pickers" data-group="weather"></div>
           <div class="menu-pickers" data-group="tyre"></div>
         </section>
@@ -169,6 +171,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     const qualiRow = q<HTMLDivElement>('quali');
     const modeRow = q<HTMLDivElement>('mode');
     const voicePackRow = q<HTMLDivElement>('voicepack');
+    const qualityRow = q<HTMLDivElement>('quality');
     const aiWrap = q<HTMLDivElement>('ai-wrap');
     const controlRow = q<HTMLDivElement>('control');
     q<HTMLDivElement>('control-wrap').style.display = desktop ? '' : 'none';
@@ -417,6 +420,15 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
         }),
       );
       root.querySelector('.menu-b206')!.classList.toggle('on', packOn);
+      const storedTier = readStoredTier();
+      qualityRow.replaceChildren(
+        ...QUALITY_OPTIONS.map(([t, title, sub]) =>
+          chip(title, sub, t === storedTier, () => {
+            saveTier(t);
+            render();
+          }),
+        ),
+      );
       renderSummary();
     };
 

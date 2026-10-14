@@ -48,18 +48,58 @@ export const TIER_DEFAULTS: Record<QualityTier, { shadows: boolean; shadowMapSiz
 };
 
 /** GPUs of entry-level and older phones (WebGL renderer string). */
-const WEAK_GPU = /Mali-(4|T[678]|G(31|51|52|57|68))|Adreno \(TM\) ([345]\d\d|6[01]\d)|PowerVR|SGX|Vivante|Intel\(R\) HD Graphics [2-5]\d{2}\b/i;
+const WEAK_GPU = /Mali-(4|T[678]|G(31|51|52|57|68))|Adreno \(TM\) ([345]\d\d|6[01]\d)|PowerVR|SGX|Vivante|Intel\(R\)? HD Graphics [2-5]\d{2,3}\b/i;
+/** No GPU at all: software rasterisers, or a machine with graphics drivers missing. */
+const SOFTWARE_GPU = /SwiftShader|llvmpipe|Software|Microsoft Basic Render|Mesa OffScreen/i;
+/** Integrated laptop/desktop graphics: fine for driving, not for the full high tier. */
+const INTEGRATED_GPU = /Intel\(R\)? (HD|UHD|Iris)|Intel.*Graphics(?!.*Arc)|Vega \d \(|Radeon\(TM\) (R[2-5]|Vega [3-8]) Graphics/i;
 
-/** Tier for this device: `?quality=` if given, else from the hardware. */
+
+/** Pickable graphics levels (null = decide from the hardware). Menu and lobby share these. */
+export const QUALITY_OPTIONS: [QualityTier | null, string, string][] = [
+  [null, '자동', '기기에 맞춰 선택'],
+  ['high', '높음', '그림자 · 후처리 · 선명하게'],
+  ['mid', '보통', '후처리 끔 · 1배 해상도'],
+  ['low', '낮음', '그림자도 끔 · 가장 가볍게'],
+];
+const TIER_KEY = 'f1:quality';
+
+/** The tier the player picked in the menu (null = decide from the hardware). */
+export function readStoredTier(): QualityTier | null {
+  try {
+    const v = localStorage.getItem(TIER_KEY);
+    return v === 'low' || v === 'mid' || v === 'high' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveTier(tier: QualityTier | null): void {
+  try {
+    if (tier) localStorage.setItem(TIER_KEY, tier);
+    else localStorage.removeItem(TIER_KEY);
+  } catch {
+    /* not remembered; ?quality= still works */
+  }
+}
+
+/** Tier for this device: `?quality=`, then the player's choice, else from the hardware. */
 export function detectTier(search: string, mobile: boolean): QualityTier {
   const forced = new URLSearchParams(search).get('quality');
   if (forced === 'low' || forced === 'mid' || forced === 'high') return forced;
-  if (!mobile) return 'high';
-  if (typeof navigator === 'undefined') return 'mid';
+  const chosen = readStoredTier();
+  if (chosen) return chosen;
+  if (typeof navigator === 'undefined') return mobile ? 'mid' : 'high';
   const cores = navigator.hardwareConcurrency ?? 8;
   const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
-  if (cores <= 4 || memory <= 3 || WEAK_GPU.test(gpuName())) return 'low';
-  return 'mid';
+  const gpu = gpuName();
+  if (SOFTWARE_GPU.test(gpu)) return 'low';
+  if (mobile) return cores <= 4 || memory <= 3 || WEAK_GPU.test(gpu) ? 'low' : 'mid';
+  // Desktops used to get "high" unconditionally, which left old laptops with
+  // integrated graphics running post-processing, 2048 shadows and 1.5x pixels.
+  if (cores <= 2 || memory <= 2 || WEAK_GPU.test(gpu)) return 'low';
+  if (cores <= 4 || memory <= 4 || INTEGRATED_GPU.test(gpu)) return 'mid';
+  return 'high';
 }
 
 /** The GPU's name from WebGL (empty when the browser hides it). */

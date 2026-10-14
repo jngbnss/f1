@@ -83,6 +83,9 @@ async function main(): Promise<void> {
       sel = await showMenu(CAR_LIST, FEATURED_TRACKS, { carId, trackId, ai: config.ai, laps: config.laps, quali: config.quali });
       if (sel.multiplayer) lobby = await runLobby(null);
     }
+    // The graphics level and voice pack can change in the menu / lobby: re-read the
+    // config (and re-apply the quality tier) before anything of the world is built.
+    Object.assign(config, readConfig());
     if (lobby) {
       // The grid comes from the room: my slot's car, the room's circuit and distance.
       const mine = lobby.plan.slots.find((s) => s.id === lobby!.room.myId) ?? lobby.plan.slots[0];

@@ -7,6 +7,7 @@ import { isTouchDevice } from '../platform';
 import { COMPOUND_HINTS, COMPOUND_LIST, COMPOUND_NAMES } from '../vehicle/Tyres';
 import { TIME_OPTIONS, WEATHER_KINDS } from '../world/Weather';
 import { setVoicePack, voicePackOn } from '../audio/VoicePack';
+import { QUALITY_OPTIONS, readStoredTier, saveTier } from '../performance/Quality';
 
 /**
  * Multiplayer lobby: pick a name and a team, create a room (or join one
@@ -216,29 +217,42 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
         if (state.control === 'hand' && isTouchDevice()) part('settings').insertAdjacentHTML('beforeend', '<p class="lobby-status error">손 조작 방은 PC 웹캠이 필요합니다. 휴대폰으로는 운전할 수 없습니다.</p>');
       }
 
-      // Sound only, so it stays each player's own choice (unlike the race conditions).
+      // Sound and graphics stay each player's own choice (unlike the race conditions).
+      const ownCard = (title: string, sub: string, selected: boolean, onPick: () => void) => {
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = `menu-card${selected ? ' selected' : ''}`;
+        el.innerHTML = '<strong></strong><span></span>';
+        el.querySelector('strong')!.textContent = title;
+        el.querySelector('span')!.textContent = sub;
+        el.addEventListener('click', onPick);
+        return el;
+      };
       const packOn = voicePackOn();
-      const packBox = document.createElement('div');
-      packBox.innerHTML = '<h2>보이스 팩 <small>내 소리만 바뀝니다</small></h2><div class="menu-grid" data-s="pack"></div>';
-      packBox.querySelector('[data-s="pack"]')!.append(
-        ...([
-          ['기본', '엔지니어 무전 · 녹음 엔진음', false],
-          ['B206', '우리가 녹음한 외침 + 목소리 엔진음', true],
-        ] as [string, string, boolean][]).map(([title, sub, on]) => {
-          const el = document.createElement('button');
-          el.type = 'button';
-          el.className = `menu-card${on === packOn ? ' selected' : ''}`;
-          el.innerHTML = '<strong></strong><span></span>';
-          el.querySelector('strong')!.textContent = title;
-          el.querySelector('span')!.textContent = sub;
-          el.addEventListener('click', () => {
-            setVoicePack(on);
-            render();
-          });
-          return el;
+      const ownBox = document.createElement('div');
+      ownBox.innerHTML =
+        '<h2>보이스 팩 <small>내 소리만 바뀝니다</small></h2><div class="menu-grid" data-s="pack"></div>' +
+        '<h2>그래픽 <small>렉이 걸리면 낮춰 보세요</small></h2><div class="menu-grid" data-s="quality"></div>';
+      ownBox.querySelector('[data-s="pack"]')!.append(
+        ownCard('기본', '엔지니어 무전 · 녹음 엔진음', !packOn, () => {
+          setVoicePack(false);
+          render();
+        }),
+        ownCard('B206', '우리가 녹음한 외침 + 목소리 엔진음', packOn, () => {
+          setVoicePack(true);
+          render();
         }),
       );
-      part('pack').replaceChildren(packBox);
+      const storedTier = readStoredTier();
+      ownBox.querySelector('[data-s="quality"]')!.append(
+        ...QUALITY_OPTIONS.map(([t, title, sub]) =>
+          ownCard(title, sub, t === storedTier, () => {
+            saveTier(t);
+            render();
+          }),
+        ),
+      );
+      part('pack').replaceChildren(ownBox);
 
       const main = part('main') as HTMLButtonElement;
       if (!room) {
