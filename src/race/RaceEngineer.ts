@@ -1,4 +1,5 @@
 import type { TeamRadio } from '../audio/TeamRadio';
+import { START_SHOUT_GAP, START_SHOUTS, voicePackOn } from '../audio/VoicePack';
 import type { Vehicle } from '../vehicle/Vehicle';
 import type { RacingLine } from '../world/RacingLine';
 import type { Track } from '../world/Track';
@@ -62,6 +63,18 @@ export class RaceEngineer {
   private readonly advised = new Set<number>();
   /** The corner the player is in (index into corners) and how it went. */
   private zone: { corner: number; minSpeed: number; off: boolean; traffic: boolean } | null = null;
+  /** b206 voice pack, picked on the start screen before the race. */
+  private readonly pack = voicePackOn();
+  /** Race times (s) still owed a start shout. */
+  private readonly startShouts: number[] = [];
+  /** Makes each repeat of a cue its own queue entry. */
+  private cueSeq = 0;
+  private overtakeCueAt = -Infinity;
+  private hurryCueAt = -Infinity;
+  /** Lap the "shall I box?" shout was used on. */
+  private pitNearLap = 0;
+  /** Centerline samples in a lap. */
+  private readonly samples: number;
 
   constructor(
     private readonly radio: TeamRadio,
@@ -72,6 +85,7 @@ export class RaceEngineer {
     private readonly pits: PitStops | null,
   ) {
     this.lastState = race.state;
+    this.samples = track.getCenterline().length;
     this.corners = slowCorners(line);
   }
 
@@ -90,12 +104,19 @@ export class RaceEngineer {
       if (race.state === 'racing') {
         this.radio.say('radio_check', {}, 1);
         this.racingSince = this.time;
+        if (this.pack) for (let i = 0; i < START_SHOUTS; i++) this.startShouts.push(this.time + i * START_SHOUT_GAP);
       }
       if (race.state === 'finished') {
         const pos = race.positionOf(me);
         this.radio.say(pos === 1 ? 'win' : 'finish', { pos }, 2);
+        // Crossing the line on the last lap.
+        if (this.pack) this.radio.sayCue('finish', 2);
       }
       this.lastState = race.state;
+    }
+    while (this.startShouts.length && this.time >= this.startShouts[0]) {
+      this.startShouts.shift();
+      this.radio.sayCue('start', 2, `start${this.cueSeq++}`);
     }
     if (race.state !== 'racing' || me.finished) return;
 
@@ -127,6 +148,12 @@ export class RaceEngineer {
       }
     }
 
+    // b206: a shout for every place gained.
+    if (this.pack && this.lastPos > 0 && pos < this.lastPos && this.time - this.overtakeCueAt > 1.5) {
+      this.overtakeCueAt = this.time;
+      this.radio.sayCue('overtake', 1, `overtake${this.cueSeq++}`);
+    }
+
     // --- places won / lost (once they hold for 2 s) -----------------------------------
     if (pos !== this.lastPos) {
       this.lastPos = pos;
@@ -145,6 +172,12 @@ export class RaceEngineer {
     const ga = ahead ? race.gap(ahead, me) : null;
     this.closeSince.behind = gb !== null && gb < 0.8 ? Math.min(this.closeSince.behind, this.time) : Infinity;
     this.closeSince.ahead = ga !== null && ga < 0.8 ? Math.min(this.closeSince.ahead, this.time) : Infinity;
+    // b206: car ahead within a second — "아 빨리가라능" (its own, shorter cadence than the
+    // engineer's chatter, which is capped at one close-fight call every 150 s).
+    if (this.pack && !this.neutral && this.time - this.closeSince.ahead > 1 && this.time - this.hurryCueAt > 30) {
+      this.hurryCueAt = this.time;
+      this.radio.sayCue('hurry', 1, `hurry${this.cueSeq++}`);
+    }
     if (!this.neutral && this.time - this.closeAt > 150 && this.time - this.racingSince > 30) {
       if (this.time - this.closeSince.behind > 3) {
         this.radio.say('defend', {}, 0);
@@ -186,7 +219,20 @@ export class RaceEngineer {
     if (phase !== this.lastPit) {
       if (phase === 'requested' && this.lastPit === null) this.radio.say('pit_confirm', {}, 1);
       if (phase === null && this.lastPit === 'out') this.radio.say('pit_out', { pos }, 1);
+      // b206: down the entry ramp, about to be refuelled.
+      if (this.pack && phase === 'in') this.radio.sayCue('pit_in', 2);
       this.lastPit = phase;
+    }
+
+    // b206: coming up on the pit entry with no stop booked ("shall I box?"), once a lap.
+    if (this.pack && this.pits && phase === null) {
+      const n = this.samples;
+      const toEntry = (((this.pits.entryIndex - me.lastIndex) % n) + n) % n;
+      const lap = race.lapOf(me);
+      if (lap !== this.pitNearLap && toEntry * SAMPLE_M > 40 && toEntry * SAMPLE_M < 260) {
+        this.pitNearLap = lap;
+        this.radio.sayCue('pit_near', 1, `pit_near${lap}`);
+      }
     }
 
     if (this.neutral) this.zone = null;
@@ -211,7 +257,7 @@ export class RaceEngineer {
     if (!me || v === this.player || this.race.state !== 'racing' || this.neutral || this.time - this.yellowAt < 30) return;
     const other = this.race.racers.find((r) => r.vehicle === v);
     if (!other) return;
-    const n = this.track.getCenterline().length;
+    const n = this.samples;
     let ahead = (other.progress - me.progress) % n;
     if (ahead < 0) ahead += n;
     if (ahead * SAMPLE_M > 60 && ahead * SAMPLE_M < 700) {

@@ -34,6 +34,10 @@ jobs:
           VITE_TURN_URLS: ${{ secrets.TURN_URLS }}
           VITE_TURN_USERNAME: ${{ secrets.TURN_USERNAME }}
           VITE_TURN_CREDENTIAL: ${{ secrets.TURN_CREDENTIAL }}
+          VITE_PEER_HOST: ${{ secrets.PEER_HOST }}
+          VITE_PEER_PORT: ${{ secrets.PEER_PORT }}
+          VITE_PEER_PATH: ${{ secrets.PEER_PATH }}
+          VITE_PEER_KEY: ${{ secrets.PEER_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

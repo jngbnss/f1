@@ -7,6 +7,8 @@
  * worthless, the next one is already on its way).
  */
 import type { ControlMode } from '../ui/ControlModeSwitch';
+import type { Compound } from '../vehicle/Tyres';
+import type { TimeOfDay, WeatherKind } from '../world/Weather';
 
 /** Room ids on the public PeerJS broker are namespaced with this prefix. */
 export const ROOM_PREFIX = 'websimlab-r-';
@@ -23,6 +25,8 @@ export interface LobbyPlayer {
   /** F1 team (car id, e.g. "f1-ferrari"). */
   team: string;
   host: boolean;
+  /** False while the player's slot is only reserved for a reconnect. */
+  connected: boolean;
 }
 
 export interface LobbyState {
@@ -33,7 +37,14 @@ export interface LobbyState {
   trackId: string;
   /** Everyone drives the same way: keyboard (and gamepad) only, or webcam hands only. */
   control: ControlMode;
+  /** Conditions the host sets for the whole grid (nobody gets their own weather). */
+  weather: WeatherKind;
+  time: TimeOfDay;
+  tyre: Compound;
 }
+
+/** What the host can change in the lobby. */
+export type LobbySettings = Pick<LobbyState, 'laps' | 'aiFill' | 'control' | 'weather' | 'time' | 'tyre'>;
 
 /** One grid slot of a networked race (index = grid position). */
 export interface GridSlot {
@@ -50,6 +61,9 @@ export interface RacePlan {
   trackId: string;
   laps: number;
   control: ControlMode;
+  weather: WeatherKind;
+  time: TimeOfDay;
+  tyre: Compound;
   slots: GridSlot[];
 }
 

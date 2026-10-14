@@ -1,5 +1,6 @@
-import { makeNoiseBuffer, makeReverbBuffer, type AudioAssets } from './EngineSound';
+import { LOOP_BASE_HZ, makeNoiseBuffer, makeReverbBuffer, type AudioAssets } from './EngineSound';
 import { music } from './Music';
+import { VOICE_ENGINE, voicePackOn } from './VoicePack';
 
 /**
  * Owns the AudioContext and shared audio assets (recorded engine loop,
@@ -121,8 +122,11 @@ export class AudioSystem {
     wet.gain.value = 0.5;
     reverb.connect(wet).connect(master);
     const noise = makeNoiseBuffer(ctx);
-    void this.loadBuffer(`${import.meta.env.BASE_URL}audio/engine_loop.wav`).then((engineLoop) => {
-      this.assets = { engineLoop, reverb, noise };
+    // b206 pack: every car runs the recorded voice loop instead of the sampled engine.
+    const pack = voicePackOn();
+    const loop = pack ? VOICE_ENGINE : { file: 'audio/engine_loop.wav', baseHz: LOOP_BASE_HZ, rateExp: 1 };
+    void this.loadBuffer(`${import.meta.env.BASE_URL}${loop.file}`).then((engineLoop) => {
+      this.assets = { engineLoop, reverb, noise, loopBaseHz: loop.baseHz, loopRateExp: loop.rateExp, loopOnly: pack };
       for (const cb of this.readyCallbacks.splice(0)) cb(ctx, master, this.assets);
     });
   }

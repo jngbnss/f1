@@ -10,6 +10,7 @@ import { DRIVERS, readDriverIndex, saveDriverIndex } from '../race/Drivers';
 import { CALENDAR, loadSeason } from '../race/Season';
 import { isTouchDevice } from '../platform';
 import { CONTROL_MODE_LABEL, CONTROL_MODES, readControlMode, saveControlMode, type ControlMode } from './ControlModeSwitch';
+import { setVoicePack, voicePackOn } from '../audio/VoicePack';
 
 const CONTROL_HINTS: Record<ControlMode, string> = { keyboard: '키보드·게임패드', hand: '웹캠: 주먹 핸들 · 속도는 자동' };
 
@@ -142,6 +143,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
           <div class="chip-row" data-group="ai"></div></div>
           <div data-group="laps-wrap"><h3>랩 수</h3><div class="chip-row" data-group="laps"></div>
             <h3>예선</h3><div class="chip-row" data-group="quali"></div></div>
+          <h3>보이스 팩</h3><div class="chip-row" data-group="voicepack"></div>
           <div class="menu-pickers" data-group="weather"></div>
           <div class="menu-pickers" data-group="tyre"></div>
         </section>
@@ -152,6 +154,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
         <button class="menu-start" type="button">출발 ▶ <small>Enter</small></button>
         <button class="menu-mp" type="button">👥 친구와 레이스</button>
         <button class="menu-podium" type="button" title="레이스 없이 포디움 세리머니만 봅니다">🏆 포디움 보기</button>
+        <button class="menu-b206" type="button" title="b206 보이스 팩: 우리가 녹음한 팀 라디오와 엔진 소리로 달립니다">b206</button>
       </div>`;
     const q = <T extends HTMLElement>(g: string) => root.querySelector<T>(`[data-group="${g}"]`)!;
     const teamGrid = q<HTMLDivElement>('car');
@@ -165,6 +168,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     const aiLevelRow = q<HTMLDivElement>('ailevel');
     const qualiRow = q<HTMLDivElement>('quali');
     const modeRow = q<HTMLDivElement>('mode');
+    const voicePackRow = q<HTMLDivElement>('voicepack');
     const aiWrap = q<HTMLDivElement>('ai-wrap');
     const controlRow = q<HTMLDivElement>('control');
     q<HTMLDivElement>('control-wrap').style.display = desktop ? '' : 'none';
@@ -401,6 +405,18 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
           render();
         }),
       );
+      const packOn = voicePackOn();
+      voicePackRow.replaceChildren(
+        chip('기본', '엔지니어 무전 · 녹음 엔진음', !packOn, () => {
+          setVoicePack(false);
+          render();
+        }),
+        chip('b206', '우리가 녹음한 외침 + 목소리 엔진음', packOn, () => {
+          setVoicePack(true);
+          render();
+        }),
+      );
+      root.querySelector('.menu-b206')!.classList.toggle('on', packOn);
       renderSummary();
     };
 
@@ -423,6 +439,10 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
       window.removeEventListener('keydown', onKey);
       root.remove();
       resolve({ carId, trackId, ai, laps, quali, multiplayer: true });
+    });
+    root.querySelector('.menu-b206')!.addEventListener('click', () => {
+      setVoicePack(!voicePackOn());
+      render();
     });
     window.addEventListener('keydown', onKey);
     mountWeatherPicker(q('weather'));

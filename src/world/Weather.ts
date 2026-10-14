@@ -33,13 +33,14 @@ export interface WeatherState {
   time: TimeOfDay;
 }
 
-const KINDS: [WeatherKind, string, string][] = [
+/** Pickable weather / time of day: id, label, hint. Also used by the multiplayer lobby. */
+export const WEATHER_KINDS: [WeatherKind, string, string][] = [
   ['clear', '☀️ 맑음', '건조한 노면'],
   ['cloudy', '☁️ 흐림', '부드러운 빛'],
   ['drizzle', '🌦️ 약한 비', '접지력 −12% · 인터미디어트'],
   ['rain', '🌧️ 비', '접지력 −22% · 물보라'],
 ];
-const TIMES: [TimeOfDay, string, string][] = [
+export const TIME_OPTIONS: [TimeOfDay, string, string][] = [
   ['day', '낮', '오후 햇빛'],
   ['dusk', '해 질 녘', '낮은 해 · 긴 그림자'],
   ['night', '밤', '조명탑 야간 레이스'],
@@ -69,8 +70,8 @@ export function readWeather(search = window.location.search): WeatherState {
   const w = p.get('weather') ?? stored('weather');
   const t = p.get('time') ?? stored('time');
   return {
-    weather: KINDS.some(([k]) => k === w) ? (w as WeatherKind) : 'clear',
-    time: TIMES.some(([k]) => k === t) ? (t as TimeOfDay) : 'day',
+    weather: WEATHER_KINDS.some(([k]) => k === w) ? (w as WeatherKind) : 'clear',
+    time: TIME_OPTIONS.some(([k]) => k === t) ? (t as TimeOfDay) : 'day',
   };
 }
 
@@ -172,11 +173,11 @@ export function mountWeatherPicker(el: HTMLElement): void {
   title.textContent = '날씨 · 시간';
   el.replaceChildren(
     title,
-    row(KINDS, () => state.weather, (k) => {
+    row(WEATHER_KINDS, () => state.weather, (k) => {
       state = { ...state, weather: k as WeatherKind };
       save();
     }),
-    row(TIMES, () => state.time, (k) => {
+    row(TIME_OPTIONS, () => state.time, (k) => {
       state = { ...state, time: k as TimeOfDay };
       save();
     }),

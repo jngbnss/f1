@@ -529,7 +529,7 @@ export class Game {
         this.carAudio = new CarAudio(ctx, master, car.engine, assets);
         if (assets.engineLoop) {
           for (const v of this.vehicles) {
-            if (v !== this.player) this.voices.set(v, new EngineVoice(ctx, master, (this.carOf.get(v) ?? car).engine, assets.engineLoop));
+            if (v !== this.player) this.voices.set(v, new EngineVoice(ctx, master, (this.carOf.get(v) ?? car).engine, assets));
           }
         }
       });

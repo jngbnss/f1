@@ -51,9 +51,14 @@ export interface AudioAssets {
   /** Shared reverb send. */
   reverb: AudioNode;
   noise: AudioBuffer;
+  /** Loop pitch map: playbackRate = (firingHz / loopBaseHz) ** loopRateExp. */
+  loopBaseHz: number;
+  loopRateExp: number;
+  /** The loop is the whole engine (b206 voice pack): no synthesized body under it. */
+  loopOnly: boolean;
 }
 
-/** Firing frequency of the recorded loop at playbackRate 1 (measured: 43 Hz + harmonics). */
+/** Firing frequency of the stock engine loop at playbackRate 1 (measured: 43 Hz + harmonics). */
 export const LOOP_BASE_HZ = 43;
 
 const SMOOTH = 0.03; // s, parameter smoothing
@@ -105,6 +110,8 @@ export class CarAudio {
   private readonly skidGain: GainNode;
   private readonly windGain: GainNode;
   private readonly nodes: AudioNode[] = [];
+  private readonly loopBaseHz: number;
+  private readonly loopRateExp: number;
   private load = 0;
 
   constructor(
@@ -115,20 +122,23 @@ export class CarAudio {
   ) {
     const bus = this.keep(ctx.createGain()); // pre-EQ engine mix
 
+    this.loopBaseHz = assets.loopBaseHz;
+    this.loopRateExp = assets.loopRateExp;
+
     // Recorded loop
     if (assets.engineLoop) {
       const loop = this.keep(ctx.createBufferSource());
       loop.buffer = assets.engineLoop;
       loop.loop = true;
       const g = this.keep(ctx.createGain());
-      g.gain.value = profile.sampleGain;
+      g.gain.value = assets.loopOnly ? 1 : profile.sampleGain;
       loop.connect(g).connect(bus);
       this.loop = loop;
     }
 
-    // Synth body (through saturation)
+    // Synth body (through saturation); a voice-pack loop stands alone.
     const synth = this.keep(ctx.createGain());
-    synth.gain.value = assets.engineLoop ? profile.synthGain : 1;
+    synth.gain.value = !assets.engineLoop ? 1 : assets.loopOnly ? 0 : profile.synthGain;
     for (const voice of profile.voices) {
       const osc = this.keep(ctx.createOscillator());
       osc.type = voice.type;
@@ -202,7 +212,7 @@ export class CarAudio {
 
     const f = firingHz(p, s.rpmRatio);
     const wobble = 1 + (Math.random() - 0.5) * 0.006; // combustion irregularity
-    this.loop?.playbackRate.setTargetAtTime((f / LOOP_BASE_HZ) * wobble, t, SMOOTH);
+    this.loop?.playbackRate.setTargetAtTime(Math.pow(f / this.loopBaseHz, this.loopRateExp) * wobble, t, SMOOTH);
     for (const { node, voice } of this.oscillators) node.frequency.setTargetAtTime(f * voice.mult * wobble, t, SMOOTH);
     this.combustionFilter.frequency.setTargetAtTime(f * 2, t, SMOOTH);
     this.combustionGain.gain.setTargetAtTime(p.noise * (0.3 + 0.7 * this.load), t, SMOOTH);
@@ -243,14 +253,20 @@ export class EngineVoice {
   private readonly source: AudioBufferSourceNode;
   private readonly gain: GainNode;
   private readonly filter: BiquadFilterNode;
+  private readonly loopBaseHz: number;
+  private readonly loopRateExp: number;
   readonly panner: PannerNode;
 
+  /** `assets.engineLoop` must be non-null (the caller checks it). */
   constructor(
     private readonly ctx: AudioContext,
     output: AudioNode,
     private readonly profile: EngineSoundProfile,
-    loop: AudioBuffer,
+    assets: AudioAssets,
   ) {
+    const loop = assets.engineLoop!;
+    this.loopBaseHz = assets.loopBaseHz;
+    this.loopRateExp = assets.loopRateExp;
     this.source = ctx.createBufferSource();
     this.source.buffer = loop;
     this.source.loop = true;
@@ -276,7 +292,7 @@ export class EngineVoice {
     this.panner.positionX.setTargetAtTime(x, t, SMOOTH);
     this.panner.positionY.setTargetAtTime(y, t, SMOOTH);
     this.panner.positionZ.setTargetAtTime(z, t, SMOOTH);
-    this.source.playbackRate.setTargetAtTime(firingHz(this.profile, rpmRatio) / LOOP_BASE_HZ, t, SMOOTH);
+    this.source.playbackRate.setTargetAtTime(Math.pow(firingHz(this.profile, rpmRatio) / this.loopBaseHz, this.loopRateExp), t, SMOOTH);
     this.filter.frequency.setTargetAtTime(900 + 2500 * throttle, t, SMOOTH);
     this.gain.gain.setTargetAtTime(ENGINE_LEVEL * this.profile.volume * (0.45 + 0.55 * throttle) * 0.9, t, SMOOTH);
   }

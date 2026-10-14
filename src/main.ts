@@ -89,6 +89,9 @@ async function main(): Promise<void> {
       carId = mine.carId;
       trackId = lobby.plan.trackId;
       config.laps = lobby.plan.laps;
+      // Conditions are the host's, not each browser's: weather, time of day and the
+      // starting tyre go through the URL, which readWeather / readStartTyre prefer.
+      history.replaceState(null, '', urlWith({ weather: lobby.plan.weather, time: lobby.plan.time, tyre: lobby.plan.tyre }));
       loading?.classList.remove('hidden');
     } else if (sel) {
       ({ carId, trackId } = sel);

@@ -88,6 +88,11 @@ export class PitStops {
     if (s?.phase === 'requested') s.compound = compound;
   }
 
+  /** Centerline sample index where the pit lane leaves the track. */
+  get entryIndex(): number {
+    return this.pit.entryIndex;
+  }
+
   phase(v: Vehicle): PitPhase | null {
     return this.states.get(v)?.phase ?? null;
   }

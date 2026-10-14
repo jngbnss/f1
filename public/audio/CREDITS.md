@@ -11,4 +11,8 @@
   No real F1 radio recordings are used. The radio beeps, band filter and static are
   synthesized at runtime.
 
+- `b206/*` — the players' own recordings (b206 voice pack): `engine.mp3` is the
+  engine loop while the pack is on, the `.m4a` clips are the extra team radio
+  shouts. Not redistributable third-party material; supplied by the project owner.
+
 Everything else (tyre squeal, wind, synth layers) is synthesized at runtime with the Web Audio API.

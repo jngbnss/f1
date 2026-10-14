@@ -1,4 +1,4 @@
-import { Peer, type DataConnection } from 'peerjs';
+import { Peer, type DataConnection, type PeerOptions } from 'peerjs';
 import {
   decodeStates,
   encodeStates,
@@ -11,12 +11,12 @@ import {
   type CarState,
   type GridSlot,
   type LobbyPlayer,
+  type LobbySettings,
   type LobbyState,
   type Message,
   type RacePlan,
 } from './protocol';
 import { Voice } from './Voice';
-import type { ControlMode } from '../ui/ControlModeSwitch';
 
 /**
  * A multiplayer room over WebRTC (PeerJS for signalling, its free public
@@ -38,6 +38,14 @@ const RECONNECT_DELAYS = [500, 1000, 2000, 5000, 10000] as const;
 const LOAD_TIMEOUT = 30000;
 /** Time between "go" and the green light (ms): the start-light countdown plus slack. */
 const GO_LEAD = 5000;
+/** One broker registration attempt (ms), and how many are tried. */
+const OPEN_TIMEOUT = 7000;
+const OPEN_ATTEMPTS = 3;
+/** One attempt at reaching the host (ms), and how many are tried before the join fails. */
+const JOIN_TIMEOUT = 9000;
+const JOIN_ATTEMPTS = 3;
+/** PeerJS error types a retry can never fix. */
+const FATAL_PEER_ERRORS: Record<string, true> = { 'browser-incompatible': true, 'invalid-id': true, 'invalid-key': true, 'ssl-unavailable': true, 'unavailable-id': true };
 
 interface Link {
   conn: DataConnection;
@@ -46,9 +54,11 @@ interface Link {
 }
 
 export type ConnectionState = 'connected' | 'reconnecting';
+/** Progress text while a room is being opened or joined (shown in the lobby). */
+export type Progress = (text: string) => void;
 
 export class Room {
-  lobby: LobbyState = { players: [], laps: 3, aiFill: true, trackId: 'monza', control: 'keyboard' };
+  lobby: LobbyState = { players: [], laps: 3, aiFill: true, trackId: 'monza', control: 'keyboard', weather: 'clear', time: 'day', tyre: 'medium' };
   myId = '';
   plan: RacePlan | null = null;
   /** Host clock (ms) = performance.now() + offset. */
@@ -70,6 +80,10 @@ export class Room {
   /** Host: peers that finished loading the race. */
   private loaded = new Set<string>();
   private goSent = false;
+  private onProgress: Progress = () => {};
+  /** Resolver of the initial join, while it is still being retried. */
+  private joinSettle: { resolve: () => void; reject: (e: Error) => void } | null = null;
+  private joinAttempt = 0;
   /** Host: latest unsent record per grid slot, and the slot owners. */
   private fresh = new Map<number, Uint8Array>();
   private slotOwner: string[] = [];
@@ -105,28 +119,29 @@ export class Room {
   }
 
   /** Opens a new room; resolves once it is registered on the broker. */
-  static async create(name: string, team: string): Promise<Room> {
+  static async create(name: string, team: string, onProgress: Progress = () => {}): Promise<Room> {
     for (let attempt = 0; attempt < 4; attempt++) {
       const code = randomCode();
       try {
-        const peer = await openPeer(ROOM_PREFIX + code);
+        const peer = await openPeer(ROOM_PREFIX + code, onProgress);
         const room = new Room(peer, true, code);
-        room.lobby.players.push({ id: peer.id, name: cleanName(name), team, host: true });
+        room.lobby.players.push({ id: peer.id, name: cleanName(name), team, host: true, connected: true });
         room.listenAsHost();
         return room;
       } catch (e) {
-        if ((e as { type?: string }).type !== 'unavailable-id') throw e;
+        if (errorType(e) !== 'unavailable-id') throw e;
       }
     }
     throw new Error('방 코드를 만들지 못했습니다');
   }
 
   /** Joins an existing room by code; resolves when the host has accepted us. */
-  static async join(code: string, name: string, team: string): Promise<Room> {
-    const peer = await openPeer();
+  static async join(code: string, name: string, team: string, onProgress: Progress = () => {}): Promise<Room> {
+    const peer = await openPeer(undefined, onProgress);
     const room = new Room(peer, false, code.toUpperCase());
     room.profileName = cleanName(name);
     room.profileTeam = team;
+    room.onProgress = onProgress;
     await room.connectToHost();
     return room;
   }
@@ -155,12 +170,10 @@ export class Room {
     }
   }
 
-  /** Host: race settings. */
-  setSettings(laps: number, aiFill: boolean, control: ControlMode): void {
+  /** Host: race settings. Conditions are part of them, so the whole grid shares them. */
+  setSettings(patch: Partial<LobbySettings>): void {
     if (!this.isHost) return;
-    this.lobby.laps = laps;
-    this.lobby.aiFill = aiFill;
-    this.lobby.control = control;
+    Object.assign(this.lobby, patch);
     this.broadcastLobby();
   }
 
@@ -184,7 +197,8 @@ export class Room {
         }
       }
     }
-    const plan: RacePlan = { trackId: this.lobby.trackId, laps: this.lobby.laps, control: this.lobby.control, slots };
+    const { trackId, laps, control, weather, time, tyre } = this.lobby;
+    const plan: RacePlan = { trackId, laps, control, weather, time, tyre, slots };
     this.beginRace(plan);
     for (const id of this.links.keys()) this.sendTo(id, { t: 'start', plan });
     this.onStart?.(plan);
@@ -280,14 +294,16 @@ export class Room {
             player.name = cleanName(msg.name);
             player.team = this.freeTeam(msg.team, id);
           }
-          this.sendTo(id, { t: 'lobby', state: this.lobby, you: id });
-          this.voice.setPeers(this.lobby.players.map((p) => p.id));
+          player.connected = true;
+          this.broadcastLobby();
           return;
         }
         if (this.plan) return this.reject(link.conn, '레이스가 이미 시작됐습니다');
-        if (this.lobby.players.length >= MAX_CARS) return this.reject(link.conn, '방이 가득 찼습니다 (최대 20명)');
+        if (this.lobby.players.length >= MAX_CARS && !this.freeReservedSlot()) {
+          return this.reject(link.conn, `방이 가득 찼습니다 (최대 ${MAX_CARS}명)`);
+        }
         this.links.set(id, link);
-        this.lobby.players.push({ id, name: cleanName(msg.name), team: this.freeTeam(msg.team, id), host: false });
+        this.lobby.players.push({ id, name: cleanName(msg.name), team: this.freeTeam(msg.team, id), host: false, connected: true });
         this.broadcastLobby();
         return;
       }
@@ -361,6 +377,21 @@ export class Room {
     if (this.pendingDrops.has(id)) return;
     const timer = window.setTimeout(() => this.dropPeer(id), RECONNECT_GRACE);
     this.pendingDrops.set(id, timer);
+    const player = this.lobby.players.find((p) => p.id === id);
+    if (player) player.connected = false;
+    if (!this.plan) this.broadcastLobby();
+  }
+
+  /**
+   * The room is full, but some of the slots are only held for players whose
+   * connection dropped. Give up the oldest reservation so a friend who is
+   * actually here can take the twentieth seat.
+   */
+  private freeReservedSlot(): boolean {
+    const oldest = this.pendingDrops.keys().next();
+    if (oldest.done) return false;
+    this.dropPeer(oldest.value);
+    return true;
   }
 
   private dropPeer(id: string): void {
@@ -392,7 +423,8 @@ export class Room {
 
   private broadcastLobby(): void {
     for (const id of this.links.keys()) this.sendTo(id, { t: 'lobby', state: this.lobby, you: id });
-    this.voice.setPeers(this.lobby.players.map((p) => p.id));
+    // A reserved slot has nobody on the other end: no voice call for it.
+    this.voice.setPeers(this.lobby.players.filter((p) => p.connected).map((p) => p.id));
     this.onLobby?.(this.lobby);
   }
 
@@ -414,20 +446,38 @@ export class Room {
 
   private connectToHost(): Promise<void> {
     const { promise, resolve, reject } = Promise.withResolvers<void>();
-    this.openHostLink(resolve, reject);
+    this.joinSettle = { resolve, reject };
+    this.joinAttempt = 1;
+    this.openHostLink();
     return promise;
   }
 
-  private openHostLink(initialResolve?: () => void, initialReject?: (reason: Error) => void): void {
+  /**
+   * The first attempt often fails for reasons that pass: the host's broker
+   * socket is being re-registered (peer-unavailable), or ICE took longer than
+   * the attempt window. Try again a couple of times before telling the player
+   * the room is unreachable.
+   */
+  private joinFailed(reason: string, terminal: boolean): void {
+    const settle = this.joinSettle;
+    if (!settle) return;
+    if (!terminal && this.joinAttempt < JOIN_ATTEMPTS) {
+      this.joinAttempt++;
+      this.onProgress(`방에 연결하는 중… (${this.joinAttempt}/${JOIN_ATTEMPTS})`);
+      this.timers.push(window.setTimeout(() => this.openHostLink(), 700));
+      return;
+    }
+    this.joinSettle = null;
+    settle.reject(new Error(terminal || hasTurn() ? reason : `${reason} · 직접 연결이 막힌 망일 수 있습니다 (TURN 설정 필요)`));
+    this.end(reason);
+  }
+
+  private openHostLink(): void {
     if (this.closed) return;
     if (this.peer.disconnected) {
       if (!this.peer.destroyed) this.peer.reconnect();
-      if (initialReject) {
-        initialReject(new Error('시그널링 서버에 연결되지 않았습니다'));
-        this.end('시그널링 서버에 연결되지 않았습니다');
-      } else {
-        this.scheduleReconnect(1000);
-      }
+      if (this.joinSettle) this.joinFailed('시그널링 서버에 연결되지 않았습니다', false);
+      else this.scheduleReconnect(1000);
       return;
     }
 
@@ -436,9 +486,9 @@ export class Room {
     this.hostLink = link;
     let accepted = false;
     let settled = false;
-    const onPeerError = (e: { type?: string }) => {
-      const reason = e.type === 'peer-unavailable' ? '방을 찾을 수 없습니다 (코드를 확인하세요)' : `연결 실패: ${e.type ?? 'unknown'}`;
-      fail(reason, e.type === 'peer-unavailable');
+    const onPeerError = (e: unknown) => {
+      const type = errorType(e);
+      fail(type === 'peer-unavailable' ? '방을 찾을 수 없습니다 (코드를 확인하세요)' : `연결 실패: ${type || 'unknown'}`);
     };
     const cleanup = () => this.peer.off('error', onPeerError);
     const fail = (reason: string, terminal = false) => {
@@ -447,9 +497,8 @@ export class Room {
       cleanup();
       conn.close();
       this.hostLink = null;
-      if (!accepted && initialReject) {
-        initialReject(new Error(reason));
-        this.end(reason);
+      if (!accepted && this.joinSettle) {
+        this.joinFailed(reason, terminal);
       } else if (terminal) {
         this.end(reason);
       } else {
@@ -474,7 +523,7 @@ export class Room {
       if (msg.t === 'lobby') {
         this.lobby = msg.state;
         this.myId = msg.you;
-        this.voice.setPeers(msg.state.players.map((p) => p.id));
+        this.voice.setPeers(msg.state.players.filter((p) => p.connected).map((p) => p.id));
         if (!accepted) {
           accepted = true;
           settled = false;
@@ -482,7 +531,9 @@ export class Room {
           this.reconnectAttempt = 0;
           this.reconnectStarted = 0;
           this.setConnection('connected', this.connectionDetail === '재연결 중…' ? '다시 연결됨' : this.connectionDetail);
-          initialResolve?.();
+          const settle = this.joinSettle;
+          this.joinSettle = null;
+          settle?.resolve();
         }
         this.onLobby?.(msg.state);
       } else if (msg.t === 'bye') {
@@ -493,9 +544,10 @@ export class Room {
     });
     conn.on('close', () => fail('방장과 연결이 끊어졌습니다'));
     conn.on('error', () => fail('데이터 연결 오류'));
+    const joining = this.joinSettle !== null;
     const timeout = window.setTimeout(() => {
-      if (!accepted) fail(initialReject ? '방에 연결하지 못했습니다 (시간 초과)' : '재연결 시간 초과');
-    }, 20000);
+      if (!accepted) fail(joining ? '방에 연결하지 못했습니다 (시간 초과)' : '재연결 시간 초과');
+    }, joining ? JOIN_TIMEOUT : 20000);
     this.timers.push(timeout);
   }
 
@@ -617,33 +669,99 @@ export class Room {
 
 export const TEAM_IDS = F1_TEAMS;
 
-function openPeer(id?: string): Promise<Peer> {
-  const { promise, resolve, reject } = Promise.withResolvers<Peer>();
-  const configuredTurn = import.meta.env.VITE_TURN_URLS as string | undefined;
-  const turnUrls = configuredTurn
-    ?.split(',')
-    .map((url: string) => url.trim())
-    .filter(Boolean);
-  const iceServers: RTCIceServer[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
-  if (turnUrls?.length) {
-    iceServers.push({
-      urls: turnUrls,
-      username: import.meta.env.VITE_TURN_USERNAME,
-      credential: import.meta.env.VITE_TURN_CREDENTIAL,
-    });
+/** PeerJS tags its errors with a `type`; anything else is a plain Error. */
+function errorType(e: unknown): string {
+  return e !== null && typeof e === 'object' && 'type' in e && typeof e.type === 'string' ? e.type : '';
+}
+
+function turnUrls(): string[] {
+  const configured = import.meta.env.VITE_TURN_URLS as string | undefined;
+  return (
+    configured
+      ?.split(',')
+      .map((url: string) => url.trim())
+      .filter(Boolean) ?? []
+  );
+}
+
+/** Without a TURN account, players behind CGNAT / company networks cannot connect at all. */
+function hasTurn(): boolean {
+  return turnUrls().length > 0;
+}
+
+function peerOptions(): PeerOptions {
+  const iceServers: RTCIceServer[] = [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
+  ];
+  const turn = turnUrls();
+  if (turn.length) {
+    iceServers.push({ urls: turn, username: import.meta.env.VITE_TURN_USERNAME, credential: import.meta.env.VITE_TURN_CREDENTIAL });
   }
-  const options = { debug: 1, config: { iceServers, sdpSemantics: 'unified-plan' as const } };
+  // Gather candidates while the offer is still being written: the handshake starts a round earlier.
+  const options: PeerOptions = { debug: 1, config: { iceServers, iceCandidatePoolSize: 4, sdpSemantics: 'unified-plan' } };
+  // Self-hosted PeerServer (the public cloud broker is shared and often slow).
+  const host = import.meta.env.VITE_PEER_HOST as string | undefined;
+  if (host) {
+    const port = Number(import.meta.env.VITE_PEER_PORT ?? 443);
+    options.host = host;
+    options.port = port;
+    options.path = (import.meta.env.VITE_PEER_PATH as string | undefined) ?? '/';
+    options.secure = port === 443;
+    const key = import.meta.env.VITE_PEER_KEY as string | undefined;
+    if (key) options.key = key;
+  }
+  return options;
+}
+
+/** One broker registration: resolves when the id is live, rejects on error or timeout. */
+function openPeerOnce(id: string | undefined, timeout: number): Promise<Peer> {
+  const { promise, resolve, reject } = Promise.withResolvers<Peer>();
+  const options = peerOptions();
   const peer = id ? new Peer(id, options) : new Peer(options);
-  const onError = (e: unknown) => {
-    peer.destroy();
-    reject(e);
-  };
-  peer.once('open', () => {
+  let settled = false;
+  let timer = 0;
+  const finish = (ok: Peer | null, error?: unknown) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    peer.off('open', onOpen);
     peer.off('error', onError);
-    resolve(peer);
-  });
-  peer.once('error', onError);
+    if (ok) {
+      resolve(ok);
+      return;
+    }
+    peer.destroy();
+    reject(error);
+  };
+  const onOpen = () => finish(peer);
+  const onError = (e: unknown) => finish(null, e);
+  timer = window.setTimeout(() => finish(null, { type: 'timeout', message: '시그널링 서버가 응답하지 않습니다' }), timeout);
+  peer.on('open', onOpen);
+  peer.on('error', onError);
   return promise;
+}
+
+/**
+ * Registers on the signalling broker. The free public PeerJS cloud regularly
+ * takes many seconds (or never answers) and PeerJS has no timeout of its own,
+ * which is what used to leave an invite hanging: give an attempt OPEN_TIMEOUT
+ * and start a fresh one instead of waiting forever.
+ */
+async function openPeer(id: string | undefined, onProgress: Progress): Promise<Peer> {
+  let last: unknown = new Error('시그널링 서버에 연결하지 못했습니다');
+  for (let attempt = 1; attempt <= OPEN_ATTEMPTS; attempt++) {
+    onProgress(attempt === 1 ? '시그널링 서버에 연결하는 중…' : `시그널링 서버 재시도 ${attempt}/${OPEN_ATTEMPTS}…`);
+    try {
+      return await openPeerOnce(id, OPEN_TIMEOUT);
+    } catch (e) {
+      last = e;
+      if (FATAL_PEER_ERRORS[errorType(e)]) throw e;
+      const { promise: wait, resolve: go } = Promise.withResolvers<void>();
+      setTimeout(go, 300 * attempt);
+      await wait;
+    }
+  }
+  throw last;
 }
 
 /** Negotiated channel on the connection's RTCPeerConnection: both ends create it with the same id. */

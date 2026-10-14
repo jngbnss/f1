@@ -1,4 +1,5 @@
 import linesRaw from './radio-lines.json?raw';
+import { VOICE_CUES, type VoiceCue } from './VoicePack';
 
 /**
  * Engineer team radio: pre-recorded voice clips (open-source TTS, see
@@ -129,10 +130,14 @@ export function clipSequence(id: RadioLine, vars: RadioVars, lang: RadioLang): s
 }
 
 interface Pending {
-  id: RadioLine;
+  /** Engineer line, or null for a b206 voice-pack cue. */
+  id: RadioLine | null;
+  cue: VoiceCue | null;
   vars: RadioVars;
   priority: RadioPriority;
   queuedAt: number;
+  /** One queued message per key; a repeated cue passes a fresh key. */
+  key: string;
 }
 
 /** Minimum quiet time before a message of each priority (s): chatter waits, warnings don't. */
@@ -194,12 +199,20 @@ export class TeamRadio {
 
   /** Queues a message; higher priority goes first, chatter keeps its distance. */
   say(id: RadioLine, vars: RadioVars = {}, priority: RadioPriority = 0): void {
+    this.enqueue({ id, cue: null, vars, priority, queuedAt: 0, key: id });
+  }
+
+  /** Queues a b206 voice-pack clip; `key` separates repeats of the same cue. */
+  sayCue(cue: VoiceCue, priority: RadioPriority = 1, key: string = cue): void {
+    this.enqueue({ id: null, cue, vars: {}, priority, queuedAt: 0, key });
+  }
+
+  private enqueue(m: Pending): void {
     if (!this.settings.on) return;
-    const now = performance.now() / 1000;
-    // One of each line at a time.
-    const same = this.queue.findIndex((q) => q.id === id);
+    m.queuedAt = performance.now() / 1000;
+    const same = this.queue.findIndex((q) => q.key === m.key);
     if (same >= 0) this.queue.splice(same, 1);
-    this.queue.push({ id, vars, priority, queuedAt: now });
+    this.queue.push(m);
     this.queue.sort((a, b) => b.priority - a.priority || a.queuedAt - b.queuedAt);
   }
 
@@ -220,14 +233,16 @@ export class TeamRadio {
     // Hold the channel while the clips load (they are small, usually cached).
     this.busyUntil = now + 30;
     this.lastSpoke = now;
-    this.showSubtitle(m.id, m.vars);
+    this.showSubtitle(m);
     const ctx = this.ctx;
     if (!ctx || !this.input || this.muted() || ctx.state !== 'running') {
       this.busyUntil = now + 3.5;
       this.lastSpoke = now + 3.5;
       return;
     }
-    const clips = await Promise.all(clipSequence(m.id, m.vars, lang).map((t) => this.clip(lang, t)));
+    const clips = m.cue
+      ? [await this.buffer(`cue:${m.cue}`, `${import.meta.env.BASE_URL}${VOICE_CUES[m.cue].file}`)]
+      : await Promise.all(clipSequence(m.id!, m.vars, lang).map((t) => this.buffer(`${lang}:${t}`, `${import.meta.env.BASE_URL}${clipFile(lang, t)}`)));
     let t = ctx.currentTime + 0.05;
     this.duck(true);
     t = this.beep(t, true);
@@ -248,14 +263,14 @@ export class TeamRadio {
     window.setTimeout(() => this.duck(false), (t - ctx.currentTime) * 1000);
   }
 
-  private showSubtitle(id: RadioLine, vars: RadioVars): void {
+  private showSubtitle(m: Pending): void {
     if (!this.settings.subtitles) return;
     // English voice (as in F1), Korean subtitles (the players asked for both).
     this.subtitle.replaceChildren();
     const who = document.createElement('b');
-    who.textContent = '🎧 엔지니어';
+    who.textContent = m.cue ? '🎧 b206' : '🎧 엔지니어';
     const main = document.createElement('span');
-    main.textContent = radioText(id, vars, 'ko');
+    main.textContent = m.cue ? VOICE_CUES[m.cue].text : radioText(m.id!, m.vars, 'ko');
     this.subtitle.append(who, main);
     this.subtitle.hidden = false;
   }
@@ -293,11 +308,9 @@ export class TeamRadio {
     src.stop(to + 0.05);
   }
 
-  private clip(lang: RadioLang, text: string): Promise<AudioBuffer | null> {
-    const key = `${lang}:${text}`;
+  private buffer(key: string, url: string): Promise<AudioBuffer | null> {
     let p = this.buffers.get(key);
     if (!p) {
-      const url = `${import.meta.env.BASE_URL}${clipFile(lang, text)}`;
       p = fetch(url)
         .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
         .then((b) => this.ctx!.decodeAudioData(b))

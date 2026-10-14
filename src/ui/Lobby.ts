@@ -1,9 +1,11 @@
-import type { RacePlan, LobbyState } from '../net/protocol';
+import { MAX_CARS, type LobbyState, type RacePlan } from '../net/protocol';
 import type { Room } from '../net/Room';
 import { CAR_LIST } from '../vehicle/catalog';
 import { lobbyVoice } from './VoiceControls';
 import { CONTROL_MODE_LABEL, CONTROL_MODES, type ControlMode } from './ControlModeSwitch';
 import { isTouchDevice } from '../platform';
+import { COMPOUND_HINTS, COMPOUND_LIST, COMPOUND_NAMES } from '../vehicle/Tyres';
+import { TIME_OPTIONS, WEATHER_KINDS } from '../world/Weather';
 
 /**
  * Multiplayer lobby: pick a name and a team, create a room (or join one
@@ -44,6 +46,8 @@ const STYLE = `
 .lobby .lobby-players li i { width: 6px; align-self: stretch; border-radius: 3px; }
 .lobby .lobby-players li.me { outline: 1px solid #ffd23f; }
 .lobby .lobby-players li small { color: #8b97a5; }
+.lobby .lobby-players li.away { opacity: 0.55; }
+.lobby .lobby-players li.away small { color: #e0a33c; }
 .lobby .menu-card.full { opacity: 0.4; pointer-events: none; }
 .lobby .menu-card .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 .lobby .lobby-status { color: #8b97a5; font-size: 14px; min-height: 1.4em; }
@@ -124,7 +128,7 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
       if (room && state) {
         const link = `${location.origin}${location.pathname}?room=${room.code}`;
         part('room').innerHTML = `
-          <h2>방 코드 <small>친구에게 코드나 링크를 보내세요 · 최대 20명</small></h2>
+          <h2>방 코드 <small>친구에게 코드나 링크를 보내세요 · 최대 ${MAX_CARS}명</small></h2>
           <div class="lobby-row"><span class="lobby-code"></span>
             <button class="lobby-btn" type="button" data-act="copy">🔗 링크 복사</button>
             ${'share' in navigator ? '<button class="lobby-btn" type="button" data-act="share">공유…</button>' : ''}
@@ -153,18 +157,22 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
           const label = document.createElement('span');
           label.textContent = `${p.host ? '👑 ' : ''}${p.name}`;
           const small = document.createElement('small');
-          small.textContent = def?.spec.brand ?? '';
+          small.textContent = p.connected ? (def?.spec.brand ?? '') : '연결 끊김 · 자리 보존';
+          if (!p.connected) li.classList.add('away');
           li.append(bar, label, small);
           voice.decorate(li, p.id);
           list.append(li);
         }
-        part('players').replaceChildren(Object.assign(document.createElement('h2'), { textContent: `참가자 ${state.players.length}/20` }), list);
+        part('players').replaceChildren(Object.assign(document.createElement('h2'), { textContent: `참가자 ${state.players.length}/${MAX_CARS}` }), list);
 
         if (room.isHost) {
           const box = document.createElement('div');
           box.innerHTML =
             '<h2>레이스 설정</h2><div class="menu-grid menu-laps" data-s="laps"></div><div class="menu-grid" data-s="ai" style="margin-top:10px"></div>' +
-            '<h2>조작 <small>모두 같은 방식으로만</small></h2><div class="menu-grid" data-s="control"></div>';
+            '<h2>조작 <small>모두 같은 방식으로만</small></h2><div class="menu-grid" data-s="control"></div>' +
+            '<h2>날씨 <small>방 전체가 같은 조건으로 달립니다</small></h2><div class="menu-grid" data-s="weather"></div>' +
+            '<h2>시간대</h2><div class="menu-grid" data-s="time"></div>' +
+            '<h2>출발 타이어 <small>모두 같은 컴파운드</small></h2><div class="menu-grid" data-s="tyre"></div>';
           const card = (title: string, sub: string, selected: boolean, onPick: () => void) => {
             const el = document.createElement('button');
             el.type = 'button';
@@ -176,18 +184,31 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
             return el;
           };
           box.querySelector('[data-s="laps"]')!.append(
-            ...LAPS.map((n) => card(`${n} 랩`, n === 1 ? '스프린트' : n === 3 ? '기본' : '내구', n === state.laps, () => room!.setSettings(n, state.aiFill, state.control))),
+            ...LAPS.map((n) => card(`${n} 랩`, n === 1 ? '스프린트' : n === 3 ? '기본' : '내구', n === state.laps, () => room!.setSettings({ laps: n }))),
           );
           box.querySelector('[data-s="ai"]')!.append(
-            card('AI로 채우기', `빈 자리 ${Math.max(0, 20 - state.players.length)}대를 AI가 달림`, state.aiFill, () => room!.setSettings(state.laps, true, state.control)),
-            card('사람끼리만', `${state.players.length}대만 출발`, !state.aiFill, () => room!.setSettings(state.laps, false, state.control)),
+            card('AI로 채우기', `빈 자리 ${Math.max(0, MAX_CARS - state.players.length)}대를 AI가 달림`, state.aiFill, () => room!.setSettings({ aiFill: true })),
+            card('사람끼리만', `${state.players.length}대만 출발`, !state.aiFill, () => room!.setSettings({ aiFill: false })),
           );
           box.querySelector('[data-s="control"]')!.append(
-            ...CONTROL_MODES.map((m) => card(`${CONTROL_MODE_LABEL[m]}만`, CONTROL_SUB[m], m === state.control, () => room!.setSettings(state.laps, state.aiFill, m))),
+            ...CONTROL_MODES.map((m) => card(`${CONTROL_MODE_LABEL[m]}만`, CONTROL_SUB[m], m === state.control, () => room!.setSettings({ control: m }))),
+          );
+          box.querySelector('[data-s="weather"]')!.append(
+            ...WEATHER_KINDS.map(([k, label, hint]) => card(label, hint, k === state.weather, () => room!.setSettings({ weather: k }))),
+          );
+          box.querySelector('[data-s="time"]')!.append(
+            ...TIME_OPTIONS.map(([k, label, hint]) => card(label, hint, k === state.time, () => room!.setSettings({ time: k }))),
+          );
+          box.querySelector('[data-s="tyre"]')!.append(
+            ...COMPOUND_LIST.map((c) => card(COMPOUND_NAMES[c], COMPOUND_HINTS[c], c === state.tyre, () => room!.setSettings({ tyre: c }))),
           );
           part('settings').replaceChildren(box);
         } else {
-          part('settings').innerHTML = `<h2>레이스</h2><p class="lobby-status">${state.laps}랩 · ${state.aiFill ? 'AI로 빈자리 채움' : '사람끼리만'} · 조작: ${CONTROL_MODE_LABEL[state.control]}만 · 방장이 출발을 누르면 시작합니다</p>`;
+          const weather = WEATHER_KINDS.find(([k]) => k === state.weather)?.[1] ?? state.weather;
+          const time = TIME_OPTIONS.find(([k]) => k === state.time)?.[1] ?? state.time;
+          part('settings').innerHTML =
+            `<h2>레이스</h2><p class="lobby-status">${state.laps}랩 · ${state.aiFill ? 'AI로 빈자리 채움' : '사람끼리만'} · 조작: ${CONTROL_MODE_LABEL[state.control]}만</p>` +
+            `<p class="lobby-status">${weather} · ${time} · 출발 타이어 ${COMPOUND_NAMES[state.tyre]} · 방장이 출발을 누르면 시작합니다</p>`;
         }
         // Hands need a desktop webcam: phones in a hands-only room can't drive.
         if (state.control === 'hand' && isTouchDevice()) part('settings').insertAdjacentHTML('beforeend', '<p class="lobby-status error">손 조작 방은 PC 웹캠이 필요합니다. 휴대폰으로는 운전할 수 없습니다.</p>');
@@ -259,7 +280,7 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
       render();
       try {
         const { Room } = await import('../net/Room');
-        const r = code ? await Room.join(code, currentName(), team) : await Room.create(currentName(), team);
+        const r = code ? await Room.join(code, currentName(), team, status) : await Room.create(currentName(), team, status);
         wire(r);
         status(r.isHost ? '방이 열렸습니다. 친구에게 코드를 보내세요.' : r.connectionDetail);
       } catch (e) {
