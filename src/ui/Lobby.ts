@@ -6,6 +6,7 @@ import { CONTROL_MODE_LABEL, CONTROL_MODES, type ControlMode } from './ControlMo
 import { isTouchDevice } from '../platform';
 import { COMPOUND_HINTS, COMPOUND_LIST, COMPOUND_NAMES } from '../vehicle/Tyres';
 import { TIME_OPTIONS, WEATHER_KINDS } from '../world/Weather';
+import { setVoicePack, voicePackOn } from '../audio/VoicePack';
 
 /**
  * Multiplayer lobby: pick a name and a team, create a room (or join one
@@ -85,6 +86,7 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
         <div data-part="players"></div>
         <div data-part="voice"></div>
         <div data-part="settings"></div>
+        <div data-part="pack"></div>
         <p class="lobby-status" data-part="status"></p>
         <div class="lobby-row">
           <button class="menu-start" type="button" data-part="main"></button>
@@ -213,6 +215,30 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
         // Hands need a desktop webcam: phones in a hands-only room can't drive.
         if (state.control === 'hand' && isTouchDevice()) part('settings').insertAdjacentHTML('beforeend', '<p class="lobby-status error">손 조작 방은 PC 웹캠이 필요합니다. 휴대폰으로는 운전할 수 없습니다.</p>');
       }
+
+      // Sound only, so it stays each player's own choice (unlike the race conditions).
+      const packOn = voicePackOn();
+      const packBox = document.createElement('div');
+      packBox.innerHTML = '<h2>보이스 팩 <small>내 소리만 바뀝니다</small></h2><div class="menu-grid" data-s="pack"></div>';
+      packBox.querySelector('[data-s="pack"]')!.append(
+        ...([
+          ['기본', '엔지니어 무전 · 녹음 엔진음', false],
+          ['B206', '우리가 녹음한 외침 + 목소리 엔진음', true],
+        ] as [string, string, boolean][]).map(([title, sub, on]) => {
+          const el = document.createElement('button');
+          el.type = 'button';
+          el.className = `menu-card${on === packOn ? ' selected' : ''}`;
+          el.innerHTML = '<strong></strong><span></span>';
+          el.querySelector('strong')!.textContent = title;
+          el.querySelector('span')!.textContent = sub;
+          el.addEventListener('click', () => {
+            setVoicePack(on);
+            render();
+          });
+          return el;
+        }),
+      );
+      part('pack').replaceChildren(packBox);
 
       const main = part('main') as HTMLButtonElement;
       if (!room) {
