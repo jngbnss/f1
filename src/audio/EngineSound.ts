@@ -113,6 +113,7 @@ export class CarAudio {
   private readonly loopBaseHz: number;
   private readonly loopRateExp: number;
   private load = 0;
+  private readonly loopOnly: boolean;
 
   constructor(
     private readonly ctx: AudioContext,
@@ -124,6 +125,7 @@ export class CarAudio {
 
     this.loopBaseHz = assets.loopBaseHz;
     this.loopRateExp = assets.loopRateExp;
+    this.loopOnly = assets.loopOnly;
 
     // Recorded loop
     if (assets.engineLoop) {
@@ -161,18 +163,19 @@ export class CarAudio {
     synth.connect(shaper).connect(bus);
 
     // Tone: load-dependent low-pass, bass up, harsh highs down (no "mosquito").
+    // A voice-pack loop is meant to be heard as recorded, so it skips the EQ.
     this.lowpass = this.keep(ctx.createBiquadFilter());
     this.lowpass.type = 'lowpass';
     this.lowpass.Q.value = 0.7;
     const bass = this.keep(ctx.createBiquadFilter());
     bass.type = 'lowshelf';
     bass.frequency.value = 160;
-    bass.gain.value = 7;
+    bass.gain.value = this.loopOnly ? 0 : 7;
     const presence = this.keep(ctx.createBiquadFilter());
     presence.type = 'peaking';
     presence.frequency.value = 2600;
     presence.Q.value = 0.8;
-    presence.gain.value = -6;
+    presence.gain.value = this.loopOnly ? 0 : -6;
     this.engineGain = this.keep(ctx.createGain());
     this.engineGain.gain.value = 0;
     bus.connect(this.lowpass).connect(bass).connect(presence).connect(this.engineGain);
@@ -218,7 +221,8 @@ export class CarAudio {
     this.combustionGain.gain.setTargetAtTime(p.noise * (0.3 + 0.7 * this.load), t, SMOOTH);
 
     const r = Math.min(Math.max(s.rpmRatio, 0), 1);
-    const cutoff = p.filterMin + (p.filterMax - p.filterMin) * (0.25 * r + 0.75 * r * this.load);
+    // A voice-pack loop stays open: load-dependent muffling turns a recorded voice into a telephone.
+    const cutoff = this.loopOnly ? p.filterMax : p.filterMin + (p.filterMax - p.filterMin) * (0.25 * r + 0.75 * r * this.load);
     this.lowpass.frequency.setTargetAtTime(cutoff, t, SMOOTH);
 
     let volume = ENGINE_LEVEL * p.volume * (0.4 + 0.6 * this.load) * (0.7 + 0.3 * r);
@@ -255,6 +259,7 @@ export class EngineVoice {
   private readonly filter: BiquadFilterNode;
   private readonly loopBaseHz: number;
   private readonly loopRateExp: number;
+  private readonly loopOnly: boolean;
   readonly panner: PannerNode;
 
   /** `assets.engineLoop` must be non-null (the caller checks it). */
@@ -267,6 +272,7 @@ export class EngineVoice {
     const loop = assets.engineLoop!;
     this.loopBaseHz = assets.loopBaseHz;
     this.loopRateExp = assets.loopRateExp;
+    this.loopOnly = assets.loopOnly;
     this.source = ctx.createBufferSource();
     this.source.buffer = loop;
     this.source.loop = true;
@@ -293,7 +299,7 @@ export class EngineVoice {
     this.panner.positionY.setTargetAtTime(y, t, SMOOTH);
     this.panner.positionZ.setTargetAtTime(z, t, SMOOTH);
     this.source.playbackRate.setTargetAtTime(Math.pow(firingHz(this.profile, rpmRatio) / this.loopBaseHz, this.loopRateExp), t, SMOOTH);
-    this.filter.frequency.setTargetAtTime(900 + 2500 * throttle, t, SMOOTH);
+    this.filter.frequency.setTargetAtTime(this.loopOnly ? 6000 : 900 + 2500 * throttle, t, SMOOTH);
     this.gain.gain.setTargetAtTime(ENGINE_LEVEL * this.profile.volume * (0.45 + 0.55 * throttle) * 0.9, t, SMOOTH);
   }
 

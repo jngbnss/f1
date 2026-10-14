@@ -32,13 +32,12 @@ export const START_SHOUTS = 3;
 export const START_SHOUT_GAP = 3;
 
 /**
- * The recorded voice "engine". Its playback rate follows the engine's firing
- * frequency as `(firingHz / baseHz) ** rateExp`: `baseHz` is the F1 idle
- * (120 Hz), so the clip plays at its own speed at idle, and the exponent
- * compresses the sweep to the redline (~2.2x) instead of the ~4.3x a real
- * engine loop would need.
+ * The recorded voice "engine". Playback rate is `(firingHz / baseHz) ** rateExp`,
+ * and `rateExp: 0` pins it at 1: the clip loops at its own recorded speed, with no
+ * RPM pitching. A voice sped up by the engine's firing frequency (up to ~4.3x, or
+ * ~2.2x compressed) just sounds shrill, so the recording is left alone.
  */
-export const VOICE_ENGINE = { file: 'audio/b206/engine.mp3', baseHz: 120, rateExp: 0.55 };
+export const VOICE_ENGINE = { file: 'audio/b206/engine.mp3', baseHz: 120, rateExp: 0 };
 
 const KEY = 'f1:b206';
 

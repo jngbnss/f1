@@ -172,9 +172,10 @@ export class RaceEngineer {
     const ga = ahead ? race.gap(ahead, me) : null;
     this.closeSince.behind = gb !== null && gb < 0.8 ? Math.min(this.closeSince.behind, this.time) : Infinity;
     this.closeSince.ahead = ga !== null && ga < 0.8 ? Math.min(this.closeSince.ahead, this.time) : Infinity;
-    // b206: car ahead within a second — "아 빨리가라능" (its own, shorter cadence than the
-    // engineer's chatter, which is capped at one close-fight call every 150 s).
-    if (this.pack && !this.neutral && this.time - this.closeSince.ahead > 1 && this.time - this.hurryCueAt > 30) {
+    // b206: overtake mode can be armed (a car within a second ahead, not used on this
+    // lap yet) — "아 빨리가라능", i.e. press O.
+    const ers = this.player.ers;
+    if (this.pack && !this.neutral && ers.overtakeAvailable && ers.overtakeLeft && !ers.overtakeActive && this.time - this.hurryCueAt > 20) {
       this.hurryCueAt = this.time;
       this.radio.sayCue('hurry', 1, `hurry${this.cueSeq++}`);
     }

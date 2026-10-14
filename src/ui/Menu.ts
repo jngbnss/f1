@@ -154,7 +154,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
         <button class="menu-start" type="button">출발 ▶ <small>Enter</small></button>
         <button class="menu-mp" type="button">👥 친구와 레이스</button>
         <button class="menu-podium" type="button" title="레이스 없이 포디움 세리머니만 봅니다">🏆 포디움 보기</button>
-        <button class="menu-b206" type="button" title="b206 보이스 팩: 우리가 녹음한 팀 라디오와 엔진 소리로 달립니다">b206</button>
+        <button class="menu-b206" type="button" title="B206 보이스 팩: 우리가 녹음한 팀 라디오와 엔진 소리로 달립니다">B206</button>
       </div>`;
     const q = <T extends HTMLElement>(g: string) => root.querySelector<T>(`[data-group="${g}"]`)!;
     const teamGrid = q<HTMLDivElement>('car');
@@ -411,7 +411,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
           setVoicePack(false);
           render();
         }),
-        chip('b206', '우리가 녹음한 외침 + 목소리 엔진음', packOn, () => {
+        chip('B206', '우리가 녹음한 외침 + 목소리 엔진음', packOn, () => {
           setVoicePack(true);
           render();
         }),

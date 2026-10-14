@@ -268,7 +268,7 @@ export class TeamRadio {
     // English voice (as in F1), Korean subtitles (the players asked for both).
     this.subtitle.replaceChildren();
     const who = document.createElement('b');
-    who.textContent = m.cue ? '🎧 b206' : '🎧 엔지니어';
+    who.textContent = m.cue ? '🎧 B206' : '🎧 엔지니어';
     const main = document.createElement('span');
     main.textContent = m.cue ? VOICE_CUES[m.cue].text : radioText(m.id!, m.vars, 'ko');
     this.subtitle.append(who, main);
