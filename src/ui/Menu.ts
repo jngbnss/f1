@@ -293,7 +293,7 @@ export function showMenu(cars: CarDefinition[], tracks: TrackEntry[], initial: M
     const render = () => {
       const practice = cars.find((c) => !isF1(c));
       const tabs: [f1: boolean, title: string, sub: string][] = [[true, 'F1 2026', `${cars.filter(isF1).length}개 팀`]];
-      if (practice) tabs.push([false, '연습용', `${practice.spec.top} km/h 제한`]);
+      if (practice) tabs.unshift([false, '연습용', `${practice.spec.top} km/h 제한`]);
       categoryRow.replaceChildren(
         ...tabs.map(([f1, title, sub]) =>
           chip(title, sub, f1 === showF1, () => {
