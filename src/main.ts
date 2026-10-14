@@ -81,7 +81,7 @@ async function main(): Promise<void> {
       loading?.classList.add('hidden');
       if (!FEATURED_TRACKS.some((t) => t.id === trackId)) trackId = FEATURED_TRACKS[0].id;
       sel = await showMenu(CAR_LIST, FEATURED_TRACKS, { carId, trackId, ai: config.ai, laps: config.laps, quali: config.quali });
-      if (sel.multiplayer) lobby = await runLobby(null);
+      if (sel.multiplayer) lobby = await runLobby(null, sel.trackId);
     }
     // The graphics level and voice pack can change in the menu / lobby: re-read the
     // config (and re-apply the quality tier) before anything of the world is built.

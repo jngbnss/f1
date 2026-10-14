@@ -4,7 +4,7 @@
  * race, every window holds the throttle, and each window must see every car
  * (its own and the remote ones) moving. Screenshots of every window.
  *
- *   npm run build && npx tsx scripts/mp-test.ts [--players 3] [--ai] [--out shots/mp]
+ *   npm run build && npx tsx scripts/mp-test.ts [--players 3] [--ai] [--track spa] [--out shots/mp]
  *
  * Needs internet: signalling goes through the public PeerJS broker.
  * Ports: SHOT_PORT (default 4210) for vite preview, CDP_PORT (default 9360).
@@ -21,6 +21,8 @@ const opt = (name: string, fallback: string) => {
 };
 const players = Number(opt('players', '3'));
 const withAi = argv.includes('--ai');
+/** Circuit the host picks in the lobby (every window must load it). */
+const track = opt('track', '');
 const out = opt('out', 'shots/mp');
 const port = Number(process.env.SHOT_PORT ?? 4210);
 const cdpPort = Number(process.env.CDP_PORT ?? 9360);
@@ -148,11 +150,20 @@ async function main(): Promise<void> {
     await sleep(800);
     if (!withAi) await host.evaluate(`[...document.querySelectorAll('.lobby .menu-card')].find((b) => b.textContent.includes('사람끼리만')).click(); true`);
     await sleep(500);
+    if (track) {
+      await host.evaluate(`document.querySelector('.lobby [data-track="${track}"]').click(); true`);
+      await until(tabs[tabs.length - 1], `!!window.netRoom && window.netRoom.lobby.trackId === '${track}'`, 10000, `guests see circuit ${track}`);
+    }
     await host.evaluate(`document.querySelector('.lobby [data-part="main"]').click(); true`);
 
     // --- race: wait for the green light everywhere, then drive ---------------
     for (const [i, tab] of tabs.entries()) await until(tab, `window.sim?.race?.state === 'racing'`, 90000, `green light in window ${i + 1}`);
     console.log('green light in every window');
+    if (track) {
+      const loaded = await Promise.all(tabs.map((t) => t.evaluate<string>(`window.sim.trackId`)));
+      console.log(`circuit per window: ${loaded.join(', ')}`);
+      if (loaded.some((id) => id !== track)) throw new Error(`expected every window on ${track}`);
+    }
     const t0 = await Promise.all(tabs.map((t) => t.evaluate<number>(`performance.now()`)));
     console.log('clock (ms) per window at green:', t0.map((t) => Math.round(t)).join(', '));
     for (const tab of tabs) await key(tab, 'keyDown');

@@ -8,11 +8,14 @@ import { COMPOUND_HINTS, COMPOUND_LIST, COMPOUND_NAMES } from '../vehicle/Tyres'
 import { TIME_OPTIONS, WEATHER_KINDS } from '../world/Weather';
 import { setVoicePack, voicePackOn } from '../audio/VoicePack';
 import { QUALITY_OPTIONS, readTier, saveTier } from '../performance/Quality';
+import { FEATURED_TRACKS } from '../world/tracks';
+import { CIRCUIT_INFO, difficultyText } from './circuitInfo';
+import { trackSvg } from './Menu';
 
 /**
  * Multiplayer lobby: pick a name and a team, create a room (or join one
  * from a ?room=CODE link), share the code, wait for friends; the host sets
- * laps / AI fill / control mode (everyone on keyboard, or everyone on hands) and starts the race.
+ * the circuit / laps / AI fill / control mode (everyone on keyboard, or everyone on hands) and starts the race.
  * Resolves when the race starts.
  */
 
@@ -55,6 +58,14 @@ const STYLE = `
 .lobby .lobby-status { color: #8b97a5; font-size: 14px; min-height: 1.4em; }
 .lobby .lobby-status.error { color: #ff6b6b; }
 .lobby .menu-start[disabled] { opacity: 0.5; cursor: default; }
+.lobby .lobby-tracks { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.lobby .lobby-tracks .menu-card { position: relative; padding: 8px 10px; gap: 2px; }
+.lobby .lobby-tracks svg { width: 56%; margin: 0 auto 2px; aspect-ratio: 1; }
+.lobby .lobby-tracks .trk-base { fill: none; stroke: rgba(0,0,0,0.45); stroke-width: 6; stroke-linejoin: round; }
+.lobby .lobby-tracks .trk { fill: none; stroke: #dfe7ef; stroke-width: 2.6; stroke-linejoin: round; }
+.lobby .lobby-tracks .trk-start { stroke: #ff5a5f; stroke-width: 2.4; stroke-linecap: round; }
+.lobby .lobby-tracks strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lobby .lobby-tracks .menu-card.selected::before { content: '✓'; position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: #fff; color: #0b1119; font: 900 11px/1 system-ui, sans-serif; }
 `;
 
 export interface LobbyResult {
@@ -62,7 +73,8 @@ export interface LobbyResult {
   plan: RacePlan;
 }
 
-export function runLobby(code: string | null): Promise<LobbyResult> {
+/** `trackId`: the circuit picked in the menu, the room's first choice when hosting. */
+export function runLobby(code: string | null, trackId?: string): Promise<LobbyResult> {
   return new Promise((resolve) => {
     const style = document.createElement('style');
     style.textContent = STYLE;
@@ -93,7 +105,7 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
           <button class="menu-start" type="button" data-part="main"></button>
           <button class="lobby-btn" type="button" data-part="back">← 메뉴로</button>
         </div>
-        <p class="menu-note">서버 없이 브라우저끼리 직접 연결합니다(WebRTC · PeerJS). 방을 만든 사람이 방장이고, 방장이 나가면 레이스가 끝납니다. 서킷: 몬자.</p>
+        <p class="menu-note">서버 없이 브라우저끼리 직접 연결합니다(WebRTC · PeerJS). 방을 만든 사람이 방장이고, 방장이 나가면 레이스가 끝납니다. </p>
       </div>`;
     const part = (p: string) => root.querySelector<HTMLElement>(`[data-part="${p}"]`)!;
     const nameInput = root.querySelector<HTMLInputElement>('.lobby-name')!;
@@ -171,6 +183,7 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
         if (room.isHost) {
           const box = document.createElement('div');
           box.innerHTML =
+            '<h2>서킷 <small>방 전체가 같은 서킷을 달립니다</small></h2><div class="menu-grid lobby-tracks" data-s="track"></div>' +
             '<h2>레이스 설정</h2><div class="menu-grid menu-laps" data-s="laps"></div><div class="menu-grid" data-s="ai" style="margin-top:10px"></div>' +
             '<h2>조작 <small>모두 같은 방식으로만</small></h2><div class="menu-grid" data-s="control"></div>' +
             '<h2>날씨 <small>방 전체가 같은 조건으로 달립니다</small></h2><div class="menu-grid" data-s="weather"></div>' +
@@ -186,6 +199,16 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
             el.addEventListener('click', onPick);
             return el;
           };
+          box.querySelector('[data-s="track"]')!.append(
+            ...FEATURED_TRACKS.map((t) => {
+              const info = CIRCUIT_INFO[t.id];
+              const el = card(t.name, `${t.lengthKm.toFixed(1)} km${info ? ` · ${difficultyText(info.difficulty)}` : ''}`, t.id === state.trackId, () => room!.setSettings({ trackId: t.id }));
+              el.title = `${t.name} · ${t.location}`;
+              el.dataset.track = t.id;
+              el.insertAdjacentHTML('afterbegin', trackSvg(t.id));
+              return el;
+            }),
+          );
           box.querySelector('[data-s="laps"]')!.append(
             ...LAPS.map((n) => card(`${n} 랩`, n === 1 ? '스프린트' : n === 3 ? '기본' : '내구', n === state.laps, () => room!.setSettings({ laps: n }))),
           );
@@ -209,8 +232,9 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
         } else {
           const weather = WEATHER_KINDS.find(([k]) => k === state.weather)?.[1] ?? state.weather;
           const time = TIME_OPTIONS.find(([k]) => k === state.time)?.[1] ?? state.time;
+          const track = FEATURED_TRACKS.find((t) => t.id === state.trackId)?.name ?? state.trackId;
           part('settings').innerHTML =
-            `<h2>레이스</h2><p class="lobby-status">${state.laps}랩 · ${state.aiFill ? 'AI로 빈자리 채움' : '사람끼리만'} · 조작: ${CONTROL_MODE_LABEL[state.control]}만</p>` +
+            `<h2>레이스</h2><p class="lobby-status">서킷 ${track} · ${state.laps}랩 · ${state.aiFill ? 'AI로 빈자리 채움' : '사람끼리만'} · 조작: ${CONTROL_MODE_LABEL[state.control]}만</p>` +
             `<p class="lobby-status">${weather} · ${time} · 출발 타이어 ${COMPOUND_NAMES[state.tyre]} · 방장이 출발을 누르면 시작합니다</p>`;
         }
         // Hands need a desktop webcam: phones in a hands-only room can't drive.
@@ -322,6 +346,7 @@ export function runLobby(code: string | null): Promise<LobbyResult> {
         const { Room } = await import('../net/Room');
         const r = code ? await Room.join(code, currentName(), team, status) : await Room.create(currentName(), team, status);
         wire(r);
+        if (r.isHost && trackId && FEATURED_TRACKS.some((t) => t.id === trackId)) r.setSettings({ trackId });
         status(r.isHost ? '방이 열렸습니다. 친구에게 코드를 보내세요.' : r.connectionDetail);
       } catch (e) {
         status(e instanceof Error ? e.message : `연결 실패: ${String((e as { type?: string }).type ?? e)}`, true);

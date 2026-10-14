@@ -123,7 +123,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text 
 };
 
 /** Track outline (start line in red) as inline SVG. */
-function trackSvg(id: string): string {
+export function trackSvg(id: string): string {
   const map = MAPS[id];
   if (!map) return '';
   const [sx, sy] = map.start;

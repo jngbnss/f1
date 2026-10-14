@@ -44,7 +44,7 @@ export interface LobbyState {
 }
 
 /** What the host can change in the lobby. */
-export type LobbySettings = Pick<LobbyState, 'laps' | 'aiFill' | 'control' | 'weather' | 'time' | 'tyre'>;
+export type LobbySettings = Pick<LobbyState, 'laps' | 'aiFill' | 'trackId' | 'control' | 'weather' | 'time' | 'tyre'>;
 
 /** One grid slot of a networked race (index = grid position). */
 export interface GridSlot {
