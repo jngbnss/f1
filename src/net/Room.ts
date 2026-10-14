@@ -4,6 +4,7 @@ import {
   encodeStates,
   joinRecords,
   MAX_CARS,
+  MAX_LAPS,
   packetRecords,
   randomCode,
   ROOM_PREFIX,
@@ -173,6 +174,7 @@ export class Room {
   /** Host: race settings. Conditions are part of them, so the whole grid shares them. */
   setSettings(patch: Partial<LobbySettings>): void {
     if (!this.isHost) return;
+    if (patch.laps !== undefined) patch = { ...patch, laps: Math.min(MAX_LAPS, Math.max(1, Math.round(patch.laps) || 1)) };
     Object.assign(this.lobby, patch);
     this.broadcastLobby();
   }

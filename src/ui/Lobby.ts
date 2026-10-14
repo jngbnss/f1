@@ -1,4 +1,4 @@
-import { MAX_CARS, type LobbyState, type RacePlan } from '../net/protocol';
+import { MAX_CARS, MAX_LAPS, type LobbyState, type RacePlan } from '../net/protocol';
 import type { Room } from '../net/Room';
 import { CAR_LIST } from '../vehicle/catalog';
 import { lobbyVoice } from './VoiceControls';
@@ -20,7 +20,7 @@ import { trackSvg } from './Menu';
  */
 
 const TEAMS = CAR_LIST.filter((c) => c.cls === 'formula');
-const LAPS = [1, 3, 5];
+const LAPS = [1, 3, 5, 10];
 
 const css = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 const CONTROL_SUB: Record<ControlMode, string> = { keyboard: '모두 키보드·게임패드로', hand: '모두 웹캠 손 조작 (핸들만, 속도 자동)' };
@@ -210,8 +210,21 @@ export function runLobby(code: string | null, trackId?: string): Promise<LobbyRe
             }),
           );
           box.querySelector('[data-s="laps"]')!.append(
-            ...LAPS.map((n) => card(`${n} 랩`, n === 1 ? '스프린트' : n === 3 ? '기본' : '내구', n === state.laps, () => room!.setSettings({ laps: n }))),
+            ...LAPS.map((n) => card(`${n} 랩`, n === 1 ? '스프린트' : n === 3 ? '기본' : n === 5 ? '중거리' : '내구', n === state.laps, () => room!.setSettings({ laps: n }))),
           );
+          // Any race length up to MAX_LAPS next to the usual distances.
+          const custom = document.createElement('label');
+          custom.className = `menu-card menu-laps-custom${LAPS.includes(state.laps) ? '' : ' selected'}`;
+          custom.innerHTML = '<strong>직접 입력</strong><input type="number" min="1" aria-label="랩 수 직접 입력" /><span></span>';
+          const lapInput = custom.querySelector('input')!;
+          lapInput.max = String(MAX_LAPS);
+          lapInput.value = String(state.laps);
+          custom.querySelector('span')!.textContent = `1~${MAX_LAPS}랩`;
+          lapInput.addEventListener('change', () => {
+            lapInput.blur();
+            room!.setSettings({ laps: Number(lapInput.value) });
+          });
+          box.querySelector('[data-s="laps"]')!.append(custom);
           box.querySelector('[data-s="ai"]')!.append(
             card('AI로 채우기', `빈 자리 ${Math.max(0, MAX_CARS - state.players.length)}대를 AI가 달림`, state.aiFill, () => room!.setSettings({ aiFill: true })),
             card('사람끼리만', `${state.players.length}대만 출발`, !state.aiFill, () => room!.setSettings({ aiFill: false })),
@@ -228,7 +241,14 @@ export function runLobby(code: string | null, trackId?: string): Promise<LobbyRe
           box.querySelector('[data-s="tyre"]')!.append(
             ...COMPOUND_LIST.map((c) => card(COMPOUND_NAMES[c], COMPOUND_HINTS[c], c === state.tyre, () => room!.setSettings({ tyre: c }))),
           );
+          // Lobby updates re-render while the host may be typing a lap count: keep it.
+          const typing = part('settings').querySelector<HTMLInputElement>('.menu-laps-custom input');
+          const wasTyping = !!typing && document.activeElement === typing;
           part('settings').replaceChildren(box);
+          if (wasTyping) {
+            lapInput.value = typing!.value;
+            lapInput.focus();
+          }
         } else {
           const weather = WEATHER_KINDS.find(([k]) => k === state.weather)?.[1] ?? state.weather;
           const time = TIME_OPTIONS.find(([k]) => k === state.time)?.[1] ?? state.time;

@@ -29,6 +29,9 @@ export interface LobbyPlayer {
   connected: boolean;
 }
 
+/** Longest race a room can set (Monaco's real distance). */
+export const MAX_LAPS = 78;
+
 export interface LobbyState {
   players: LobbyPlayer[];
   laps: number;

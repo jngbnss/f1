@@ -4,7 +4,7 @@
  * race, every window holds the throttle, and each window must see every car
  * (its own and the remote ones) moving. Screenshots of every window.
  *
- *   npm run build && npx tsx scripts/mp-test.ts [--players 3] [--ai] [--track spa] [--out shots/mp]
+ *   npm run build && npx tsx scripts/mp-test.ts [--players 3] [--ai] [--track spa] [--laps 7] [--out shots/mp]
  *
  * Needs internet: signalling goes through the public PeerJS broker.
  * Ports: SHOT_PORT (default 4210) for vite preview, CDP_PORT (default 9360).
@@ -23,6 +23,8 @@ const players = Number(opt('players', '3'));
 const withAi = argv.includes('--ai');
 /** Circuit the host picks in the lobby (every window must load it). */
 const track = opt('track', '');
+/** Lap count the host types into the lobby's custom field (every window must race it). */
+const laps = opt('laps', '');
 const out = opt('out', 'shots/mp');
 const port = Number(process.env.SHOT_PORT ?? 4210);
 const cdpPort = Number(process.env.CDP_PORT ?? 9360);
@@ -154,6 +156,10 @@ async function main(): Promise<void> {
       await host.evaluate(`document.querySelector('.lobby [data-track="${track}"]').click(); true`);
       await until(tabs[tabs.length - 1], `!!window.netRoom && window.netRoom.lobby.trackId === '${track}'`, 10000, `guests see circuit ${track}`);
     }
+    if (laps) {
+      await host.evaluate(`(() => { const i = document.querySelector('.lobby .menu-laps-custom input'); i.value = '${laps}'; i.dispatchEvent(new Event('change')); return true; })()`);
+      await until(tabs[tabs.length - 1], `!!window.netRoom && window.netRoom.lobby.laps === ${Number(laps)}`, 10000, `guests see ${laps} laps`);
+    }
     await host.evaluate(`document.querySelector('.lobby [data-part="main"]').click(); true`);
 
     // --- race: wait for the green light everywhere, then drive ---------------
@@ -163,6 +169,11 @@ async function main(): Promise<void> {
       const loaded = await Promise.all(tabs.map((t) => t.evaluate<string>(`window.sim.trackId`)));
       console.log(`circuit per window: ${loaded.join(', ')}`);
       if (loaded.some((id) => id !== track)) throw new Error(`expected every window on ${track}`);
+    }
+    if (laps) {
+      const raced = await Promise.all(tabs.map((t) => t.evaluate<number>(`window.sim.race.laps`)));
+      console.log(`laps per window: ${raced.join(', ')}`);
+      if (raced.some((n) => n !== Number(laps))) throw new Error(`expected every window racing ${laps} laps`);
     }
     const t0 = await Promise.all(tabs.map((t) => t.evaluate<number>(`performance.now()`)));
     console.log('clock (ms) per window at green:', t0.map((t) => Math.round(t)).join(', '));
